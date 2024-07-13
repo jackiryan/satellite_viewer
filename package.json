@@ -1,0 +1,16 @@
+{
+  "name": "satellite_viewer",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.166.1"
+  },
+  "devDependencies": {
+    "vite": "^5.3.3"
+  }
+}
