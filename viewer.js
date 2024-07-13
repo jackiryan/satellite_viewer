@@ -99,8 +99,7 @@ const controls = new OrbitControls(camera, renderer.domElement);
 
 // Determine the initial rotation of the sphere based on the current time on Earth
 const now = new Date();
-const hours = now.getUTCHours() + (now.getUTCMinutes() - 37) / 60 + now.getUTCSeconds() / 3600;
-console.log(hours);
+const hours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
 sphere.rotation.y = ((hours - 12) / 24) * 2 * Math.PI; // Convert hours to radians
 
 // Function to animate the scene
@@ -117,12 +116,40 @@ function animate() {
     renderer.render(scene, camera);
 }
 
+// Function to position the camera based on the user's time zone offset. No need to use precise location information for a toy.
+function getUserLongitude() {
+    const now = new Date();
+    // function returns value in mins, convert to hours
+    const timeZoneOffset = now.getTimezoneOffset() / 60;
+
+    // Longitude corresponding to the user's time zone
+    // Each hour difference corresponds to 15 degrees of longitude
+    // Convert this value to radians
+    const longitude = (-timeZoneOffset * 15) * Math.PI / 180.0;
+    return longitude;
+}
+
+// Function to position the camera to point at the user's current time zone
+function positionCamera() {
+    const longitude = getUserLongitude();
+    // Kind of messy, but since we rotate the sphere to account for the current time,
+    // moving the camera to account for user longitude requires backing out that rotation
+    const initRotation = sphere.rotation.y + Math.PI / 2;
+    camera.position.x = 10 * Math.sin(longitude + initRotation);
+    camera.position.z = 10 * Math.cos(longitude + initRotation);
+    camera.lookAt(sphere.position);
+}
+
+
 // Handle window resize
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// Set camera initial position based on user tz
+positionCamera();
 
 // Start the animation loop
 animate();
