@@ -38,7 +38,7 @@ function getSolarDeclinationAngle() {
 function getTwilightAngle() {
     // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
     // For some reason doubling the number gives me a result that's closer to reality
-    return 36.0 * Math.PI / 180.0;
+    return 18.0 * Math.PI / 180.0;
 }
 
 // Shader material
@@ -77,7 +77,7 @@ const material = new THREE.ShaderMaterial({
             // Blend between day and night offset over the 18 degrees of twilight, biased towards the night side
             // Add a 4 degree nudge since civil twilight seems to start when the sun is 2 degrees below the horizon
             // Use 4 because doubling the numbers made it look better visually compared to online resources
-            float blendFactor = clamp((3.1415926 / 45.0) + (rotatedX + twilightAngle) / twilightAngle, 0.0, 1.0);
+            float blendFactor = clamp((3.1415926 / 90.0) + (rotatedX + twilightAngle) / twilightAngle, 0.0, 1.0);
             vec3 color = mix(nightColor, dayColor, blendFactor);
             gl_FragColor = vec4(color, 1.0);
         }
@@ -134,7 +134,9 @@ function positionCamera() {
     const longitude = getUserLongitude();
     // Kind of messy, but since we rotate the sphere to account for the current time,
     // moving the camera to account for user longitude requires backing out that rotation
-    const initRotation = sphere.rotation.y + Math.PI / 2;
+    // Add 90 degrees to account for discrepancy between 0 longitude (where the prime meridian is)
+    // and 0 "longitude" on the sphere (where the texture is wrapped, around the date line)
+    const initRotation = sphere.rotation.y + Math.PI / 2; 
     camera.position.x = 10 * Math.sin(longitude + initRotation);
     camera.position.z = 10 * Math.cos(longitude + initRotation);
     camera.lookAt(sphere.position);
