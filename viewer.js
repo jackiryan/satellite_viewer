@@ -48,8 +48,8 @@ function getSolarTime(date) {
     return ((hours - 12) / 24) * 2 * Math.PI;
 }
 
-const now = new Date(Date.UTC(2024,2,24,3,6,0,0)); // Vernal Equinox 2024, helpful for testing
-//const now = new Date(); // Get current time
+//const now = new Date(Date.UTC(2024,2,24,3,6,0,0)); // Vernal Equinox 2024, helpful for testing
+const now = new Date(); // Get current time
 // Use satelliteJS to get the sidereal time, which describes a rotation
 const gmst = satellite.gstime(now)
 const uniforms = {
@@ -178,11 +178,13 @@ const threesat = new THREE.Mesh(satGeometry3, satMaterial3);
 threesat.position.copy(scenePosition3);
 scene.add(threesat);
 
+/*
 // Create a test plane for checking sidereal vs solar day issues.
 const planeGeometry = new THREE.BoxGeometry(0.1, 10, 10);
 const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
 const plane = new THREE.Mesh(planeGeometry, planeMaterial);
 scene.add(plane);
+*/
 
 
 // Add ambient light
@@ -199,7 +201,7 @@ const siderealDaySeconds = 86164.0905;
 const rotationRate = (2 * Math.PI) / siderealDaySeconds;
 
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
-const speedFactor = 1;
+const speedFactor = 60;
 var elapsedSecond = 0;
 var elapsedTime = 0;
 
@@ -214,7 +216,7 @@ function animate() {
     sphere.rotation.y += rotationRate * scaledDelta;
     elapsedTime += scaledDelta;
     elapsedSecond += scaledDelta;
-    if (elapsedSecond >= speedFactor) {
+    if (elapsedSecond >= speedFactor / 30.0) {
         const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
         uniforms.declinationAngle.value = getSolarDeclinationAngle(deltaNow);
         uniforms.gmst.value = satellite.gstime(deltaNow);
