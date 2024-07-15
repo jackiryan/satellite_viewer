@@ -43,24 +43,27 @@ function getTwilightAngle() {
     return 36.0 * Math.PI / 180.0;
 }
 
-//const now = new Date(Date.UTC(2024,2,24,3,6,0,0)); // Vernal Equinox 2024, helpful for testing
-const now = new Date(); // Get current time
-console.log(getSolarDeclinationAngle(now));
+function getSolarTime(date) {
+    const hours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+    return ((hours - 12) / 24) * 2 * Math.PI;
+}
+
+const now = new Date(Date.UTC(2024,2,24,3,6,0,0)); // Vernal Equinox 2024, helpful for testing
+//const now = new Date(); // Get current time
 // Use satelliteJS to get the sidereal time, which describes a rotation
-const gmst = satellite.gstime(now);
-const hours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
-const solarTime = ((hours - 12) / 24) * 2 * Math.PI;
+const gmst = satellite.gstime(now)
+const uniforms = {
+    dayTexture: { type: 't', value: dayTexture },
+    nightTexture: { type: 't', value: nightTexture },
+    declinationAngle: { type: 'f', value: getSolarDeclinationAngle(now) },
+    twilightAngle: { type: 'f', value: getTwilightAngle() },
+    gmst: { type: 'f', value: gmst },
+    solarTime: { type: 'f', value: getSolarTime(now) }
+};
 
 // Shader material
 const material = new THREE.ShaderMaterial({
-    uniforms: {
-        dayTexture: { type: 't', value: dayTexture },
-        nightTexture: { type: 't', value: nightTexture },
-        declinationAngle: { type: 'f', value: getSolarDeclinationAngle(now) },
-        twilightAngle: { type: 'f', value: getTwilightAngle() },
-        gmst: { type: 'f', value: gmst },
-        solarTime: { type: 'f', value: solarTime }
-    },
+    uniforms: uniforms,
     vertexShader: `
         varying vec2 vUv;
         varying vec3 vPosition;
@@ -103,6 +106,11 @@ const material = new THREE.ShaderMaterial({
 });
 const sphere = new THREE.Mesh(geometry, material);
 scene.add(sphere);
+// Determine the initial rotation of the sphere based on the current sidereal time
+sphere.rotation.y = gmst;
+
+
+/* Satellite code -- very rough */
 
 // Satellite JS Example TLE Data
 const tleLine1 = "1 25544U 98067A   24197.73434340 -.00003641  00000+0 -55873-4 0  9998";
@@ -116,11 +124,17 @@ const tleLine6 = "2 43252  86.3962 223.6120 0002684  90.2873 269.8630 14.3421845
 const satrec = satellite.twoline2satrec(tleLine1, tleLine2);
 const positionAndVelocity = satellite.propagate(satrec, now);
 const positionEci = positionAndVelocity.position;
+const velocityEci = positionAndVelocity.velocity;
 const scaleFactor = radius / 6371;
 const scenePosition = new THREE.Vector3(
     positionEci.x * scaleFactor,
     positionEci.z * scaleFactor,
     -positionEci.y * scaleFactor
+);
+const instVelocity = new THREE.Vector3(
+    velocityEci.x * scaleFactor,
+    velocityEci.z * scaleFactor,
+    -velocityEci.y * scaleFactor
 );
 
 // Create ECI Satellite Mesh
@@ -164,8 +178,12 @@ const threesat = new THREE.Mesh(satGeometry3, satMaterial3);
 threesat.position.copy(scenePosition3);
 scene.add(threesat);
 
-// Position the camera
-camera.position.z = 10;
+// Create a test plane for checking sidereal vs solar day issues.
+const planeGeometry = new THREE.BoxGeometry(0.1, 10, 10);
+const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+scene.add(plane);
+
 
 // Add ambient light
 const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
@@ -174,43 +192,51 @@ scene.add(ambientLight);
 // Add controls
 const controls = new OrbitControls(camera, renderer.domElement);
 
-// Determine the initial rotation of the sphere based on the current sidereal time
-sphere.rotation.y = gmst;
-/*
-const msPerDay = 86400000.0; // Number of milliseconds in a day
-const daysSinceUnix = 2440587.5; // Julian days from the start of Unix time to J2000
-var julianDate =  now / msPerDay + daysSinceUnix;
-console.log(julianDate);
-
-const earthRotationAngle = 2 * Math.PI * (0.7790572732640 + 1.00273781191135448 * julianDate);
-console.log(earthRotationAngle);
-const gmst = earthRotationAngle + 
-             (0.014506 + 4612.156534 * julianCenturies + 1.3915817 * Math.pow(julianCenturies, 2) - 0.00000044 * Math.pow(julianCenturies, 3) - 0.000029956 * Math.pow(julianCenturies, 4) - 0.000000368 * Math.pow(julianCenturies, 5));
-*/
-/*
-const daysSinceJ2000 = (now - J2000) / msPerDay;
-
-// Calculate Earth's axial rotation
-
-const secondsSinceJ2000 = daysSinceJ2000 * 86400; // Convert days to seconds
-
-const axialRotationRadians = (secondsSinceJ2000 % siderealDaySeconds) / siderealDaySeconds * 2 * Math.PI;
-sphere.rotation.y = axialRotationRadians;
-*/
+// The Earth should go one full rotation in scene space every sidereal day (23 hours, 56 minutes)
+// if the simulation is running at 1x speed. Note that the day/night cycle in the frag shader should
+// complete one full rotation every solar day (24 hours) TO DO: verify this
 const siderealDaySeconds = 86164.0905;
-
 const rotationRate = (2 * Math.PI) / siderealDaySeconds;
-// Factor to run the rotation faster than real time, 3600 = 1 rotation/minute
+
+// Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
 const speedFactor = 1;
+var elapsedSecond = 0;
+var elapsedTime = 0;
 
 // Function to animate the scene
 function animate() {
     requestAnimationFrame(animate);
 
     const delta = clock.getDelta();
+    const scaledDelta = speedFactor * delta;
     
-    // Rotate the sphere at 60x real time speed
-    sphere.rotation.y += speedFactor * rotationRate * delta;
+    // Rotate the sphere at the speedFactor x real time speed
+    sphere.rotation.y += rotationRate * scaledDelta;
+    elapsedTime += scaledDelta;
+    elapsedSecond += scaledDelta;
+    if (elapsedSecond >= speedFactor) {
+        const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
+        uniforms.declinationAngle.value = getSolarDeclinationAngle(deltaNow);
+        uniforms.gmst.value = satellite.gstime(deltaNow);
+        uniforms.solarTime.value = getSolarTime(deltaNow);
+        const deltaPosVel = satellite.propagate(satrec, deltaNow);
+        const deltaPosVel3 = satellite.propagate(satrec3, deltaNow);
+        const deltaPosEci = deltaPosVel.position;
+        const deltaPosEci3 = deltaPosVel3.position;
+        const deltaPos = new THREE.Vector3(
+            deltaPosEci.x * scaleFactor,
+            deltaPosEci.z * scaleFactor,
+            -deltaPosEci.y * scaleFactor
+        );
+        const deltaPos3 = new THREE.Vector3(
+            deltaPosEci3.x * scaleFactor,
+            deltaPosEci3.z * scaleFactor,
+            -deltaPosEci3.y * scaleFactor
+        )
+        onesat.position.copy(deltaPos);
+        threesat.position.copy(deltaPos3);
+        elapsedSecond = 0;
+    }
     renderer.render(scene, camera);
 }
 
