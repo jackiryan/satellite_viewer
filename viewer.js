@@ -62,10 +62,24 @@ function getSolarTime(date) {
     return ((hours - 12) / 24) * 2 * Math.PI;
 }
 
+function getSunPointingAngle(siderealTime, solarTime, declinationAngle) {
+    // The solar azimuth in ECI is siderealTime (the GMST) - solarTime (the LST) + 90 deg due to axes
+    const solarAzimuthEci = siderealTime - solarTime + (Math.PI / 2.0);
+    // The solar elevation relative to the equator (the x-z plane in scene space) is the declinationAngle
+    const solarElevationEci = declinationAngle;
+    // Get the unit vector of the sun angle, accounting for the modified axis convention
+    const sunDirection = new THREE.Vector3(
+        Math.cos(solarElevationEci) * Math.sin(solarAzimuthEci),
+        Math.sin(solarElevationEci),
+        Math.cos(solarElevationEci) * Math.cos(solarAzimuthEci)
+    );
+    return sunDirection;
+}
+
 //const now = new Date(Date.UTC(2024,2,24,3,6,0,0)); // Vernal Equinox 2024, helpful for testing
 const now = new Date(); // Get current time
 // Use satelliteJS to get the sidereal time, which describes a rotation
-const gmst = satellite.gstime(now)
+const gmst = satellite.gstime(now);
 const uniforms = {
     dayTexture: { type: 't', value: dayTexture },
     nightTexture: { type: 't', value: nightTexture },
@@ -123,6 +137,17 @@ const sphere = new THREE.Mesh(geometry, material);
 scene.add(sphere);
 // Determine the initial rotation of the sphere based on the current sidereal time
 sphere.rotation.y = gmst;
+
+// Create the sun pointing helper
+const length = 7;
+const color = 0x00ffff;
+const sunHelper = new THREE.ArrowHelper(
+    getSunPointingAngle(gmst, getSolarTime(now), getSolarDeclinationAngle(now)),
+    new THREE.Vector3(0, 0, 0),
+    length,
+    color
+);
+scene.add(sunHelper);
 
 
 /* Satellite code -- very rough */
@@ -216,7 +241,7 @@ const siderealDaySeconds = 86164.0905;
 const rotationRate = (2 * Math.PI) / siderealDaySeconds;
 
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
-const speedFactor = 60;
+const speedFactor = 1;
 const satelliteFrameRate = 30.0; // frames per second
 var elapsedSecond = 0;
 var elapsedTime = 0;
@@ -235,10 +260,13 @@ function animate() {
     if (elapsedSecond >= speedFactor / satelliteFrameRate) {
         const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
         const deltaGmst = satellite.gstime(deltaNow);
+        const deltaSolarT = getSolarTime(deltaNow);
+        const deltaSolarD = getSolarDeclinationAngle(deltaNow);
         sphere.rotation.y = deltaGmst;
-        uniforms.declinationAngle.value = getSolarDeclinationAngle(deltaNow);
+        sunHelper.setDirection(getSunPointingAngle(deltaGmst, deltaSolarT, deltaSolarD));
+        uniforms.declinationAngle.value = deltaSolarD;
         uniforms.gmst.value = deltaGmst;
-        uniforms.solarTime.value = getSolarTime(deltaNow);
+        uniforms.solarTime.value = deltaSolarT;
         const deltaPosVel = satellite.propagate(satrec, deltaNow);
         const deltaPosVel3 = satellite.propagate(satrec3, deltaNow);
         const deltaPosEci = deltaPosVel.position;
