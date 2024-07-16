@@ -19,6 +19,20 @@ const textureLoader = new THREE.TextureLoader();
 const dayTexture = textureLoader.load('./BlueMarble_4096x2048.jpg');
 const nightTexture = textureLoader.load('./BlackMarble_4096x2048.jpg');
 
+/*
+// Phong Material stuff for testing normal map
+const normalTexture = textureLoader.load('earth_normalmap.png');
+const material = new THREE.MeshPhongMaterial();
+material.map = dayTexture;
+material.normalMap = normalTexture;
+material.normalScale.set(2, 2);
+
+// A point light is needed to test the normal map
+const light = new THREE.PointLight(0xffffff, 200);
+light.position.set(0, 7, 10);
+scene.add(light);
+*/
+
 // Calculate Solar Declination angle (the angle between the sun and the equator used to calculate the terminator)
 function dayOfYear(date) {
     // Calculate the day of the year for a given date
@@ -104,6 +118,7 @@ const material = new THREE.ShaderMaterial({
     `,
     side: THREE.DoubleSide
 });
+
 const sphere = new THREE.Mesh(geometry, material);
 scene.add(sphere);
 // Determine the initial rotation of the sphere based on the current sidereal time
@@ -202,6 +217,7 @@ const rotationRate = (2 * Math.PI) / siderealDaySeconds;
 
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
 const speedFactor = 60;
+const satelliteFrameRate = 30.0; // frames per second
 var elapsedSecond = 0;
 var elapsedTime = 0;
 
@@ -216,10 +232,12 @@ function animate() {
     sphere.rotation.y += rotationRate * scaledDelta;
     elapsedTime += scaledDelta;
     elapsedSecond += scaledDelta;
-    if (elapsedSecond >= speedFactor / 30.0) {
+    if (elapsedSecond >= speedFactor / satelliteFrameRate) {
         const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
+        const deltaGmst = satellite.gstime(deltaNow);
+        sphere.rotation.y = deltaGmst;
         uniforms.declinationAngle.value = getSolarDeclinationAngle(deltaNow);
-        uniforms.gmst.value = satellite.gstime(deltaNow);
+        uniforms.gmst.value = deltaGmst;
         uniforms.solarTime.value = getSolarTime(deltaNow);
         const deltaPosVel = satellite.propagate(satrec, deltaNow);
         const deltaPosVel3 = satellite.propagate(satrec3, deltaNow);
