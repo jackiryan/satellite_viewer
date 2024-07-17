@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { cameraPosition } from 'three/examples/jsm/nodes/Nodes.js';
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -233,7 +234,7 @@ scene.add(ambientLight);
 
 // Add controls
 const controls = new OrbitControls(camera, renderer.domElement);
-//controls.enablePan = false;
+controls.enablePan = false;
 //controls.enableZoom = false;
 
 // The Earth should go one full rotation in scene space every sidereal day (23 hours, 56 minutes)
@@ -244,12 +245,18 @@ const rotationRate = (2 * Math.PI) / siderealDaySeconds;
 
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
 const speedFactor = 60;
-const satelliteFrameRate = 10.0; // frames per second
+const satelliteFrameRate = 30.0; // frames per second
 var elapsedSecond = 0;
 var elapsedTime = 0;
-camera.position.x = -10 * Math.cos(-gmst);
-camera.position.z = -10 * Math.sin(-gmst);
-camera.lookAt(sphere.position);
+const dist = 3;
+const cameraOffset = new THREE.Vector3(
+    threesat.position.x,
+    threesat.position.y,
+    threesat.position.z
+).multiplyScalar(1 + (dist / threesat.position.length()));
+camera.position.copy(cameraOffset);
+threesat.getWorldPosition(controls.target);
+controls.update();
 
 // Function to animate the scene
 function animate() {
@@ -288,6 +295,15 @@ function animate() {
         )
         onesat.position.copy(deltaPos);
         threesat.position.copy(deltaPos3);
+        const cameraOffset = new THREE.Vector3(
+            threesat.position.x,
+            threesat.position.y,
+            threesat.position.z
+        ).multiplyScalar(1 + (dist / threesat.position.length()));
+        camera.position.copy(cameraOffset);
+        threesat.getWorldPosition(controls.target);
+        controls.update();
+        //console.log(camera.position);
         /* Weird camera control experimentation
         const deltaCam = new THREE.Vector3(
             -10 * Math.cos(-deltaGmst),
