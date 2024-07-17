@@ -63,15 +63,15 @@ function getSolarTime(date) {
 }
 
 function getSunPointingAngle(siderealTime, solarTime, declinationAngle) {
-    // The solar azimuth in ECI is siderealTime (the GMST) - solarTime (the LST) + 90 deg due to axes
-    const solarAzimuthEci = siderealTime - solarTime + (Math.PI / 2.0);
+    // The solar azimuth in ECI is siderealTime (the GMST) - solarTime (the LST)
+    const solarAzimuthEci = siderealTime - solarTime;
     // The solar elevation relative to the equator (the x-z plane in scene space) is the declinationAngle
     const solarElevationEci = declinationAngle;
     // Get the unit vector of the sun angle, accounting for the modified axis convention
     const sunDirection = new THREE.Vector3(
-        Math.cos(solarElevationEci) * Math.sin(solarAzimuthEci),
+        Math.cos(solarElevationEci) * Math.cos(solarAzimuthEci),
         Math.sin(solarElevationEci),
-        Math.cos(solarElevationEci) * Math.cos(solarAzimuthEci)
+        -Math.cos(solarElevationEci) * Math.sin(solarAzimuthEci)
     );
     return sunDirection;
 }
@@ -233,6 +233,8 @@ scene.add(ambientLight);
 
 // Add controls
 const controls = new OrbitControls(camera, renderer.domElement);
+//controls.enablePan = false;
+//controls.enableZoom = false;
 
 // The Earth should go one full rotation in scene space every sidereal day (23 hours, 56 minutes)
 // if the simulation is running at 1x speed. Note that the day/night cycle in the frag shader should
@@ -241,10 +243,13 @@ const siderealDaySeconds = 86164.0905;
 const rotationRate = (2 * Math.PI) / siderealDaySeconds;
 
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
-const speedFactor = 1;
-const satelliteFrameRate = 30.0; // frames per second
+const speedFactor = 60;
+const satelliteFrameRate = 10.0; // frames per second
 var elapsedSecond = 0;
 var elapsedTime = 0;
+camera.position.x = -10 * Math.cos(-gmst);
+camera.position.z = -10 * Math.sin(-gmst);
+camera.lookAt(sphere.position);
 
 // Function to animate the scene
 function animate() {
@@ -254,7 +259,7 @@ function animate() {
     const scaledDelta = speedFactor * delta;
     
     // Rotate the sphere at the speedFactor x real time speed
-    sphere.rotation.y += rotationRate * scaledDelta;
+    //sphere.rotation.y += rotationRate * scaledDelta;
     elapsedTime += scaledDelta;
     elapsedSecond += scaledDelta;
     if (elapsedSecond >= speedFactor / satelliteFrameRate) {
@@ -283,6 +288,20 @@ function animate() {
         )
         onesat.position.copy(deltaPos);
         threesat.position.copy(deltaPos3);
+        /* Weird camera control experimentation
+        const deltaCam = new THREE.Vector3(
+            -10 * Math.cos(-deltaGmst),
+            camera.position.y,
+            -10 * Math.sin(-deltaGmst)
+        );
+        camera.position.copy(deltaCam);
+        controls.update();
+        // Update the controls target to the object's position
+        //camera.position.copy(threesat.position).add(cameraOffset);
+        //controls.update();
+        //camera.position.copy(threesat.position + cameraToSat);
+        //controls.update();
+        */
         elapsedSecond = 0;
     }
     renderer.render(scene, camera);
@@ -301,29 +320,12 @@ function getUserLongitude() {
     return longitude;
 }
 
-// Function to position the camera to point at the user's current time zone
-function positionCamera() {
-    const longitude = getUserLongitude();
-    // Kind of messy, but since we rotate the sphere to account for the current time,
-    // moving the camera to account for user longitude requires backing out that rotation
-    // Add 90 degrees to account for discrepancy between 0 longitude (where the prime meridian is)
-    // and 0 "longitude" on the sphere (where the texture is wrapped, around the date line)
-    const initRotation = sphere.rotation.y + Math.PI / 2; 
-    camera.position.x = 10 * Math.sin(longitude + initRotation);
-    camera.position.z = 10 * Math.cos(longitude + initRotation);
-    camera.lookAt(sphere.position);
-}
-
-
 // Handle window resize
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
-
-// Set camera initial position based on user tz
-positionCamera();
 
 // Start the animation loop
 const clock = new THREE.Clock();
