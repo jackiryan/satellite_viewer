@@ -2,8 +2,6 @@
 import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { cameraPosition } from 'three/examples/jsm/nodes/Nodes.js';
-import { add } from 'three/examples/jsm/libs/tween.module.js';
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -162,7 +160,7 @@ scene.add(sunHelper);
 
 /* Satellite code -- very rough */
 
-// Satellite JS Example TLE Data
+/* Hardcoded test TLE data
 const tleLines = [
     // ISS (ZARYA)
     "1 25544U 98067A   24197.73434340 -.00003641  00000+0 -55873-4 0  9998",
@@ -174,6 +172,16 @@ const tleLines = [
     "1 43252U 18030D   24197.61300312  .00000155  00000+0  48304-4 0  9990",
     "2 43252  86.3962 223.6120 0002684  90.2873 269.8630 14.34218458329634"
 ];
+*/
+
+// Read the science TLE file
+const response = await fetch('/science_tles.txt');
+if (!response.ok) {
+    throw new Error('Network response was not ok ' + response.statusText);
+}
+// Split the file content by line breaks to get an array of strings
+const data = await response.text();
+const tleLines = data.split('\n');
 
 const scaleFactor = radius / 6371;
 function addSatellite(satrec, color) {
@@ -214,13 +222,13 @@ const colors = [
     { color: 0x0000ff }
 ];
 // Create satellites one at a time, eventually this should be BufferGeometry
-for (let i = 0; i < tleLines.length; i += 2) {
+for (let i = 0; i < tleLines.length; i += 3) {
     let satreci = satellite.twoline2satrec(
-        tleLines[i],
-        tleLines[i+1]
+        tleLines[i+1],
+        tleLines[i+2]
     );
     satrecs.push(satreci);
-    let sat = addSatellite(satreci, colors[i/2]);
+    let sat = addSatellite(satreci, colors[(i / 3) % 3]);
     satellites.push(sat);
     scene.add(satellites.at(-1));
 }
@@ -243,7 +251,7 @@ const siderealDaySeconds = 86164.0905;
 const rotationRate = (2 * Math.PI) / siderealDaySeconds;
 
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
-const speedFactor = 60;
+const speedFactor = 3600;
 const renderFrameRate = 30.0; // frames per second
 var elapsedSecond = 0;
 var elapsedTime = 0;
