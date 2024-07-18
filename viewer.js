@@ -184,7 +184,7 @@ const data = await response.text();
 const tleLines = data.split('\n');
 
 const scaleFactor = radius / 6371;
-function addSatellite(satrec, color) {
+function addSatellite(satrec, color, name) {
     const positionAndVelocity = satellite.propagate(satrec, now);
     // This app uses ECI coordinates, so there is no need to convert to Geodetic
     const positionEci = positionAndVelocity.position;
@@ -198,6 +198,7 @@ function addSatellite(satrec, color) {
     );
     const sat = new THREE.Mesh(satGeometry, satMaterial);
     sat.position.copy(scenePosition);
+    sat.name = name;
     return sat;
 }
 
@@ -228,7 +229,7 @@ for (let i = 0; i < tleLines.length; i += 3) {
         tleLines[i+2]
     );
     satrecs.push(satreci);
-    let sat = addSatellite(satreci, colors[(i / 3) % 3]);
+    let sat = addSatellite(satreci, colors[(i / 3) % 3], tleLines[i]);
     satellites.push(sat);
     scene.add(satellites.at(-1));
 }
@@ -251,7 +252,7 @@ const siderealDaySeconds = 86164.0905;
 const rotationRate = (2 * Math.PI) / siderealDaySeconds;
 
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
-const speedFactor = 3600;
+const speedFactor = 1;
 const renderFrameRate = 30.0; // frames per second
 var elapsedSecond = 0;
 var elapsedTime = 0;
@@ -269,6 +270,45 @@ camera.position.copy(cameraOffset);
 satellites[0].getWorldPosition(controls.target);
 controls.update();
 */
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+// Create an HTML element to display the name
+const tooltip = document.createElement('div');
+tooltip.style.position = 'absolute';
+tooltip.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
+tooltip.style.padding = '5px';
+tooltip.style.borderRadius = '3px';
+tooltip.style.display = 'none';
+document.body.appendChild(tooltip);
+renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+
+function onMouseMove(event) {
+    event.preventDefault();
+    // Update the mouse variable
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    // Update the raycaster with the camera and mouse position
+    raycaster.setFromCamera(mouse, camera);
+
+    // Calculate objects intersecting the raycaster
+    var intersects = raycaster.intersectObjects(satellites, true);
+
+    if (intersects.length > 0) {
+        // Show tooltip with the name
+        const intersectedObject = intersects[0].object;
+        tooltip.style.left = `${event.clientX + 5}px`;
+        tooltip.style.top = `${event.clientY + 5}px`;
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = intersectedObject.name;
+    } else {
+        // Hide the tooltip
+        tooltip.style.display = 'none';
+    }
+}
+
 
 // Function to animate the scene
 function animate() {
