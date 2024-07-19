@@ -14,7 +14,7 @@ document.body.appendChild(renderer.domElement);
 
 // Create the sphere geometry and material using the Blue Marble texture
 const radius = 5;
-const scaleFactor = radius / 6171; // scaling between scene radius and true Earth radius.
+const scaleFactor = radius / 6378; // scaling between scene radius and true Earth radius.
 const geometry = new THREE.SphereGeometry(radius, 32, 32);
 const textureLoader = new THREE.TextureLoader();
 const dayTexture = textureLoader.load('./BlueMarble_4096x2048.jpg');
@@ -74,7 +74,6 @@ function createSatelliteShader() {
             }
         `,
         fragmentShader: `
-
         void main() {
             vec3 color = vec3(1.0, 0.0, 0.0);
             gl_FragColor = vec4(color, 1.0);

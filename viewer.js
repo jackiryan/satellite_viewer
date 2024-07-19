@@ -183,7 +183,7 @@ if (!response.ok) {
 const data = await response.text();
 const tleLines = data.split('\n');
 
-const scaleFactor = radius / 6371;
+const scaleFactor = radius / 6378;
 function addSatellite(satrec, color, name) {
     const positionAndVelocity = satellite.propagate(satrec, now);
     // This app uses ECI coordinates, so there is no need to convert to Geodetic
@@ -252,7 +252,7 @@ const siderealDaySeconds = 86164.0905;
 const rotationRate = (2 * Math.PI) / siderealDaySeconds;
 
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
-const speedFactor = 1;
+const speedFactor = 3600;
 const renderFrameRate = 30.0; // frames per second
 var elapsedSecond = 0;
 var elapsedTime = 0;
