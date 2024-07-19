@@ -55,9 +55,34 @@ function initializeSatelliteBuffer(tleLines) {
         'position',
         new THREE.BufferAttribute(satVerts, 3)
     );
-    const material = new THREE.MeshBasicMaterial( { color: 0xff0000 } );
-    const mesh = new THREE.Mesh(geometry, material);
+    const material = createSatelliteShader();
+    const mesh = new THREE.Points(geometry, material);
     return mesh;
+}
+
+function createSatelliteShader() {
+    // Shader material
+    const material = new THREE.ShaderMaterial({
+        uniforms: {},
+        vertexShader: `
+            void main() {
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                // scale the vertices based on depth, base size 50 units
+                float size = 50.0 / -mvPosition.z;
+                gl_Position = projectionMatrix * mvPosition;
+                gl_PointSize = size;
+            }
+        `,
+        fragmentShader: `
+
+        void main() {
+            vec3 color = vec3(1.0, 0.0, 0.0);
+            gl_FragColor = vec4(color, 1.0);
+        }
+        `,
+        side: THREE.DoubleSide
+    });
+    return material;
 }
 
 // Read the science TLE file
@@ -68,8 +93,8 @@ if (!response.ok) {
 // Split the file content by line breaks to get an array of strings
 const data = await response.text();
 const tleLines = data.split('\n');
-const bufferMesh = initializeSatelliteBuffer(tleLines);
-scene.add(bufferMesh);
+const bufferPoints = initializeSatelliteBuffer(tleLines);
+scene.add(bufferPoints);
 
 // Add ambient light
 const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
