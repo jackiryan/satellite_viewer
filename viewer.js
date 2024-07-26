@@ -103,10 +103,13 @@ const material = new THREE.ShaderMaterial({
     vertexShader: `
         varying vec2 vUv;
         varying vec3 vPosition;
+        varying vec4 cDirection;
 
         void main() {
             vUv = uv;
             vPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+            cDirection = inverse(projectionMatrix * viewMatrix) * vec4(0.0, 0.0, 1.0, 1.0);
+            cDirection.xyz /= w;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
     `,
@@ -119,6 +122,7 @@ const material = new THREE.ShaderMaterial({
     uniform float solarTime;
     varying vec2 vUv;
     varying vec3 vPosition;
+    varying vec4 cDirection;
 
     void main() {
         float cosAngle = cos(-declinationAngle);
