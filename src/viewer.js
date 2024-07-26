@@ -2,6 +2,9 @@
 import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+//import GUI from 'lil-gui';
+import earthVertexShader from './shaders/earth/earthVertex.glsl';
+import earthFragmentShader from './shaders/earth/earthFragment.glsl';
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -100,44 +103,8 @@ const uniforms = {
 // Shader material
 const material = new THREE.ShaderMaterial({
     uniforms: uniforms,
-    vertexShader: `
-        varying vec2 vUv;
-        varying vec3 vPosition;
-
-        void main() {
-            vUv = uv;
-            vPosition = (modelMatrix * vec4(position, 1.0)).xyz;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-    `,
-    fragmentShader: `
-    uniform sampler2D dayTexture;
-    uniform sampler2D nightTexture;
-    uniform float declinationAngle;
-    uniform float twilightAngle;
-    uniform float gmst;
-    uniform float solarTime;
-    varying vec2 vUv;
-    varying vec3 vPosition;
-
-    void main() {
-        float cosAngle = cos(-declinationAngle);
-        float sinAngle = sin(-declinationAngle);
-        // The sphere is rotated by the gmst in scene space, which cares about sidereal time, but we
-        // want a "solar time", so back out the gmst rotation and add in a rotation representing the 
-        // difference between solar noon at the prime meridian and the time now.
-        float rotatedX = vPosition.x * cos(-gmst + solarTime) + vPosition.z * sin(-gmst + solarTime);
-        float rotPos = rotatedX * cosAngle - vPosition.y * sinAngle;
-        vec3 dayColor = texture2D(dayTexture, vUv).rgb;
-        vec3 nightColor = texture2D(nightTexture, vUv).rgb;
-
-        // Blend between day and night offset over the 18 degrees of twilight, biased towards the night side
-        // Note that the degrees of twilight is doubled for aesthetic reasons
-        float blendFactor = clamp((rotPos + twilightAngle) / twilightAngle, 0.0, 1.0);
-        vec3 color = mix(nightColor, dayColor, blendFactor);
-        gl_FragColor = vec4(color, 1.0);
-    }
-    `,
+    vertexShader: earthVertexShader,
+    fragmentShader: earthFragmentShader,
     side: THREE.DoubleSide
 });
 
@@ -244,12 +211,6 @@ const controls = new OrbitControls(camera, renderer.domElement);
 // Controls should be disabled when tracking a satellite
 controls.enablePan = false;
 //controls.enableZoom = false;
-
-// The Earth should go one full rotation in scene space every sidereal day (23 hours, 56 minutes)
-// if the simulation is running at 1x speed. Note that the day/night cycle in the frag shader should
-// complete one full rotation every solar day (24 hours) TO DO: verify this
-const siderealDaySeconds = 86164.0905;
-const rotationRate = (2 * Math.PI) / siderealDaySeconds;
 
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
 const speedFactor = 1;
