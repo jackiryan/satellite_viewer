@@ -88,8 +88,8 @@ function getSunPointingAngle(tPrime) {
 // but were chosen so that snowy regions would approximately line up between day and night.
 const earthParameters = {
     radius: 5,
-    dayColor: '#ffffff',
-    twilightColor: '#ff6600'
+    dayColor: '#d7eaf9',
+    twilightColor: '#fd5e53'
 };
 
 // gui debug controls
@@ -115,7 +115,8 @@ dayTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 const nightTexture = textureLoader.load('./BlackMarble_4096x2048.jpg');
 nightTexture.colorSpace = THREE.SRGBColorSpace;
 nightTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-
+const specularMapTexture = textureLoader.load('./EarthSpec_4096x2048.jpg');
+specularMapTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 // Mesh
 const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
 
@@ -124,6 +125,7 @@ const earthMaterial = new THREE.ShaderMaterial({
     uniforms: {
         dayTexture: new THREE.Uniform(dayTexture),
         nightTexture: new THREE.Uniform(nightTexture),
+        specularMapTexture: new THREE.Uniform(specularMapTexture),
         sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
         twilightAngle: new THREE.Uniform(getTwilightAngle()),
         dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
@@ -169,7 +171,69 @@ const gmst = satellite.gstime(now);
 earth.rotation.y = gmst;
 atmosphere.rotation.y = gmst;
 
+/* Satellites */
+// Read the science TLE file
+const response = await fetch('./science_tles.txt');
+if (!response.ok) {
+    throw new Error('Network response was not ok ' + response.statusText);
+}
+// Split the file content by line breaks to get an array of strings
+const data = await response.text();
+const tleLines = data.split('\n');
+
+const scaleFactor = earthParameters.radius / 6378;
+function addSatellite(satrec, color, name) {
+    const positionAndVelocity = satellite.propagate(satrec, now);
+    // This app uses ECI coordinates, so there is no need to convert to Geodetic
+    const positionEci = positionAndVelocity.position;
+    // Create Satellite Mesh and copy in an initial position
+    const satGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+    const satMaterial = new THREE.MeshBasicMaterial(color);
+    const scenePosition = new THREE.Vector3(
+        positionEci.x * scaleFactor,
+        positionEci.z * scaleFactor,
+        -positionEci.y * scaleFactor
+    );
+    const sat = new THREE.Mesh(satGeometry, satMaterial);
+    sat.position.copy(scenePosition);
+    sat.name = name;
+    return sat;
+}
+
+// Modifies the position of a given satellite mesh sat with the propagated SPG4
+// position at time t, as a side effect. No retval.
+function updateSatellitePosition(satrec, sat, t) {
+    const deltaPosVel = satellite.propagate(satrec, t);
+    const deltaPosEci = deltaPosVel.position;
+    const deltaPos = new THREE.Vector3(
+        deltaPosEci.x * scaleFactor,
+        deltaPosEci.z * scaleFactor,
+        -deltaPosEci.y * scaleFactor
+    );
+    sat.position.copy(deltaPos);
+}
+
+const satrecs = [];
+const satellites = [];
+const colors = [
+    { color: 0xff0000 },
+    { color: 0x00ff00 },
+    { color: 0x0000ff }
+];
+// Create satellites one at a time, eventually this should be BufferGeometry
+for (let i = 0; i < tleLines.length; i += 3) {
+    let satreci = satellite.twoline2satrec(
+        tleLines[i+1],
+        tleLines[i+2]
+    );
+    satrecs.push(satreci);
+    let sat = addSatellite(satreci, colors[(i / 3) % 3], tleLines[i]);
+    satellites.push(sat);
+    scene.add(satellites.at(-1));
+}
+
 // Create the sun pointing helper
+/*
 const length = 7;
 const color = 0x00ffff;
 const sunHelper = new THREE.ArrowHelper(
@@ -179,6 +243,7 @@ const sunHelper = new THREE.ArrowHelper(
     color
 );
 scene.add(sunHelper);
+*/
 
 // Add ambient light
 const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
@@ -188,6 +253,44 @@ scene.add(ambientLight);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enablePan = false;
 controls.update();
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+// Create an HTML element to display the name
+const tooltip = document.createElement('div');
+tooltip.style.position = 'absolute';
+tooltip.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
+tooltip.style.padding = '5px';
+tooltip.style.borderRadius = '3px';
+tooltip.style.display = 'none';
+document.body.appendChild(tooltip);
+renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+
+function onMouseMove(event) {
+    event.preventDefault();
+    // Update the mouse variable
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    // Update the raycaster with the camera and mouse position
+    raycaster.setFromCamera(mouse, camera);
+
+    // Calculate objects intersecting the raycaster
+    var intersects = raycaster.intersectObjects(satellites, true);
+
+    if (intersects.length > 0) {
+        // Show tooltip with the name
+        const intersectedObject = intersects[0].object;
+        tooltip.style.left = `${event.clientX + 5}px`;
+        tooltip.style.top = `${event.clientY + 5}px`;
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = intersectedObject.name;
+    } else {
+        // Hide the tooltip
+        tooltip.style.display = 'none';
+    }
+}
 
 // Handle window resize
 window.addEventListener('resize', () => {
@@ -234,7 +337,17 @@ function animate() {
         const deltaGmst = satellite.gstime(deltaNow);
         earth.rotation.y = deltaGmst;
         //atmosphere.rotation.y = deltaGmst;
-        sunHelper.setDirection(getSunPointingAngle(deltaNow));
+        //sunHelper.setDirection(getSunPointingAngle(deltaNow));
+        getSunPointingAngle(deltaNow);
+
+        // Update satellite positions
+        for (let j = 0; j < satellites.length; j++) {
+            updateSatellitePosition(
+                satrecs[j],
+                satellites[j],
+                deltaNow
+            );
+        }
 
         // reset the render clock
         elapsedSecond = 0;

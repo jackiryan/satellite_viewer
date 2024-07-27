@@ -17,8 +17,11 @@ void main()
     float sunOrientation = dot(sunDirection, normal);
 
     // Atmosphere
-    float atmosphereDayMix = smoothstep(0.0, twilightAngle / pi, sunOrientation);
-    vec3 atmosphereColor = mix(twilightColor, dayColor, atmosphereDayMix);
+    float daySideTwilightExtent = 0.1;
+    float nightSideTwilightExtent = 0.0;
+    float twilightMix = smoothstep(-0.05, nightSideTwilightExtent + (twilightAngle / pi), sunOrientation);
+    //                  * (-smoothstep(-0.05, daySideTwilightExtent + (twilightAngle / pi), sunOrientation) + 1.0);
+    vec3 atmosphereColor = mix(twilightColor, dayColor, twilightMix);
     //color = mix(color, atmosphereColor, atmosphereDayMix);
     color += atmosphereColor;
     
@@ -27,7 +30,7 @@ void main()
     edgeAlpha = smoothstep(0.0, 0.5, edgeAlpha);
     //edgeAlpha = pow(edgeAlpha, 2.0);
 
-    float dayAlpha = smoothstep(-0.25, 0.1, sunOrientation);
+    float dayAlpha = smoothstep(-daySideTwilightExtent, nightSideTwilightExtent, sunOrientation);
     float alpha = edgeAlpha * dayAlpha;
 
     // Final color

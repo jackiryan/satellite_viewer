@@ -18,7 +18,7 @@ const tleLines = [
 */
 
 // Read the science TLE file
-const response = await fetch('/science_tles.txt');
+const response = await fetch('./science_tles.txt');
 if (!response.ok) {
     throw new Error('Network response was not ok ' + response.statusText);
 }
