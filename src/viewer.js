@@ -2,38 +2,37 @@
 import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import GUI from 'lil-gui';
+import earthVertexShader from './shaders/earth/earthVertex.glsl';
+import earthFragmentShader from './shaders/earth/earthFragment.glsl';
+import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl'
+import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl'
 
-// Initialize scene, camera, and renderer
+/* Boilerplate */
+
+// Debug
+const gui = new GUI();
+
+// Initialize scene...
 const scene = new THREE.Scene();
+
+// ... the camera, which will be in a fixed intertial reference, so the Earth will rotate ...
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.z = -10;
+
+// ... and the renderer
 const renderer = new THREE.WebGLRenderer({
     antialias: true
 });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor('#000011');
 document.body.appendChild(renderer.domElement);
 
-// Create the sphere geometry and material using the Blue Marble texture
-const radius = 5;
-const geometry = new THREE.SphereGeometry(radius, 32, 32);
+// Loader
 const textureLoader = new THREE.TextureLoader();
-const dayTexture = textureLoader.load('./BlueMarble_4096x2048.jpg');
-const nightTexture = textureLoader.load('./BlackMarble_4096x2048.jpg');
 
-/*
-// Phong Material stuff for testing normal map
-const normalTexture = textureLoader.load('earth_normalmap.png');
-const material = new THREE.MeshPhongMaterial();
-material.map = dayTexture;
-material.normalMap = normalTexture;
-material.normalScale.set(2, 2);
-
-// A point light is needed to test the normal map
-const light = new THREE.PointLight(0xffffff, 200);
-light.position.set(0, 7, 10);
-scene.add(light);
-*/
-
-// Calculate Solar Declination angle (the angle between the sun and the equator used to calculate the terminator)
+/* Sun Angle Calculations */
 function dayOfYear(date) {
     // Calculate the day of the year for a given date
     const start = new Date(date.getFullYear(), 0, 0);
@@ -43,6 +42,7 @@ function dayOfYear(date) {
     return day;
 }
 
+// Calculate Solar Declination angle (the angle between the sun and the equator used to calculate the terminator)
 function getSolarDeclinationAngle(date) {
     const N = dayOfYear(date);
     const obliquityAngle = 23.44 * Math.PI / 180.0;
@@ -54,7 +54,7 @@ function getSolarDeclinationAngle(date) {
 function getTwilightAngle() {
     // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
     // For some reason doubling the number gives me a result that's closer to reality
-    return 36.0 * Math.PI / 180.0;
+    return 12.0 * Math.PI / 180.0;
 }
 
 function getSolarTime(date) {
@@ -62,7 +62,11 @@ function getSolarTime(date) {
     return ((hours - 12) / 24) * 2 * Math.PI;
 }
 
-function getSunPointingAngle(siderealTime, solarTime, declinationAngle) {
+function getSunPointingAngle(tPrime) {
+    const siderealTime = satellite.gstime(tPrime);
+    const solarTime = getSolarTime(tPrime);
+    const declinationAngle = getSolarDeclinationAngle(tPrime);
+
     // The solar azimuth in ECI is siderealTime (the GMST) - solarTime (the LST)
     const solarAzimuthEci = siderealTime - solarTime;
     // The solar elevation relative to the equator (the x-z plane in scene space) is the declinationAngle
@@ -73,11 +77,86 @@ function getSunPointingAngle(siderealTime, solarTime, declinationAngle) {
         Math.sin(solarElevationEci),
         -Math.cos(solarElevationEci) * Math.sin(solarAzimuthEci)
     );
+    earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
+    atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
     return sunDirection;
 }
 
+
+/* Earth */
+// Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
+// but were chosen so that snowy regions would approximately line up between day and night.
+const earthParameters = {
+    radius: 5,
+    dayColor: '#d7eaf9',
+    twilightColor: '#fd5e53'
+};
+
+// gui debug controls
+gui
+    .addColor(earthParameters, 'dayColor')
+    .onChange(() =>
+    {
+        earthMaterial.uniforms.dayColor.value.set(earthParameters.dayColor);
+        atmosphereMaterial.uniforms.dayColor.value.set(earthParameters.dayColor);
+    });
+gui
+    .addColor(earthParameters, 'twilightColor')
+    .onChange(() =>
+    {
+        earthMaterial.uniforms.twilightColor.value.set(earthParameters.twilightColor);
+        atmosphereMaterial.uniforms.twilightColor.value.set(earthParameters.twilightColor);
+    });
+
+// Textures
+const dayTexture = textureLoader.load('./BlueMarble_4096x2048.jpg');
+dayTexture.colorSpace = THREE.SRGBColorSpace;
+dayTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+const nightTexture = textureLoader.load('./BlackMarble_4096x2048.jpg');
+nightTexture.colorSpace = THREE.SRGBColorSpace;
+nightTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+const specularMapTexture = textureLoader.load('./EarthSpec_4096x2048.jpg');
+specularMapTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+// Mesh
+const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
+
+// Shader material
+const earthMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+        dayTexture: new THREE.Uniform(dayTexture),
+        nightTexture: new THREE.Uniform(nightTexture),
+        specularMapTexture: new THREE.Uniform(specularMapTexture),
+        sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
+        twilightAngle: new THREE.Uniform(getTwilightAngle()),
+        dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
+        twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor))
+    },
+    vertexShader: earthVertexShader,
+    fragmentShader: earthFragmentShader
+});
+const earth = new THREE.Mesh(earthGeometry, earthMaterial);
+scene.add(earth);
+
+// Atmosphere
+const atmosphereMaterial = new THREE.ShaderMaterial({
+    vertexShader: atmosphereVertexShader,
+    fragmentShader: atmosphereFragmentShader,
+    uniforms:
+    {
+        sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
+        dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
+        twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor)),
+        twilightAngle: new THREE.Uniform(getTwilightAngle()),
+    },
+    side: THREE.BackSide,
+    transparent: true
+});
+const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
+const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+scene.add(atmosphere);
+
+/* Debug stuff for Earth rotation
 //const now = new Date(Date.UTC(2024,2,24,3,6,0,0)); // Vernal Equinox 2024, helpful for testing
-/*
 // Create a test plane for checking sidereal vs solar day issues.
 const planeGeometry = new THREE.BoxGeometry(0.1, 10, 10);
 const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
@@ -85,97 +164,16 @@ const plane = new THREE.Mesh(planeGeometry, planeMaterial);
 scene.add(plane);
 */
 
-const now = new Date(); // Get current time
-// Use satelliteJS to get the sidereal time, which describes a rotation
-const gmst = satellite.gstime(now);
-const uniforms = {
-    dayTexture: { type: 't', value: dayTexture },
-    nightTexture: { type: 't', value: nightTexture },
-    declinationAngle: { type: 'f', value: getSolarDeclinationAngle(now) },
-    twilightAngle: { type: 'f', value: getTwilightAngle() },
-    gmst: { type: 'f', value: gmst },
-    solarTime: { type: 'f', value: getSolarTime(now) }
-};
-
-// Shader material
-const material = new THREE.ShaderMaterial({
-    uniforms: uniforms,
-    vertexShader: `
-        varying vec2 vUv;
-        varying vec3 vPosition;
-
-        void main() {
-            vUv = uv;
-            vPosition = (modelMatrix * vec4(position, 1.0)).xyz;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-    `,
-    fragmentShader: `
-    uniform sampler2D dayTexture;
-    uniform sampler2D nightTexture;
-    uniform float declinationAngle;
-    uniform float twilightAngle;
-    uniform float gmst;
-    uniform float solarTime;
-    varying vec2 vUv;
-    varying vec3 vPosition;
-
-    void main() {
-        float cosAngle = cos(-declinationAngle);
-        float sinAngle = sin(-declinationAngle);
-        // The sphere is rotated by the gmst in scene space, which cares about sidereal time, but we
-        // want a "solar time", so back out the gmst rotation and add in a rotation representing the 
-        // difference between solar noon at the prime meridian and the time now.
-        float rotatedX = vPosition.x * cos(-gmst + solarTime) + vPosition.z * sin(-gmst + solarTime);
-        float rotPos = rotatedX * cosAngle - vPosition.y * sinAngle;
-        vec3 dayColor = texture2D(dayTexture, vUv).rgb;
-        vec3 nightColor = texture2D(nightTexture, vUv).rgb;
-
-        // Blend between day and night offset over the 18 degrees of twilight, biased towards the night side
-        // Note that the degrees of twilight is doubled for aesthetic reasons
-        float blendFactor = clamp((rotPos + twilightAngle) / twilightAngle, 0.0, 1.0);
-        vec3 color = mix(nightColor, dayColor, blendFactor);
-        gl_FragColor = vec4(color, 1.0);
-    }
-    `,
-    side: THREE.DoubleSide
-});
-
-const sphere = new THREE.Mesh(geometry, material);
-scene.add(sphere);
 // Determine the initial rotation of the sphere based on the current sidereal time
-sphere.rotation.y = gmst;
+const now = new Date(); // Get current time
+// Use satelliteJS to get the sidereal time, which describes the sidereal rotation of the Earth.
+const gmst = satellite.gstime(now);
+earth.rotation.y = gmst;
+atmosphere.rotation.y = gmst;
 
-// Create the sun pointing helper
-const length = 7;
-const color = 0x00ffff;
-const sunHelper = new THREE.ArrowHelper(
-    getSunPointingAngle(gmst, getSolarTime(now), getSolarDeclinationAngle(now)),
-    new THREE.Vector3(0, 0, 0),
-    length,
-    color
-);
-scene.add(sunHelper);
-
-
-/* Satellite code -- very rough */
-
-/* Hardcoded test TLE data
-const tleLines = [
-    // ISS (ZARYA)
-    "1 25544U 98067A   24197.73434340 -.00003641  00000+0 -55873-4 0  9998",
-    "2 25544  51.6386 173.9126 0010242  70.8365 108.5623 15.49867467462978",
-    // Some high altitude satellite (I forgor)
-    "1 43873U 18109A   24196.25380453 -.00000006  00000+0  00000+0 0  9991",
-    "2 43873  55.3065 119.9592 0029353 194.3360 337.8959  2.00557396 40976",
-    // IRIDIUM-140
-    "1 43252U 18030D   24197.61300312  .00000155  00000+0  48304-4 0  9990",
-    "2 43252  86.3962 223.6120 0002684  90.2873 269.8630 14.34218458329634"
-];
-*/
-
+/* Satellites */
 // Read the science TLE file
-const response = await fetch('/science_tles.txt');
+const response = await fetch('./science_tles.txt');
 if (!response.ok) {
     throw new Error('Network response was not ok ' + response.statusText);
 }
@@ -183,7 +181,7 @@ if (!response.ok) {
 const data = await response.text();
 const tleLines = data.split('\n');
 
-const scaleFactor = radius / 6371;
+const scaleFactor = earthParameters.radius / 6378;
 function addSatellite(satrec, color, name) {
     const positionAndVelocity = satellite.propagate(satrec, now);
     // This app uses ECI coordinates, so there is no need to convert to Geodetic
@@ -234,42 +232,27 @@ for (let i = 0; i < tleLines.length; i += 3) {
     scene.add(satellites.at(-1));
 }
 
+// Create the sun pointing helper
+/*
+const length = 7;
+const color = 0x00ffff;
+const sunHelper = new THREE.ArrowHelper(
+    getSunPointingAngle(now),
+    new THREE.Vector3(0, 0, 0),
+    length,
+    color
+);
+scene.add(sunHelper);
+*/
+
 // Add ambient light
 const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
 scene.add(ambientLight);
 
 // Add controls
 const controls = new OrbitControls(camera, renderer.domElement);
-
-// Controls should be disabled when tracking a satellite
 controls.enablePan = false;
-//controls.enableZoom = false;
-
-// The Earth should go one full rotation in scene space every sidereal day (23 hours, 56 minutes)
-// if the simulation is running at 1x speed. Note that the day/night cycle in the frag shader should
-// complete one full rotation every solar day (24 hours) TO DO: verify this
-const siderealDaySeconds = 86164.0905;
-const rotationRate = (2 * Math.PI) / siderealDaySeconds;
-
-// Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
-const speedFactor = 1;
-const renderFrameRate = 30.0; // frames per second
-var elapsedSecond = 0;
-var elapsedTime = 0;
-// Camera is fixed inertial reference, globe rotates
-camera.position.z = -10;
 controls.update();
-/* Satellite following code for camera
-const dist = 3;
-const cameraOffset = new THREE.Vector3(
-    satellites[0].position.x,
-    satellites[0].position.y,
-    satellites[0].position.z
-).multiplyScalar(1 + (dist / satellites[2].position.length()));
-camera.position.copy(cameraOffset);
-satellites[0].getWorldPosition(controls.target);
-controls.update();
-*/
 
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -309,30 +292,53 @@ function onMouseMove(event) {
     }
 }
 
+// Handle window resize
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+});
 
+/* Animation
+ * Uses a renderFrameRate and speedFactor to control the "choppiness" and speed of the animation, respectively. */
+// Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
+const renderParameters = {
+    speedFactor: 1, // multiple of realtime
+    animFrameRate: 30.0 // frames per second
+};
+// gui debug controls
+gui
+    .add(renderParameters, 'speedFactor')
+    .min(1)
+    .max(3600);
+
+gui
+    .add(renderParameters, 'animFrameRate')
+    .min(10)
+    .max(60);
+
+// Vars that are used for rendering at a fixed framerate while
+// being able to adjust the simulation speed
+var elapsedSecond = 0;
+var elapsedTime = 0;
 // Function to animate the scene
 function animate() {
-    requestAnimationFrame(animate);
-
     const delta = clock.getDelta();
-    const scaledDelta = speedFactor * delta;
+    const scaledDelta = renderParameters.speedFactor * delta;
     
-    // Rotate the sphere at the speedFactor x real time speed
-    //sphere.rotation.y += rotationRate * scaledDelta;
     elapsedTime += scaledDelta;
-    elapsedSecond += scaledDelta;
+    elapsedSecond += delta;
+
     // This is jank, use a render clock if you want fixed frame rate
-    if (elapsedSecond >= speedFactor / renderFrameRate) {
+    if (elapsedSecond >= 1.0 / renderParameters.animFrameRate) {
         // Update the rotations of things
         const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
         const deltaGmst = satellite.gstime(deltaNow);
-        const deltaSolarT = getSolarTime(deltaNow);
-        const deltaSolarD = getSolarDeclinationAngle(deltaNow);
-        sphere.rotation.y = deltaGmst;
-        sunHelper.setDirection(getSunPointingAngle(deltaGmst, deltaSolarT, deltaSolarD));
-        uniforms.declinationAngle.value = deltaSolarD;
-        uniforms.gmst.value = deltaGmst;
-        uniforms.solarTime.value = deltaSolarT;
+        earth.rotation.y = deltaGmst;
+        //atmosphere.rotation.y = deltaGmst;
+        //sunHelper.setDirection(getSunPointingAngle(deltaNow));
+        getSunPointingAngle(deltaNow);
 
         // Update satellite positions
         for (let j = 0; j < satellites.length; j++) {
@@ -343,27 +349,15 @@ function animate() {
             );
         }
 
-        /* Satellite following code for camera
-        const cameraOffset = new THREE.Vector3(
-            satellites[0].position.x,
-            satellites[0].position.y,
-            satellites[0].position.z
-        ).multiplyScalar(1 + (dist / satellites[2].position.length()));
-        camera.position.copy(cameraOffset);
-        satellites[0].getWorldPosition(controls.target);
-        controls.update();
-        */
+        // reset the render clock
         elapsedSecond = 0;
     }
-    renderer.render(scene, camera);
-}
+    
+    controls.update();
 
-// Handle window resize
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+}
 
 // Start the animation loop
 const clock = new THREE.Clock();
