@@ -54,7 +54,7 @@ function getSolarDeclinationAngle(date) {
 function getTwilightAngle() {
     // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
     // For some reason doubling the number gives me a result that's closer to reality
-    return 12.0 * Math.PI / 180.0;
+    return 18.0 * Math.PI / 180.0;
 }
 
 function getSolarTime(date) {

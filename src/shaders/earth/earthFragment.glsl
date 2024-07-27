@@ -27,17 +27,15 @@ void main() {
 
     // Fresnel
     float fresnel = dot(viewDirection, normal) + 1.0;
-    fresnel = pow(fresnel, 2.0);
+    float fresnelDay = pow(fresnel, 2.0);
 
     // Atmosphere
-    float daySideTwilightExtent = 0.1;
-    float nightSideTwilightExtent = 0.1;
-    float twilightMix = smoothstep(-0.05, nightSideTwilightExtent + (twilightAngle / pi), sunOrientation)
-                      * (-smoothstep(-0.05, daySideTwilightExtent + (twilightAngle / pi), sunOrientation) + 1.0);
-    vec3 atmosphereColor = mix(dayColor, twilightColor, twilightMix);
-    color = mix(color, dayColor, fresnel * dayMix / 8.0);
-    // divide the mix variable by 10 to done down the atmosphere color by a lot.
-    color = mix(color, twilightColor, fresnel * twilightMix / 5.0);
+    float nightSideTwilightExtent = -0.02; // Done by eye, not physically based
+    float twilightMix = smoothstep(nightSideTwilightExtent, (twilightAngle / pi), sunOrientation)
+                      * (-smoothstep(-(twilightAngle / pi), (twilightAngle / pi), sunOrientation) + 1.0);
+    // divide the mix variable by 8 and 4 to tone down the atmosphere colors by a lot.
+    color = mix(color, dayColor, fresnelDay * dayMix / 8.0);
+    color = mix(color, twilightColor, fresnel * twilightMix / 4.0);
 
     // Specular
     vec3 reflection = reflect(-sunDirection, normal);
@@ -46,9 +44,10 @@ void main() {
     specular = pow(specular, 100.0);
     specular *= specularTexColor;
 
-    vec3 specularColor = mix(vec3(0.31, 0.31, 0.35), atmosphereColor, fresnel);
+    float specularMix = smoothstep(0.0, 1.0 - (twilightAngle / pi), sunOrientation);
+    vec3 specularColor = mix(twilightColor, vec3(0.31, 0.31, 0.35), specularMix);
     color += specular * specularColor;
-    //color = mix(color, atmosphereColor, dayMix);
+    //color = mix(atmosphereColor, color, dayMix);
 
     gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
