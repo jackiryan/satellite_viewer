@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TrailRenderer } from './trails.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
@@ -173,7 +174,7 @@ atmosphere.rotation.y = gmst;
 
 /* Satellites */
 // Read the science TLE file
-const response = await fetch('./science_tles.txt');
+const response = await fetch('./full_catalog.txt');
 if (!response.ok) {
     throw new Error('Network response was not ok ' + response.statusText);
 }
@@ -183,11 +184,12 @@ const tleLines = data.split('\n');
 
 const scaleFactor = earthParameters.radius / 6378;
 function addSatellite(satrec, color, name) {
+    console.log(name);
     const positionAndVelocity = satellite.propagate(satrec, now);
     // This app uses ECI coordinates, so there is no need to convert to Geodetic
     const positionEci = positionAndVelocity.position;
     // Create Satellite Mesh and copy in an initial position
-    const satGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+    const satGeometry = new THREE.SphereGeometry(0.05, 16, 16);
     const satMaterial = new THREE.MeshBasicMaterial(color);
     const scenePosition = new THREE.Vector3(
         positionEci.x * scaleFactor,
@@ -198,6 +200,27 @@ function addSatellite(satrec, color, name) {
     sat.position.copy(scenePosition);
     sat.name = name;
     return sat;
+}
+
+function addTrail(sat) {
+    let trail = new TrailRenderer(scene, false);
+    trail.setAdvanceFrequency(30);
+    const trailMaterial = TrailRenderer.createBaseMaterial();
+    trailMaterial.uniforms.headColor.value.set(1.0, 0.0, 0.0, 1.0);
+    trailMaterial.uniforms.tailColor.value.set(1.0, 0.0, 0.0, 0.0);
+    const trailLength = 100.0;
+    
+    const trailHeadGeometry = [
+        new THREE.Vector3(-0.05, 0.0, 0.0),
+        new THREE.Vector3(0.0, 0.05, 0.0),
+        new THREE.Vector3(0.05, 0.0, 0.0),
+        new THREE.Vector3(-0.05, 0.0, 0.0)
+    ];
+
+    trail.initialize(trailMaterial, trailLength, false, 0, trailHeadGeometry, sat);
+    trail.activate();
+
+    return trail;
 }
 
 // Modifies the position of a given satellite mesh sat with the propagated SPG4
@@ -222,6 +245,9 @@ const colors = [
 ];
 // Create satellites one at a time, eventually this should be BufferGeometry
 for (let i = 0; i < tleLines.length; i += 3) {
+    if (!tleLines[i].includes("ONEWEB") || tleLines[i].includes("DEB") || tleLines[i].includes("R/B")) {
+        continue;
+    } 
     let satreci = satellite.twoline2satrec(
         tleLines[i+1],
         tleLines[i+2]
@@ -231,6 +257,7 @@ for (let i = 0; i < tleLines.length; i += 3) {
     satellites.push(sat);
     scene.add(satellites.at(-1));
 }
+let trail = addTrail(satellites[0]);
 
 // Create the sun pointing helper
 /*
@@ -348,6 +375,8 @@ function animate() {
                 deltaNow
             );
         }
+
+        trail.update();
 
         // reset the render clock
         elapsedSecond = 0;
