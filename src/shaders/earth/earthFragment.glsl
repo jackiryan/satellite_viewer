@@ -41,10 +41,10 @@ void main() {
     vec3 reflection = reflect(-sunDirection, normal);
     float specular = -dot(reflection, viewDirection);
     specular = max(specular, 0.0);
-    specular = pow(specular, 100.0);
+    specular = pow(specular, 50.0);
     specular *= specularTexColor;
 
-    float specularMix = smoothstep(0.0, 1.0 - (twilightAngle / pi), sunOrientation);
+    float specularMix = smoothstep(0.0, (twilightAngle / 3.0 * pi), sunOrientation);
     vec3 specularColor = mix(twilightColor, vec3(0.31, 0.31, 0.35), specularMix);
     color += specular * specularColor;
     //color = mix(atmosphereColor, color, dayMix);

@@ -18,6 +18,7 @@ const scene = new THREE.Scene();
 
 // ... the camera, which will be in a fixed intertial reference, so the Earth will rotate ...
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.x = 0;
 camera.position.z = -10;
 
 // ... and the renderer
@@ -117,6 +118,17 @@ nightTexture.colorSpace = THREE.SRGBColorSpace;
 nightTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 const specularMapTexture = textureLoader.load('./EarthSpec_4096x2048.jpg');
 specularMapTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+
+/* Add a skybox, I don't own this image, so don't commit.
+const bgTexture = textureLoader.load(
+    './TychoSkymap.t4_04096x02048.jpg',
+    () => {
+        bgTexture.mapping = THREE.EquirectangularReflectionMapping;
+        bgTexture.colorSpace = THREE.SRGBColorSpace;
+        scene.background = bgTexture;
+    });
+*/
+
 // Mesh
 const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
 
@@ -174,9 +186,6 @@ atmosphere.rotation.y = gmst;
 /* Satellites */
 // Read the science TLE file
 const response = await fetch('./science_tles.txt');
-if (!response.ok) {
-    throw new Error('Network response was not ok ' + response.statusText);
-}
 // Split the file content by line breaks to get an array of strings
 const data = await response.text();
 const tleLines = data.split('\n');
