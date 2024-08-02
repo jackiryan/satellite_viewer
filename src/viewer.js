@@ -17,8 +17,8 @@ const gui = new GUI();
 const scene = new THREE.Scene();
 
 // ... the camera, which will be in a fixed intertial reference, so the Earth will rotate ...
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.z = -10;
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 100, 100000);
+camera.position.z = -20000;
 
 // ... and the renderer
 const renderer = new THREE.WebGLRenderer({
@@ -87,7 +87,7 @@ function getSunPointingAngle(tPrime) {
 // Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
 // but were chosen so that snowy regions would approximately line up between day and night.
 const earthParameters = {
-    radius: 5,
+    radius: 6378,
     dayColor: '#d7eaf9',
     twilightColor: '#fd5e53'
 };
@@ -172,16 +172,94 @@ earth.rotation.y = gmst;
 atmosphere.rotation.y = gmst;
 
 /* Satellites */
-// Read the science TLE file
-const response = await fetch('./science_tles.txt');
+// Read the whole TLE catalog now
+//const response = await fetch('https://celestrak.org/NORAD/elements/catalog.txt');
+const response = await fetch('./full_catalog.txt')
 if (!response.ok) {
     throw new Error('Network response was not ok ' + response.statusText);
 }
 // Split the file content by line breaks to get an array of strings
 const data = await response.text();
-const tleLines = data.split('\n');
+const tleLines = data.split('\n').filter(function (el) {
+    return el != '';
+});
+//console.log(tleLines);
 
 const scaleFactor = earthParameters.radius / 6378;
+var minXpos = 0.0;
+
+// Create the buffer geometry for the satellites
+function initializeSatelliteBuffer(tleLines) {
+    const geometry = new THREE.BufferGeometry();
+
+
+    var satVerts = new Float32Array(Math.floor(tleLines.length));
+    // Create satellites one at a time, using BufferGeometry
+    for (let i = 0; i < tleLines.length; i += 3) {
+        // The unknown objects create issues for some reason I don't want to figure out rn
+        //if (tleLines[i].includes("UNKNOWN") || !tleLines[i].includes("ONEWEB")) {
+        if (tleLines[i].includes("UNKNOWN")) {
+            continue;
+        }
+        const satrec = satellite.twoline2satrec(
+            tleLines[i+1],
+            tleLines[i+2]
+        );
+
+        const positionVelocity = satellite.propagate(
+            satrec,
+            now
+        );
+        const positionEci = positionVelocity.position;
+        satVerts[i]     =  positionEci.x * scaleFactor;
+        satVerts[i+1] =  positionEci.z * scaleFactor;
+        satVerts[i+2] = -positionEci.y * scaleFactor;
+    }
+    minXpos = Math.min(...satVerts);
+    geometry.setAttribute(
+        'position',
+        new THREE.BufferAttribute(satVerts, 3)
+    );
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            planeXpos: new THREE.Uniform(0.0)
+        },
+        vertexShader: `
+            uniform float planeXpos;
+
+            varying float vSize;
+            void main() {
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                // scale the vertices based on depth, base size 50 units
+                float size = 20000.0 / -mvPosition.z;
+                vSize = size * step(0.0, position.x - planeXpos);
+                //vSize = size;
+
+                gl_Position = projectionMatrix * mvPosition;
+                gl_PointSize = vSize;
+            }
+        `,
+        fragmentShader: `
+        uniform float planeXpos;
+        varying float vSize;
+        void main() {
+            if (vSize <= 0.0) {
+                discard;
+            }
+            vec3 color = vec3(1.0, 1.0, 1.0);
+            gl_FragColor = vec4(color, 1.0);
+        }
+        `,
+        transparent: true
+    });
+    const mesh = new THREE.Points(geometry, material);
+    return mesh;
+}
+
+function updateSatelliteCullPoint(xOffset) {
+    pointCloud.material.uniforms.planeXpos.value = xOffset;
+}
+
 function addSatellite(satrec, color, name) {
     const positionAndVelocity = satellite.propagate(satrec, now);
     // This app uses ECI coordinates, so there is no need to convert to Geodetic
@@ -213,6 +291,11 @@ function updateSatellitePosition(satrec, sat, t) {
     sat.position.copy(deltaPos);
 }
 
+const pointCloud = initializeSatelliteBuffer(tleLines);
+scene.add(pointCloud);
+
+
+/*
 const satrecs = [];
 const satellites = [];
 const colors = [
@@ -231,6 +314,7 @@ for (let i = 0; i < tleLines.length; i += 3) {
     satellites.push(sat);
     scene.add(satellites.at(-1));
 }
+*/
 
 // Create the sun pointing helper
 /*
@@ -245,18 +329,119 @@ const sunHelper = new THREE.ArrowHelper(
 scene.add(sunHelper);
 */
 
+// Add quad
+const geometry = new THREE.BoxGeometry(1000, 20000, 20000);
+const material = new THREE.ShaderMaterial({
+    uniforms: {},
+    vertexShader: `
+        varying vec3 vNormal;
+        void main() {
+            vNormal = (modelMatrix * vec4(normal, 0.0)).xyz;
+            gl_Position = projectionMatrix *  modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+    varying vec3 vNormal;
+    void main() {
+        // pink pink
+        vec3 color = vec3(0.9686274509803922, 0.12549019607843137, 0.5686274509803921);
+        color.x *= abs(vNormal.x);
+        gl_FragColor = vec4(color, 1.0);
+    }
+    `
+});
+const quad = new THREE.Mesh(geometry, material);
+scene.add(quad);
+
+const sliderParams = {
+    enableQuad: false,
+};
+
+quad.visible = sliderParams.enableQuad;
+if (!sliderParams.enableQuad) {
+    updateSatelliteCullPoint(minXpos - 10);
+}
+
+gui
+    .add(sliderParams, 'enableQuad')
+    .onChange(() =>
+    {
+        quad.visible = sliderParams.enableQuad;
+        if (!sliderParams.enableQuad) {
+            isDragging = false;
+            controls.enabled = true;
+            updateSatelliteCullPoint(minXpos - 10);
+        } else {
+            updateSatelliteCullPoint(quad.position.x);
+        }
+    });
+
 // Add ambient light
 const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
 scene.add(ambientLight);
+
+//const pointLight = new THREE.PointLight(0xffffff,1,100000,100000);
+//pointLight.position.z = 20000;
+//scene.add(pointLight);
 
 // Add controls
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enablePan = false;
 controls.update();
 
+
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
+let isDragging = false;
+let dragOffset = new THREE.Vector3();
+
+function onMouseMove(event) {
+    if (!sliderParams.enableQuad) return;
+    event.preventDefault();
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    if (isDragging) {
+        raycaster.setFromCamera(mouse, camera);
+        const vector = new THREE.Vector3(mouse.x, mouse.y, 0.5).unproject(camera);
+        const dir = vector.sub(camera.position).normalize();
+        const distance = (quad.position.z - camera.position.z) / dir.z;
+        const newPos = camera.position.clone().add(dir.multiplyScalar(distance));
+                
+        quad.position.x = newPos.x;
+        updateSatelliteCullPoint(quad.position.x);
+    }
+}
+
+function onMouseDown(event) {
+    if (!sliderParams.enableQuad) return;
+    event.preventDefault();
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObject(quad);
+    if (intersects.length > 0) {
+        isDragging = true;
+        controls.enabled = false;
+        const intersect = intersects[0];
+        dragOffset.copy(intersect.point).sub(quad.position);
+    }
+}
+
+function onMouseUp(event) {
+    if (!sliderParams.enableQuad) return;
+    event.preventDefault();
+    isDragging = false;
+    controls.enabled = true;
+}
+
+window.addEventListener('mousemove', onMouseMove, false);
+window.addEventListener('mousedown', onMouseDown, false);
+window.addEventListener('mouseup', onMouseUp, false);
+
+
+/*
 // Create an HTML element to display the name
 const tooltip = document.createElement('div');
 tooltip.style.position = 'absolute';
@@ -291,6 +476,7 @@ function onMouseMove(event) {
         tooltip.style.display = 'none';
     }
 }
+*/
 
 // Handle window resize
 window.addEventListener('resize', () => {
@@ -340,6 +526,7 @@ function animate() {
         //sunHelper.setDirection(getSunPointingAngle(deltaNow));
         getSunPointingAngle(deltaNow);
 
+        /*
         // Update satellite positions
         for (let j = 0; j < satellites.length; j++) {
             updateSatellitePosition(
@@ -348,6 +535,7 @@ function animate() {
                 deltaNow
             );
         }
+        */
 
         // reset the render clock
         elapsedSecond = 0;
