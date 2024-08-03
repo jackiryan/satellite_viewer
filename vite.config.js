@@ -1,5 +1,6 @@
 import restart from 'vite-plugin-restart'
 import glsl from 'vite-plugin-glsl'
+import { optimizeDeps } from 'vite'
 
 export default {
     root: 'src/',
@@ -14,7 +15,16 @@ export default {
     {
         outDir: '../dist', // Output in the dist/ folder
         emptyOutDir: true, // Empty the folder first
-        sourcemap: true // Add sourcemap
+        sourcemap: true, // Add sourcemap
+        target: "es2022"
+    },
+    esbuild: {
+        target: "es2022"
+    },
+    optimizeDeps: {
+        esbuildOptions: {
+            target: "es2022",
+        }
     },
     plugins:
     [
