@@ -17,7 +17,7 @@ const gui = new GUI();
 const scene = new THREE.Scene();
 
 // ... the camera, which will be in a fixed intertial reference, so the Earth will rotate ...
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 100, 100000);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 100, 200000);
 camera.position.z = -20000;
 
 // ... and the renderer
