@@ -109,13 +109,13 @@ gui
     });
 
 // Textures
-const dayTexture = textureLoader.load('./BlueMarble_4096x2048.jpg');
+const dayTexture = textureLoader.load('./BlueMarble_8192x4096.avif');
 dayTexture.colorSpace = THREE.SRGBColorSpace;
 dayTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-const nightTexture = textureLoader.load('./BlackMarble_4096x2048.jpg');
+const nightTexture = textureLoader.load('./BlackMarble_8192x4096.avif');
 nightTexture.colorSpace = THREE.SRGBColorSpace;
 nightTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-const specularMapTexture = textureLoader.load('./EarthSpec_4096x2048.jpg');
+const specularMapTexture = textureLoader.load('./EarthSpec_4096x2048.avif');
 specularMapTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 // Mesh
 const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
