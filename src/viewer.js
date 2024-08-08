@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { TrailRenderer } from './trails.js';
+//import { TrailRenderer } from './trails.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
