@@ -2,35 +2,228 @@
 import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+//import { TrailRenderer } from './trails.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl'
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl'
 
-/* Boilerplate */
+var gui, camera, scene, renderer, controls;
+var earth, earthMaterial, atmosphere, atmosphereMaterial;
 
-// Debug
-const gui = new GUI();
+var raycaster, mouseMove, tooltip;
 
-// Initialize scene...
-const scene = new THREE.Scene();
+const earthParameters = {
+    radius: 5,
+    dayColor: '#d7eaf9',
+    twilightColor: '#fd5e53'
+};
+const scaleFactor = earthParameters.radius / 6378;
+// Determine the initial rotation of the Earth based on the current sidereal time
+const now = new Date(); // Get current time
+// Use satelliteJS to get the sidereal time, which describes the sidereal rotation (relative to fixed stars aka camera) of the Earth.
+const gmst = satellite.gstime(now);
 
-// ... the camera, which will be in a fixed intertial reference, so the Earth will rotate ...
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.z = -10;
+/* Animation
+ * Uses a renderFrameRate and speedFactor to control the "choppiness" and speed of the animation, respectively. */
+// Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
+const renderParameters = {
+    speedFactor: 1, // multiple of realtime
+    animFrameRate: 30.0 // frames per second
+};
+// Vars that are used for rendering at a fixed framerate while
+// being able to adjust the simulation speed
+var elapsedSecond = 0;
+var elapsedTime = 0;
 
-// ... and the renderer
-const renderer = new THREE.WebGLRenderer({
-    antialias: true
-});
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setClearColor('#000011');
-document.body.appendChild(renderer.domElement);
+async function init() {
+    /* Boilerplate */
+    gui = new GUI();
+    scene = new THREE.Scene();
 
-// Loader
-const textureLoader = new THREE.TextureLoader();
+    // The camera will be in a fixed intertial reference, so the Earth will rotate
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = -10;
+
+    renderer = new THREE.WebGLRenderer({
+        antialias: true
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor('#000011');
+    document.body.appendChild(renderer.domElement);
+
+    // Add ambient light
+    const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
+    scene.add(ambientLight);
+
+    // Add controls
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enablePan = false;
+    controls.update();
+
+    const textureLoader = new THREE.TextureLoader();
+
+    /* Earth */
+    // Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
+    // but were chosen so that snowy regions would approximately line up between day and night.
+    const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
+    // Textures
+    const dayTexturePromise = Promise.resolve(textureLoader.load('./BlueMarble_8192x4096.avif'));
+    const nightTexturePromise = Promise.resolve(textureLoader.load('./BlackMarble_8192x4096.avif'));
+    const specularMapTexturePromise = Promise.resolve(textureLoader.load('./EarthSpec_4096x2048.avif'));
+    Promise.all([dayTexturePromise, nightTexturePromise, specularMapTexturePromise]).then((textures) => {
+        textures[0].colorSpace = THREE.SRGBColorSpace;
+        textures[0].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+        textures[1].colorSpace = THREE.SRGBColorSpace;
+        textures[1].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+        textures[2].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+
+        // Shader material can only be created after all three textures have loaded
+        earthMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                dayTexture: new THREE.Uniform(textures[0]),
+                nightTexture: new THREE.Uniform(textures[1]),
+                specularMapTexture: new THREE.Uniform(textures[2]),
+                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
+                twilightAngle: new THREE.Uniform(getTwilightAngle()),
+                dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
+                twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor))
+            },
+            vertexShader: earthVertexShader,
+            fragmentShader: earthFragmentShader
+        });
+
+        earth = new THREE.Mesh(earthGeometry, earthMaterial);
+        scene.add(earth);
+
+        /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
+        const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
+        atmosphereMaterial = new THREE.ShaderMaterial({
+            vertexShader: atmosphereVertexShader,
+            fragmentShader: atmosphereFragmentShader,
+            uniforms:
+            {
+                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
+                dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
+                twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor)),
+                twilightAngle: new THREE.Uniform(getTwilightAngle()),
+            },
+            side: THREE.BackSide,
+            transparent: true
+        });
+        atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+        scene.add(atmosphere);
+
+        // Refer back to definition of gmst if you are confused
+        earth.rotation.y = gmst;
+        atmosphere.rotation.y = gmst;
+
+        /* Debug stuff for checking seasonal variation and other long-term issues
+        // Vernal Equinox 2024, the terminator will be along prime meridian
+        const now = new Date(Date.UTC(2024,2,24,3,6,0,0)); 
+        // Create a test plane for checking sidereal vs solar day issues.
+        const planeGeometry = new THREE.BoxGeometry(0.1, 10, 10);
+        const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+        const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+        scene.add(plane);
+        */
+    
+        getSunPointingAngle(now);
+        controls.update();
+        renderer.render(scene, camera);
+    });
+
+    // Create the sun pointing helper, if needed
+    /*
+    const length = 7;
+    const color = 0x00ffff;
+    const sunHelper = new THREE.ArrowHelper(
+        getSunPointingAngle(now),
+        new THREE.Vector3(0, 0, 0),
+        length,
+        color
+    );
+    scene.add(sunHelper);
+    */
+
+    initGuiTweaks();
+
+
+
+    raycaster = new THREE.Raycaster();
+    mouseMove = new THREE.Vector2();
+
+    // Create an HTML element to display the name
+    tooltip = document.createElement('div');
+    tooltip.style.position = 'absolute';
+    tooltip.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
+    tooltip.style.padding = '5px';
+    tooltip.style.borderRadius = '3px';
+    tooltip.style.display = 'none';
+    document.body.appendChild(tooltip);
+
+
+    window.addEventListener('resize', onWindowResize, false);
+    renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+}
+
+// satellite arrays
+var satrecs = [];
+var satellites = [];
+
+async function initSatellites() {
+    /* Satellites */
+    const colors = [
+        { color: 0xff0000 },
+        { color: 0x00ff00 },
+        { color: 0x0000ff }
+    ];
+
+    try {
+        // Read the science TLE file
+        const response = await fetch('./active_satellites.txt');
+        if (!response.ok) {
+            throw new Error('Network response was not ok ' + response.statusText);
+        }
+        const data = await response.text();
+
+        // Split the file content by line breaks to get an array of strings
+        const tleLines = data.split('\n');
+
+        // Create satellites one at a time, eventually this should be BufferGeometry
+        for (let i = 0; i < tleLines.length; i += 3) {
+            if (tleLines[i].includes("DEB") || tleLines[i].includes("R/B") || tleLines[i] == "") {
+                continue;
+            }
+            let satreci = satellite.twoline2satrec(
+                tleLines[i+1],
+                tleLines[i+2]
+            );
+            satrecs.push(satreci);
+            let sat = addSatellite(satreci, colors[(i / 3) % 3], tleLines[i]);
+            satellites.push(sat);
+            scene.add(satellites.at(-1));
+        }
+        // let trail = addTrail(satellites[0]);
+    } catch (error) {
+        console.error('There was a problem with the fetch operation:', error);
+    }
+}
+
+function initGuiTweaks() {
+    // gui debug controls
+    gui
+        .add(renderParameters, 'speedFactor')
+        .min(1)
+        .max(3600);
+
+    gui
+        .add(renderParameters, 'animFrameRate')
+        .min(10)
+        .max(60);
+}
 
 /* Sun Angle Calculations */
 function dayOfYear(date) {
@@ -82,112 +275,12 @@ function getSunPointingAngle(tPrime) {
     return sunDirection;
 }
 
-
-/* Earth */
-// Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
-// but were chosen so that snowy regions would approximately line up between day and night.
-const earthParameters = {
-    radius: 5,
-    dayColor: '#d7eaf9',
-    twilightColor: '#fd5e53'
-};
-
-// gui debug controls
-gui
-    .addColor(earthParameters, 'dayColor')
-    .onChange(() =>
-    {
-        earthMaterial.uniforms.dayColor.value.set(earthParameters.dayColor);
-        atmosphereMaterial.uniforms.dayColor.value.set(earthParameters.dayColor);
-    });
-gui
-    .addColor(earthParameters, 'twilightColor')
-    .onChange(() =>
-    {
-        earthMaterial.uniforms.twilightColor.value.set(earthParameters.twilightColor);
-        atmosphereMaterial.uniforms.twilightColor.value.set(earthParameters.twilightColor);
-    });
-
-// Textures
-const dayTexture = textureLoader.load('./BlueMarble_8192x4096.avif');
-dayTexture.colorSpace = THREE.SRGBColorSpace;
-dayTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-const nightTexture = textureLoader.load('./BlackMarble_8192x4096.avif');
-nightTexture.colorSpace = THREE.SRGBColorSpace;
-nightTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-const specularMapTexture = textureLoader.load('./EarthSpec_4096x2048.avif');
-specularMapTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-// Mesh
-const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
-
-// Shader material
-const earthMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-        dayTexture: new THREE.Uniform(dayTexture),
-        nightTexture: new THREE.Uniform(nightTexture),
-        specularMapTexture: new THREE.Uniform(specularMapTexture),
-        sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-        twilightAngle: new THREE.Uniform(getTwilightAngle()),
-        dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
-        twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor))
-    },
-    vertexShader: earthVertexShader,
-    fragmentShader: earthFragmentShader
-});
-const earth = new THREE.Mesh(earthGeometry, earthMaterial);
-scene.add(earth);
-
-// Atmosphere
-const atmosphereMaterial = new THREE.ShaderMaterial({
-    vertexShader: atmosphereVertexShader,
-    fragmentShader: atmosphereFragmentShader,
-    uniforms:
-    {
-        sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-        dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
-        twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor)),
-        twilightAngle: new THREE.Uniform(getTwilightAngle()),
-    },
-    side: THREE.BackSide,
-    transparent: true
-});
-const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
-const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-scene.add(atmosphere);
-
-/* Debug stuff for Earth rotation
-//const now = new Date(Date.UTC(2024,2,24,3,6,0,0)); // Vernal Equinox 2024, helpful for testing
-// Create a test plane for checking sidereal vs solar day issues.
-const planeGeometry = new THREE.BoxGeometry(0.1, 10, 10);
-const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
-const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-scene.add(plane);
-*/
-
-// Determine the initial rotation of the sphere based on the current sidereal time
-const now = new Date(); // Get current time
-// Use satelliteJS to get the sidereal time, which describes the sidereal rotation of the Earth.
-const gmst = satellite.gstime(now);
-earth.rotation.y = gmst;
-atmosphere.rotation.y = gmst;
-
-/* Satellites */
-// Read the science TLE file
-const response = await fetch('./science_tles.txt');
-if (!response.ok) {
-    throw new Error('Network response was not ok ' + response.statusText);
-}
-// Split the file content by line breaks to get an array of strings
-const data = await response.text();
-const tleLines = data.split('\n');
-
-const scaleFactor = earthParameters.radius / 6378;
 function addSatellite(satrec, color, name) {
     const positionAndVelocity = satellite.propagate(satrec, now);
     // This app uses ECI coordinates, so there is no need to convert to Geodetic
     const positionEci = positionAndVelocity.position;
     // Create Satellite Mesh and copy in an initial position
-    const satGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+    const satGeometry = new THREE.IcosahedronGeometry(0.02);
     const satMaterial = new THREE.MeshBasicMaterial(color);
     const scenePosition = new THREE.Vector3(
         positionEci.x * scaleFactor,
@@ -200,81 +293,57 @@ function addSatellite(satrec, color, name) {
     return sat;
 }
 
+function addTrail(sat) {
+    let trail = new TrailRenderer(scene, false);
+    trail.setAdvanceFrequency(30);
+    const trailMaterial = TrailRenderer.createBaseMaterial();
+    trailMaterial.uniforms.headColor.value.set(1.0, 0.0, 0.0, 1.0);
+    trailMaterial.uniforms.tailColor.value.set(1.0, 0.0, 0.0, 0.0);
+    const trailLength = 100.0;
+    
+    const trailHeadGeometry = [
+        new THREE.Vector3(-0.05, 0.0, 0.0),
+        new THREE.Vector3(0.0, 0.05, 0.0),
+        new THREE.Vector3(0.05, 0.0, 0.0),
+        new THREE.Vector3(-0.05, 0.0, 0.0)
+    ];
+
+    trail.initialize(trailMaterial, trailLength, false, 0, trailHeadGeometry, sat);
+    trail.activate();
+
+    return trail;
+}
+
 // Modifies the position of a given satellite mesh sat with the propagated SPG4
 // position at time t, as a side effect. No retval.
 function updateSatellitePosition(satrec, sat, t) {
     const deltaPosVel = satellite.propagate(satrec, t);
-    const deltaPosEci = deltaPosVel.position;
-    const deltaPos = new THREE.Vector3(
-        deltaPosEci.x * scaleFactor,
-        deltaPosEci.z * scaleFactor,
-        -deltaPosEci.y * scaleFactor
-    );
-    sat.position.copy(deltaPos);
+    try {
+        const deltaPosEci = deltaPosVel.position;
+        const deltaPos = new THREE.Vector3(
+            deltaPosEci.x * scaleFactor,
+            deltaPosEci.z * scaleFactor,
+            -deltaPosEci.y * scaleFactor
+        );
+        sat.position.copy(deltaPos);
+    } catch(error) {
+        console.log("Satellite", sat.name, " position unknown!");
+        const recNdx = satrecs.indexOf(satrec);
+        satrecs.splice(recNdx, 1);
+        satellites.splice(recNdx, 1);
+        var deorbitedSatellite = scene.getObjectByName(sat.name);
+        scene.remove(deorbitedSatellite);
+    }
 }
-
-const satrecs = [];
-const satellites = [];
-const colors = [
-    { color: 0xff0000 },
-    { color: 0x00ff00 },
-    { color: 0x0000ff }
-];
-// Create satellites one at a time, eventually this should be BufferGeometry
-for (let i = 0; i < tleLines.length; i += 3) {
-    let satreci = satellite.twoline2satrec(
-        tleLines[i+1],
-        tleLines[i+2]
-    );
-    satrecs.push(satreci);
-    let sat = addSatellite(satreci, colors[(i / 3) % 3], tleLines[i]);
-    satellites.push(sat);
-    scene.add(satellites.at(-1));
-}
-
-// Create the sun pointing helper
-/*
-const length = 7;
-const color = 0x00ffff;
-const sunHelper = new THREE.ArrowHelper(
-    getSunPointingAngle(now),
-    new THREE.Vector3(0, 0, 0),
-    length,
-    color
-);
-scene.add(sunHelper);
-*/
-
-// Add ambient light
-const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
-scene.add(ambientLight);
-
-// Add controls
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enablePan = false;
-controls.update();
-
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-
-// Create an HTML element to display the name
-const tooltip = document.createElement('div');
-tooltip.style.position = 'absolute';
-tooltip.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
-tooltip.style.padding = '5px';
-tooltip.style.borderRadius = '3px';
-tooltip.style.display = 'none';
-document.body.appendChild(tooltip);
-renderer.domElement.addEventListener('mousemove', onMouseMove, false);
 
 function onMouseMove(event) {
     event.preventDefault();
     // Update the mouse variable
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    mouseMove.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouseMove.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
     // Update the raycaster with the camera and mouse position
-    raycaster.setFromCamera(mouse, camera);
+    raycaster.setFromCamera(mouseMove, camera);
 
     // Calculate objects intersecting the raycaster
     var intersects = raycaster.intersectObjects(satellites, true);
@@ -292,36 +361,13 @@ function onMouseMove(event) {
     }
 }
 
-// Handle window resize
-window.addEventListener('resize', () => {
+function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-});
+    //renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+}
 
-/* Animation
- * Uses a renderFrameRate and speedFactor to control the "choppiness" and speed of the animation, respectively. */
-// Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
-const renderParameters = {
-    speedFactor: 1, // multiple of realtime
-    animFrameRate: 30.0 // frames per second
-};
-// gui debug controls
-gui
-    .add(renderParameters, 'speedFactor')
-    .min(1)
-    .max(3600);
-
-gui
-    .add(renderParameters, 'animFrameRate')
-    .min(10)
-    .max(60);
-
-// Vars that are used for rendering at a fixed framerate while
-// being able to adjust the simulation speed
-var elapsedSecond = 0;
-var elapsedTime = 0;
 // Function to animate the scene
 function animate() {
     const delta = clock.getDelta();
@@ -349,6 +395,8 @@ function animate() {
             );
         }
 
+        //trail.update();
+
         // reset the render clock
         elapsedSecond = 0;
     }
@@ -359,6 +407,9 @@ function animate() {
     requestAnimationFrame(animate);
 }
 
+await init();
+await initSatellites();
 // Start the animation loop
 const clock = new THREE.Clock();
 animate();
+
