@@ -123,12 +123,7 @@ async function init() {
 
     });
 
-    try {
-        await initSatellites();
-        // Code to execute after initSatellites completes
-    } catch (error) {
-        console.error('There was a problem initializing satellites:', error);
-    }
+        
 
     // Create the sun pointing helper, if needed
     /*
@@ -185,7 +180,7 @@ async function initSatellites() {
 
     try {
         // Read the science TLE file
-        const response = await fetch('./full_catalog.txt');
+        const response = await fetch('./active_satellites.tle');
         if (!response.ok) {
             throw new Error('Network response was not ok ' + response.statusText);
         }
@@ -196,7 +191,7 @@ async function initSatellites() {
 
         // Create satellites one at a time, eventually this should be BufferGeometry
         for (let i = 0; i < tleLines.length; i += 3) {
-            if (!tleLines[i].includes("ONEWEB") || tleLines[i].includes("DEB") || tleLines[i].includes("R/B")) {
+            if (tleLines[i].includes("DEB") || tleLines[i].includes("R/B") || tleLines[i] == "") {
                 continue;
             }
             let satreci = satellite.twoline2satrec(
@@ -282,7 +277,7 @@ function addSatellite(satrec, color, name) {
     // This app uses ECI coordinates, so there is no need to convert to Geodetic
     const positionEci = positionAndVelocity.position;
     // Create Satellite Mesh and copy in an initial position
-    const satGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+    const satGeometry = new THREE.IcosahedronGeometry(0.02);
     const satMaterial = new THREE.MeshBasicMaterial(color);
     const scenePosition = new THREE.Vector3(
         positionEci.x * scaleFactor,
@@ -320,13 +315,22 @@ function addTrail(sat) {
 // position at time t, as a side effect. No retval.
 function updateSatellitePosition(satrec, sat, t) {
     const deltaPosVel = satellite.propagate(satrec, t);
-    const deltaPosEci = deltaPosVel.position;
-    const deltaPos = new THREE.Vector3(
-        deltaPosEci.x * scaleFactor,
-        deltaPosEci.z * scaleFactor,
-        -deltaPosEci.y * scaleFactor
-    );
-    sat.position.copy(deltaPos);
+    try {
+        const deltaPosEci = deltaPosVel.position;
+        const deltaPos = new THREE.Vector3(
+            deltaPosEci.x * scaleFactor,
+            deltaPosEci.z * scaleFactor,
+            -deltaPosEci.y * scaleFactor
+        );
+        sat.position.copy(deltaPos);
+    } catch(error) {
+        console.log("Satellite", sat.name, " position unknown!");
+        const recNdx = satrecs.indexOf(satrec);
+        satrecs.splice(recNdx, 1);
+        satellites.splice(recNdx, 1);
+        var deorbitedSatellite = scene.getObjectByName(sat.name);
+        scene.remove(deorbitedSatellite);
+    }
 }
 
 function onMouseMove(event) {
@@ -401,6 +405,8 @@ function animate() {
 }
 
 await init();
+await initSatellites();
 // Start the animation loop
 const clock = new THREE.Clock();
 animate();
+
