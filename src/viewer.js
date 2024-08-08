@@ -54,6 +54,15 @@ async function init() {
     renderer.setClearColor('#000011');
     document.body.appendChild(renderer.domElement);
 
+    // Add ambient light
+    const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
+    scene.add(ambientLight);
+
+    // Add controls
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enablePan = false;
+    controls.update();
+
     const textureLoader = new THREE.TextureLoader();
 
     /* Earth */
@@ -120,10 +129,11 @@ async function init() {
         const plane = new THREE.Mesh(planeGeometry, planeMaterial);
         scene.add(plane);
         */
-
+    
+        getSunPointingAngle(now);
+        controls.update();
+        renderer.render(scene, camera);
     });
-
-        
 
     // Create the sun pointing helper, if needed
     /*
@@ -140,14 +150,7 @@ async function init() {
 
     initGuiTweaks();
 
-    // Add ambient light
-    const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
-    scene.add(ambientLight);
 
-    // Add controls
-    controls = new OrbitControls(camera, renderer.domElement);
-    controls.enablePan = false;
-    controls.update();
 
     raycaster = new THREE.Raycaster();
     mouseMove = new THREE.Vector2();
@@ -180,7 +183,7 @@ async function initSatellites() {
 
     try {
         // Read the science TLE file
-        const response = await fetch('./active_satellites.tle');
+        const response = await fetch('./active_satellites.txt');
         if (!response.ok) {
             throw new Error('Network response was not ok ' + response.statusText);
         }
