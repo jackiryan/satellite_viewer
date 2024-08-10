@@ -203,11 +203,14 @@ async function initSatellites() {
             );
             satrecs.push(satreci);
             let sat = addSatellite(satreci, colors[(i / 3) % 3], tleLines[i]);
-            satellites.push(sat);
-            scene.add(satellites.at(-1));
+            if (sat != undefined) {
+                satellites.push(sat);
+                scene.add(satellites.at(-1));
+            }
         }
         // let trail = addTrail(satellites[0]);
     } catch (error) {
+        // console.log("satname", satrecs.at(-1).name);
         console.error('There was a problem with the fetch operation:', error);
     }
 }
@@ -276,21 +279,27 @@ function getSunPointingAngle(tPrime) {
 }
 
 function addSatellite(satrec, color, name) {
-    const positionAndVelocity = satellite.propagate(satrec, now);
-    // This app uses ECI coordinates, so there is no need to convert to Geodetic
-    const positionEci = positionAndVelocity.position;
     // Create Satellite Mesh and copy in an initial position
     const satGeometry = new THREE.IcosahedronGeometry(0.02);
     const satMaterial = new THREE.MeshBasicMaterial(color);
-    const scenePosition = new THREE.Vector3(
-        positionEci.x * scaleFactor,
-        positionEci.z * scaleFactor,
-        -positionEci.y * scaleFactor
-    );
     const sat = new THREE.Mesh(satGeometry, satMaterial);
-    sat.position.copy(scenePosition);
     sat.name = name;
-    return sat;
+    try {
+        const deltaPosVel = satellite.propagate(satrec, now);
+        const deltaPosEci = deltaPosVel.position;
+        const deltaPos = new THREE.Vector3(
+            deltaPosEci.x * scaleFactor,
+            deltaPosEci.z * scaleFactor,
+            -deltaPosEci.y * scaleFactor
+        );
+        sat.position.copy(deltaPos);
+        return sat;
+    } catch(error) {
+        console.log("Satellite", sat.name, " position unknown!");
+        const recNdx = satrecs.indexOf(satrec);
+        satrecs.splice(recNdx, 1);
+        return undefined;
+    }
 }
 
 function addTrail(sat) {
