@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import logging
+import os
+import requests
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+satellite_groups = {
+    "GLONASS Operational": {
+        "supGpName": "glonass",
+        "country": "ru",
+        "entities": {}
+    },
+    "GPS Operational": {
+        "supGpName": "gps",
+        "country": "us",
+        "entities": {}
+    },
+    "Intelsat": {
+        "supGpName": "intelsat",
+        "country": "lu",
+        "entities": {}
+    },
+    "Iridium": {
+        "supGpName": "iridium",
+        "country": "us",
+        "entities": {}
+    },
+    "ISS": {
+        "supGpName": "iss",
+        "entities": {}
+    },
+    "Kuiper": {
+        "supGpName": "kuiper",
+        "country": "us",
+        "entities": {}
+    },
+    "OneWeb": {
+        "supGpName": "oneweb",
+        "country": "uk",
+        "entities": {}
+    },
+    "Planet": {
+        "supGpName": "planet",
+        "country": "us",
+        "entities": {}
+    },
+    "Starlink": {
+        "supGpName": "starlink",
+        "country": "us",
+        "entities": {}
+    },
+    "Telesat": {
+        "supGpName": "telesat",
+        "country": "ca",
+        "entities": {}
+    },
+    "Other": {
+        "entities": {}
+    }
+}
+
+special_colors = {
+    "ISS (ZARYA)": "#f72091"
+}
+
+def remove_blanks(
+        lines: list[str]
+) -> list[str]:
+    return [line for line in lines if line.strip()]
+
+def find_group(
+        norad_id: int,
+        group_data: dict[str, list[int]]
+) -> str:
+    for group_name, entity_ids in group_data.items():
+        if norad_id in entity_ids:
+            return group_name
+    return "Other"
+
+def get_norad_id(
+        tle_line: str
+) -> int:
+    return int(tle_line[2:7])
+
+def add_satellite(
+        name: str,
+        tle_line1: str,
+        tle_line2: str,
+        norad_id: int,
+        group: str
+) -> None:
+    logger.debug(f"Adding {name} to the group {group}")
+    satellite_groups[group]["entities"][name] = {
+        "noradId": norad_id,
+        "tleLine1": tle_line1,
+        "tleLine2": tle_line2
+    }
+    entity_color = special_colors.get(name)
+    if entity_color is not None:
+        logger.debug(f"Setting the special entity color {entity_color} for this satellite")
+        satellite_groups[group]["entities"][name]["entityColor"] = entity_color
+
+def download_file(
+        url: str,
+        save_path: str
+) -> None:
+    try:
+        response = requests.get(url)
+
+        if response.status_code == 200:
+            with open(save_path, "wb") as fp:
+                fp.write(response.content)
+            logger.debug(f"File successfully downloaded and saved to {save_path}")
+        else:
+            logger.error(f"Failed to download file at {url}. Status code: {response.status_code}")
+    except Exception as e:
+        logger.error(f"A Python error occurred when downloading: {e}")
+        raise e
+
+def download_content(
+    url: str    
+) -> bytes:
+    try:
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            return response.content
+        else:
+            logger.error(f"Failed to download file at {url}. Status code: {response.status_code}")
+            return bytes()
+    except Exception as e:
+        logger.error(f"A Python error occurred when downloading: {e}")
+        raise e
+
+def download_tle_file(
+        level: Optional[str],
+        workdir: Optional[str]
+) -> str:
+    catgroup = level or "active"
+    catfile = f"{catgroup}_satellites.txt"
+    catalog_url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={catgroup}&FORMAT=tle"
+    save_path = catfile
+    if workdir is not None:
+        save_path = str(os.path.join(workdir, catfile))
+    download_file(catalog_url, save_path)
+
+def download_group_files() -> dict[str, list[int]]:
+    group_data = {}
+    for group_name, group in satellite_groups.items():
+        sup_gp_name = group.get("supGpName")
+        if sup_gp_name is None:
+            continue
+        sup_gp_url = f"https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE={sup_gp_name}&FORMAT=csv"
+        logger.debug(f"Getting supplemental group data for {sup_gp_name}...")
+        sup_gp_data = download_content(sup_gp_url)
+        sup_gp_lines = remove_blanks(sup_gp_data.decode("utf-8").splitlines())
+        try:
+            id_ndx = sup_gp_lines[0].split(",").index("NORAD_CAT_ID")
+        except ValueError as e:
+            logging.error(f"Failed to find NORAD_CAT_ID in group csv")
+            raise e
+        group_data[group_name] = [int(gp_sat.split(",")[id_ndx]) for gp_sat in sup_gp_lines[1:]]
+        logger.debug(f"Found {len(sup_gp_lines)} entries for the {sup_gp_name} group.")
+    return group_data
+
+def parse_tle(
+        infile: str,
+        group_data: dict[str, list[int]],
+        workdir: Optional[str]
+) -> None:
+    with open(infile) as infp:
+        lines = infp.readlines()
+    outfile = f"{os.path.splitext(infile)[0]}.json"
+    if workdir is not None:
+        outfile = os.path.join(workdir, outfile)
+    tle_lines = remove_blanks(lines)
+    for line_ndx, line in enumerate(tle_lines):
+        if line_ndx % 3 == 0:
+            sat_name = line.strip()
+        elif line_ndx % 3 == 1:
+            tle_line1 = line.strip()
+            norad_id = get_norad_id(tle_line1)
+            group = find_group(norad_id, group_data)
+        elif line_ndx % 3 == 2:
+            tle_line2 = line.strip()
+            add_satellite(
+                sat_name,
+                tle_line1,
+                tle_line2,
+                norad_id,
+                group
+            )
+    try:
+        with open(outfile, "w") as outfp:
+            json.dump(satellite_groups, outfp, indent=2)
+    except Exception as e:
+        logging.error(f"Error writing satellite database: {e}")
+        logging.debug("Satellite database is as follows:")
+        logging.debug(satellite_groups)
+
+def setup_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "infile",
+        type=str,
+        metavar="FILE",
+        help="input text file containing TLEs from Celestrak"
+    )
+    parser.add_argument(
+        "-w",
+        "--workdir",
+        type=str,
+        help="working directory, default is cwd"
+    )
+    # parser.add_argument(
+    #     "-l",
+    #     "--level",
+    #     help="catalog level, options are active (default), science, full"
+    # )
+    return parser
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        filename="getSatellites_service.log",
+        filemode="w"
+    )
+    parser = setup_parser()
+    args = parser.parse_args()
+
+    # download_tle_file(args.level, args.workdir)
+    group_data = download_group_files()
+    parse_tle(args.infile, group_data, args.workdir)
+
+if __name__ == "__main__":
+    main()
