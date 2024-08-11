@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+from copy import deepcopy
 import json
 import logging
-import os
 import pathlib
 import requests
 
@@ -18,7 +18,7 @@ satellite_groups = {
     "GPS": {
         "supGpName": "gps",
         "country": "us",
-        "baseColor": "#4b5320",
+        "baseColor": "#ffffff",
         "entities": {}
     },
     "Intelsat": {
@@ -30,42 +30,41 @@ satellite_groups = {
     "Iridium": {
         "supGpName": "iridium",
         "country": "us",
-        "baseColor": "#00a4e1",
+        "baseColor": "#8a96a0",
         "entities": {}
     },
     "ISS": {
         "supGpName": "iss",
-        "baseColor": "#00a4e1",
         "entities": {}
     },
     "Kuiper": {
         "supGpName": "kuiper",
         "country": "us",
-        "baseColor": "#00a4e1",
+        "baseColor": "#f7a51e",
         "entities": {}
     },
     "OneWeb": {
         "supGpName": "oneweb",
         "country": "gb",
-        "baseColor": "#00a4e1",
+        "baseColor": "#fa6464",
         "entities": {}
     },
     "Planet Labs": {
         "supGpName": "planet",
         "country": "us",
-        "baseColor": "#00a4e1",
+        "baseColor": "#009ea6",
         "entities": {}
     },
     "Starlink": {
         "supGpName": "starlink",
         "country": "us",
-        "baseColor": "#00a4e1",
+        "baseColor": "#821e00",
         "entities": {}
     },
     "Telesat": {
         "supGpName": "telesat",
         "country": "ca",
-        "baseColor": "#00a4e1",
+        "baseColor": "#ffe203",
         "entities": {}
     },
     "Other": {
@@ -186,10 +185,16 @@ def parse_tle(
 def write_group_files(
         workdir: pathlib.Path
 ) -> None:
-    for group in satellite_groups.values():
-        gp_name = group.get("supGpName", "other")
+    # Write index.json which will be used to find uris to other group json files
+    index_file = workdir / "index.json"
+    group_index = deepcopy(satellite_groups)
+    for k, v in satellite_groups.items():
+        gp_name = v.get("supGpName", "other")
         outfile = workdir / f"{gp_name}.json"
-        outfile.write_text(json.dumps(group, indent=2))
+        outfile.write_text(json.dumps(v, indent=2))
+        # Replace the entities tag in the group_index with the uri to the group json
+        group_index[k]["entities"] = f"./groups/{gp_name}.json"
+    index_file.write_text(json.dumps(group_index, indent=2))
 
 def write_one_file(
         infile: pathlib.Path,

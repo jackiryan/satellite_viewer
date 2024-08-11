@@ -1,64 +1,63 @@
 {
-    "GLONASS": {
-        "supGpName": "glonass",
-        "country": "ru",
-        "baseColor": "#d62718",
-        "entities": "./groups/glonass.json"
-    },
-    "GPS": {
-        "supGpName": "gps",
-        "country": "us",
-        "baseColor": "#4b5320",
-        "entities": "./groups/gps.json"
-    },
-    "Intelsat": {
-        "supGpName": "intelsat",
-        "country": "lu",
-        "baseColor": "#00a4e1",
-        "entities": "./groups/intelsat.json"
-    },
-    "Iridium": {
-        "supGpName": "iridium",
-        "country": "us",
-        "baseColor": "#00a4e1",
-        "entities": "./groups/iridium.json"
-    },
-    "ISS": {
-        "supGpName": "iss",
-        "baseColor": "#00a4e1",
-        "entities": "./groups/iss.json"
-    },
-    "Kuiper": {
-        "supGpName": "kuiper",
-        "country": "us",
-        "baseColor": "#00a4e1",
-        "entities": "./groups/kuiper.json"
-    },
-    "OneWeb": {
-        "supGpName": "oneweb",
-        "country": "gb",
-        "baseColor": "#00a4e1",
-        "entities": "./groups/oneweb.json"
-    },
-    "Planet Labs": {
-        "supGpName": "planet",
-        "country": "us",
-        "baseColor": "#00a4e1",
-        "entities": "./groups/planet.json"
-    },
-    "Starlink": {
-        "supGpName": "starlink",
-        "country": "us",
-        "baseColor": "#00a4e1",
-        "entities": "./groups/starlink.json"
-    },
-    "Telesat": {
-        "supGpName": "telesat",
-        "country": "ca",
-        "baseColor": "#00a4e1",
-        "entities": "./groups/telesat.json"
-    },
-    "Other": {
-        "entities": "./groups/other.json"
-    }
+  "GLONASS": {
+    "supGpName": "glonass",
+    "country": "ru",
+    "baseColor": "#d62718",
+    "entities": "./groups/glonass.json"
+  },
+  "GPS": {
+    "supGpName": "gps",
+    "country": "us",
+    "baseColor": "#4b5320",
+    "entities": "./groups/gps.json"
+  },
+  "Intelsat": {
+    "supGpName": "intelsat",
+    "country": "lu",
+    "baseColor": "#00a4e1",
+    "entities": "./groups/intelsat.json"
+  },
+  "Iridium": {
+    "supGpName": "iridium",
+    "country": "us",
+    "baseColor": "#8a96a0",
+    "entities": "./groups/iridium.json"
+  },
+  "ISS": {
+    "supGpName": "iss",
+    "entities": "./groups/iss.json"
+  },
+  "Kuiper": {
+    "supGpName": "kuiper",
+    "country": "us",
+    "baseColor": "#f7a51e",
+    "entities": "./groups/kuiper.json"
+  },
+  "OneWeb": {
+    "supGpName": "oneweb",
+    "country": "gb",
+    "baseColor": "#fa6464",
+    "entities": "./groups/oneweb.json"
+  },
+  "Planet Labs": {
+    "supGpName": "planet",
+    "country": "us",
+    "baseColor": "#009ea6",
+    "entities": "./groups/planet.json"
+  },
+  "Starlink": {
+    "supGpName": "starlink",
+    "country": "us",
+    "baseColor": "#821e00",
+    "entities": "./groups/starlink.json"
+  },
+  "Telesat": {
+    "supGpName": "telesat",
+    "country": "ca",
+    "baseColor": "#ffe203",
+    "entities": "./groups/telesat.json"
+  },
+  "Other": {
+    "entities": "./groups/other.json"
+  }
 }

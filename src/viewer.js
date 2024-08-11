@@ -4,6 +4,7 @@ import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 //import { TrailRenderer } from './trails.js';
 import { Entity, populateButtonGroup, fetchEntities } from './satellites.js';
+import { EntityGroupMap } from './entityGroupMap.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
@@ -21,64 +22,31 @@ const earthParameters = {
     dayColor: '#d7eaf9',
     twilightColor: '#fd5e53'
 };
-const scaleFactor = earthParameters.radius / 6378;
+//const scaleFactor = earthParameters.radius / 6378;
 // Determine the initial rotation of the Earth based on the current sidereal time
 const now = new Date(); // Get current time
 // Use satelliteJS to get the sidereal time, which describes the sidereal rotation (relative to fixed stars aka camera) of the Earth.
 const gmst = satellite.gstime(now);
 
-// satellite arrays
-var groupMap = new Map();
-function checkMembership(item) {
-    for (const group in groupMap) {
-        if (groupMap[group]["items"].has(item)) {
-            return true;
-        }
-    }
-    return false;
-}
-function deleteMember(item) {
-    for (const group in groupMap) {
-        groupMap[group]["items"].delete(item);
-    }
-}
-function addGroup(name, items) {
-    groupMap[name] = {
-        "displayed": true,
-        "items": items
-    }
-    displayGroup(name);
-}
-function removeGroup(name) {
-    groupMap.delete(name);
-}
-function hideGroup(name) {
-    const entitiesToHide = groupMap[name]["items"];
-    entitiesToHide.forEach(et => {
-        et.hide();
-    });
-    groupMap[name]["displayed"] = false;
-}
-function displayGroup(name) {
-    const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-    const entitiesToShow = groupMap[name]["items"];
-    entitiesToShow.forEach(et => {
-        et.display(deltaNow);
-    });
-    groupMap[name]["displayed"] = true;
-}
+// satellite data is stored in this data structure
+var groupMap = new EntityGroupMap();
 
 /* Animation
  * Uses a renderFrameRate and speedFactor to control the "choppiness" and speed of the animation, respectively. */
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
 const renderParameters = {
     speedFactor: 1, // multiple of realtime
-    animFrameRate: 30.0 // frames per second
+    animFrameRate: 50.0 // frames per second
 };
 // Vars that are used for rendering at a fixed framerate while
 // being able to adjust the simulation speed
 var elapsedSecond = 0;
 var elapsedTime = 0;
+
+function getOffsetHeight() {
+    const container = document.getElementsByClassName('button-container')[0];
+    return container.offsetHeight == 0 ? 51 : container.offsetHeight;
+}
 
 async function init() {
     /* Boilerplate */
@@ -93,8 +61,10 @@ async function init() {
         antialias: true
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    //renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor('#000011');
+    renderer.domElement.classList.add('webgl');
+    //renderer.domElement.classList.add('canvas-container');
     document.body.appendChild(renderer.domElement);
 
     // Add ambient light
@@ -140,6 +110,7 @@ async function init() {
 
         earth = new THREE.Mesh(earthGeometry, earthMaterial);
         scene.add(earth);
+        earth.name = "earth";
 
         /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
         const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
@@ -158,6 +129,7 @@ async function init() {
         });
         atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
         scene.add(atmosphere);
+        atmosphere.name = "atm";
 
         // Refer back to definition of gmst if you are confused
         earth.rotation.y = gmst;
@@ -193,13 +165,13 @@ async function init() {
 
     initGuiTweaks();
 
-
-
     raycaster = new THREE.Raycaster();
     mouseMove = new THREE.Vector2();
 
     // Create an HTML element to display the name
     tooltip = document.createElement('div');
+    tooltip.style.fontFamily = 'AudioLink Mono';
+    tooltip.style.fontWeight = 'light';
     tooltip.style.position = 'absolute';
     tooltip.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
     tooltip.style.padding = '5px';
@@ -209,7 +181,7 @@ async function init() {
 
 
     window.addEventListener('resize', onWindowResize, false);
-    //renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+    renderer.domElement.addEventListener('mousemove', onMouseMove, false);
 }
 
 async function initSatellites() {
@@ -217,6 +189,7 @@ async function initSatellites() {
     window.addEventListener('hideGroup', onGroupHidden, false);
     window.addEventListener('destroyEntity', onEntityDestroyed, false);
     await populateButtonGroup();
+    //groupMap.initGroup(scene, "./groups/iss.json", now);
 }
 
 
@@ -305,67 +278,51 @@ function addTrail(sat) {
 }
 
 async function onGroupDisplayed(event) {
-    const entitiesUrl = event.detail;
-    const entitiesAdded = groupMap[entitiesUrl];
+    const groupName = event.detail;
+    const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
 
-    if (entitiesAdded) {
-        if (!entitiesAdded["displayed"]) {
-            displayGroup(entitiesUrl);
+    if (groupMap.hasGroup(groupName)) {
+        if (!groupMap.groupDisplayed(groupName)) {
+            groupMap.displayGroup(groupName, deltaNow);
         }
     } else {
-        initGroup(entitiesUrl);
+        await groupMap.initGroup(scene, groupName, deltaNow);
     }
     
 }
 
-async function initGroup(entitiesUrl) {
-    const groupDb = await fetchEntities(entitiesUrl);
+function onGroupHidden(event) {
+    const groupName = event.detail;
     
-    if (groupDb && groupDb.entities) {
-        const groupData = Object.entries(groupDb.entities);
-        const entities = new Set();
-
-        groupData.forEach(([key, et]) => {
-            let bColor = groupDb.baseColor || et.entityColor || "#ff0000";
-            const entity = new Entity(scene, key, et, bColor);
-            entities.add(entity);
-
-        });
-
-        addGroup(entitiesUrl, entities);
-    } else {
-        console.error('Failed to display group: groupDb is undefined or does not contain entities');
+    if (groupMap.groupDisplayed(groupName)) {
+        groupMap.hideGroup(groupName);
     }
 }
 
-async function onGroupHidden(event) {
-    const entitiesUrl = event.detail;
-    
-    if (groupMap[entitiesUrl]["displayed"]) {
-        hideGroup(entitiesUrl);
-    }
-}
-
-async function onEntityDestroyed(event) {
-    const item = event.detail;
-    deleteMember(item);
+function onEntityDestroyed(event) {
+    groupMap.deleteMember(event.detail);
 }
 
 function onMouseMove(event) {
     event.preventDefault();
     // Update the mouse variable
-    mouseMove.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouseMove.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    mouseMove.x = ((event.clientX) / window.innerWidth) * 2 - 1;
+    mouseMove.y = -((event.clientY - getOffsetHeight()) / window.innerHeight) * 2 + 1;
+    //console.log(`x: ${event.clientX} y: ${event.clientY}`);
 
     // Update the raycaster with the camera and mouse position
     raycaster.setFromCamera(mouseMove, camera);
 
     // Calculate objects intersecting the raycaster
-    var intersects = raycaster.intersectObjects(displayedMeshes, true);
+    var intersects = raycaster.intersectObjects(scene.children, true);
 
     if (intersects.length > 0) {
         // Show tooltip with the name
         const intersectedObject = intersects[0].object;
+        if (intersectedObject.name == "earth" || intersectedObject.name == "atm") {
+            tooltip.style.display = 'none';
+            return;
+        }
         tooltip.style.left = `${event.clientX + 5}px`;
         tooltip.style.top = `${event.clientY + 5}px`;
         tooltip.style.display = 'block';
@@ -402,13 +359,7 @@ function animate() {
         getSunPointingAngle(deltaNow);
 
         // Update satellite positions
-        for (const group in groupMap) {
-            if (groupMap[group]["displayed"] == true) {
-                groupMap[group]["items"].forEach(et => {
-                    et.updatePosition(deltaNow);
-                });
-            }
-        }
+        groupMap.update(deltaNow);
         //trail.update();
 
         // reset the render clock

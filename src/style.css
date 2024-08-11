@@ -1,24 +1,45 @@
-*
-{
-    margin: 0;
-    padding: 0;
+@font-face {
+    font-family: 'AudioLink Mono';
+    src: url('./fonts/AudioLinkMono-Regular.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
 }
 
-html,
+@font-face {
+    font-family: 'AudioLink Mono';
+    src: url('./fonts/AudioLinkMono-Bold.ttf') format('truetype');
+    font-weight: bold;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'AudioLink Mono';
+    src: url('./fonts/AudioLinkMono-Light.ttf') format('truetype');
+    font-weight: light;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'AudioLink Mono';
+    src: url('./fonts/AudioLinkMono-Medium.ttf') format('truetype');
+    font-weight: medium;
+    font-style: normal;
+}
+
 body
 {
+    margin: 0;
     overflow: hidden;
+    font-family: 'AudioLink Mono', sans-serif;
 }
 
 .webgl
 {
-    position: fixed;
-    top: 0;
-    left: 0;
     outline: none;
 }
 
 .toggle-button {
+    font-family: 'AudioLink Mono', sans-serif;
     padding: 10px 20px;
     margin: 5px;
     border: 1px solid #ccc;
@@ -35,11 +56,11 @@ body
 }
 
 .toggle-button.on {
-    background-color: #4caf50;
-    color: white;
+    background-color: #ffffff;
+    color: black;
 }
 
 .toggle-button.off {
-    background-color: #f44336;
+    background-color: #000000;
     color: white;
 }

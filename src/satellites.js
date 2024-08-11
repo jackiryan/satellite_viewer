@@ -27,6 +27,7 @@ export class Entity extends THREE.Object3D {
         this.geometry = new THREE.IcosahedronGeometry(0.02);
         this.material = new THREE.MeshBasicMaterial({ color: this.color });
         this.mesh = new THREE.Mesh(this.geometry, this.material);
+        this.mesh.name = this.name;
     }
 
     destroyMesh() {
@@ -87,7 +88,8 @@ export async function populateButtonGroup() {
 }
 
 function populateButtons(groups) {
-    const container = document.getElementById('button-container');
+    const container = document.getElementsByClassName('button-container')[0];
+    //container.className = 'button-container';
 
     groups.forEach(group => {
         const button = document.createElement('div');
@@ -103,7 +105,7 @@ function populateButtons(groups) {
         const textNode = document.createTextNode(group.name);
         button.appendChild(textNode);
 
-        if (group.name === "Intelsat") {
+        if (group.name === "ISS") {
             toggleButtonState(button, group.entitiesUrl);
         }
 
@@ -111,6 +113,7 @@ function populateButtons(groups) {
 
         container.appendChild(button);
     });
+    //document.body.appendChild(container);
 }
 
 async function toggleButtonState(button, entitiesUrl) {
