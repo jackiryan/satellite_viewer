@@ -1,154 +1,142 @@
 import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 
-/* Satellite code -- very rough */
+const scaleFactor = 5 / 6378;
 
-/* Hardcoded test TLE data
-const tleLines = [
-    // ISS (ZARYA)
-    "1 25544U 98067A   24197.73434340 -.00003641  00000+0 -55873-4 0  9998",
-    "2 25544  51.6386 173.9126 0010242  70.8365 108.5623 15.49867467462978",
-    // Some high altitude satellite (I forgor)
-    "1 43873U 18109A   24196.25380453 -.00000006  00000+0  00000+0 0  9991",
-    "2 43873  55.3065 119.9592 0029353 194.3360 337.8959  2.00557396 40976",
-    // IRIDIUM-140
-    "1 43252U 18030D   24197.61300312  .00000155  00000+0  48304-4 0  9990",
-    "2 43252  86.3962 223.6120 0002684  90.2873 269.8630 14.34218458329634"
-];
-*/
+export class Entity extends THREE.Object3D {
+    constructor(scene, name, attribs, color) {
+        super();
+        this.scene = scene;
+        this.name = name;
+        this.noradId = attribs.noradId;
+        this.color = color;
+        try {
+            this.satrec = satellite.twoline2satrec(
+                attribs.tleLine1,
+                attribs.tleLine2
+            );
+        } catch(error) {
+            console.error('There was a problem creating the satellite record:', error);
+        }
+        this.initMesh();
+        this.destroyEvent = new CustomEvent('destroyEntity', { detail: this });
+        this.displayed = false;
+    }
 
-// Read the science TLE file
-const response = await fetch('./science_tles.txt');
-if (!response.ok) {
-    throw new Error('Network response was not ok ' + response.statusText);
-}
-// Split the file content by line breaks to get an array of strings
-const data = await response.text();
-const tleLines = data.split('\n');
+    initMesh() {
+        this.geometry = new THREE.IcosahedronGeometry(0.02);
+        this.material = new THREE.MeshBasicMaterial({ color: this.color });
+        this.mesh = new THREE.Mesh(this.geometry, this.material);
+    }
 
-const scaleFactor = radius / 6371;
-function addSatellite(satrec, color, name) {
-    const positionAndVelocity = satellite.propagate(satrec, now);
-    // This app uses ECI coordinates, so there is no need to convert to Geodetic
-    const positionEci = positionAndVelocity.position;
-    // Create Satellite Mesh and copy in an initial position
-    const satGeometry = new THREE.SphereGeometry(0.1, 16, 16);
-    const satMaterial = new THREE.MeshBasicMaterial(color);
-    const scenePosition = new THREE.Vector3(
-        positionEci.x * scaleFactor,
-        positionEci.z * scaleFactor,
-        -positionEci.y * scaleFactor
-    );
-    const sat = new THREE.Mesh(satGeometry, satMaterial);
-    sat.position.copy(scenePosition);
-    sat.name = name;
-    return sat;
-}
+    destroyMesh() {
+        if (this.mesh) {
+            this.scene.remove(this.mesh);
+            this.mesh = null;
+        }
+    }
 
-// Modifies the position of a given satellite mesh sat with the propagated SPG4
-// position at time t, as a side effect. No retval.
-function updateSatellitePosition(satrec, sat, t) {
-    const deltaPosVel = satellite.propagate(satrec, t);
-    const deltaPosEci = deltaPosVel.position;
-    const deltaPos = new THREE.Vector3(
-        deltaPosEci.x * scaleFactor,
-        deltaPosEci.z * scaleFactor,
-        -deltaPosEci.y * scaleFactor
-    );
-    sat.position.copy(deltaPos);
-}
+    updatePosition(t) {
+        const deltaPosVel = satellite.propagate(this.satrec, t);
+        try {
+            const deltaPosEci = deltaPosVel.position;
+            const deltaPos = new THREE.Vector3(
+                deltaPosEci.x * scaleFactor,
+                deltaPosEci.z * scaleFactor,
+                -deltaPosEci.y * scaleFactor
+            );
+            this.mesh.position.copy(deltaPos);
+        } catch(error) {
+            console.log('Satellite', this.name, ' position unknown!');
+            window.dispatchEvent(this.destroyEvent);
+            this.hide();
+            this.destroyMesh();
+            
+        }
+    }
 
-const satrecs = [];
-const satellites = [];
-const colors = [
-    { color: 0xff0000 },
-    { color: 0x00ff00 },
-    { color: 0x0000ff }
-];
-// Create satellites one at a time, eventually this should be BufferGeometry
-for (let i = 0; i < tleLines.length; i += 3) {
-    let satreci = satellite.twoline2satrec(
-        tleLines[i+1],
-        tleLines[i+2]
-    );
-    satrecs.push(satreci);
-    let sat = addSatellite(satreci, colors[(i / 3) % 3], tleLines[i]);
-    satellites.push(sat);
-    scene.add(satellites.at(-1));
-}
+    display(t) {
+        if (!this.displayed) {
+            this.displayed = true;
+            this.scene.add(this.mesh);
+            this.updatePosition(t);
+        }
+    }
 
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-
-// Create an HTML element to display the name
-const tooltip = document.createElement('div');
-tooltip.style.position = 'absolute';
-tooltip.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
-tooltip.style.padding = '5px';
-tooltip.style.borderRadius = '3px';
-tooltip.style.display = 'none';
-document.body.appendChild(tooltip);
-renderer.domElement.addEventListener('mousemove', onMouseMove, false);
-
-function onMouseMove(event) {
-    event.preventDefault();
-    // Update the mouse variable
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-    // Update the raycaster with the camera and mouse position
-    raycaster.setFromCamera(mouse, camera);
-
-    // Calculate objects intersecting the raycaster
-    var intersects = raycaster.intersectObjects(satellites, true);
-
-    if (intersects.length > 0) {
-        // Show tooltip with the name
-        const intersectedObject = intersects[0].object;
-        tooltip.style.left = `${event.clientX + 5}px`;
-        tooltip.style.top = `${event.clientY + 5}px`;
-        tooltip.style.display = 'block';
-        tooltip.innerHTML = intersectedObject.name;
-    } else {
-        // Hide the tooltip
-        tooltip.style.display = 'none';
+    hide() {
+        if (this.displayed) {
+            this.displayed = false;
+            this.scene.remove(this.mesh);
+        }
     }
 }
 
-// Function to animate the scene
-function animate() {
-    requestAnimationFrame(animate);
+export async function populateButtonGroup() {
+    const dbUrl = './groups/index.json';
+    const response = await fetch(dbUrl);
+    const satDb = await response.json();
 
-    const delta = clock.getDelta();
-    const scaledDelta = speedFactor * delta;
-    
-    // Rotate the sphere at the speedFactor x real time speed
-    //sphere.rotation.y += rotationRate * scaledDelta;
-    elapsedTime += scaledDelta;
-    elapsedSecond += scaledDelta;
-    // This is jank, use a render clock if you want fixed frame rate
-    if (elapsedSecond >= speedFactor / renderFrameRate) {
-        // Update the rotations of things
-        const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-        const deltaGmst = satellite.gstime(deltaNow);
-        const deltaSolarT = getSolarTime(deltaNow);
-        const deltaSolarD = getSolarDeclinationAngle(deltaNow);
-        sphere.rotation.y = deltaGmst;
-        sunHelper.setDirection(getSunPointingAngle(deltaGmst, deltaSolarT, deltaSolarD));
-        uniforms.declinationAngle.value = deltaSolarD;
-        uniforms.gmst.value = deltaGmst;
-        uniforms.solarTime.value = deltaSolarT;
+    const buttonGroups = Object.keys(satDb).map(key => {
+        return {
+            name: key,
+            country: satDb[key].country ? satDb[key].country.toLowerCase() : null,
+            entitiesUrl: satDb[key].entities
+        };
+    });
 
-        // Update satellite positions
-        for (let j = 0; j < satellites.length; j++) {
-            updateSatellitePosition(
-                satrecs[j],
-                satellites[j],
-                deltaNow
-            );
+    populateButtons(buttonGroups);
+}
+
+function populateButtons(groups) {
+    const container = document.getElementById('button-container');
+
+    groups.forEach(group => {
+        const button = document.createElement('div');
+        button.className = 'toggle-button off'; // Default to 'off' state
+
+        if (group.country) { 
+            const flag = document.createElement('img');
+            flag.src = `https://flagcdn.com/w20/${group.country}.png`;
+            flag.alt = `${group.country} flag`;
+            button.appendChild(flag);
         }
 
-        elapsedSecond = 0;
+        const textNode = document.createTextNode(group.name);
+        button.appendChild(textNode);
+
+        if (group.name === "Intelsat") {
+            toggleButtonState(button, group.entitiesUrl);
+        }
+
+        button.addEventListener('click', () => toggleButtonState(button, group.entitiesUrl));
+
+        container.appendChild(button);
+    });
+}
+
+async function toggleButtonState(button, entitiesUrl) {
+    button.classList.toggle('on');
+    button.classList.toggle('off');
+
+    if (button.classList.contains('on')) {
+        const displayEvent = new CustomEvent('displayGroup', { detail: entitiesUrl });
+        window.dispatchEvent(displayEvent);
+    } else {
+        const hideEvent = new CustomEvent('hideGroup', { detail: entitiesUrl });
+        window.dispatchEvent(hideEvent);
     }
-    renderer.render(scene, camera);
+}
+
+export async function fetchEntities(entitiesUrl) {
+    try {
+        const response = await fetch(entitiesUrl);
+        if (!response.ok) {
+            throw new Error(`Network response was not ok: ${response.statusText}`);
+        }
+        const groupDb = await response.json();
+        return groupDb;
+    } catch (error) {
+        console.error('Failed to fetch entity names:', error);
+        return undefined;
+    }
 }

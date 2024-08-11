@@ -86,10 +86,7 @@ def find_group(
         norad_id: int,
         group_data: dict[str, list[int]]
 ) -> str:
-    for group_name, entity_ids in group_data.items():
-        if norad_id in entity_ids:
-            return group_name
-    return "Other"
+    return next((k for k, v in group_data.items() if norad_id in v), "Other")
 
 def get_norad_id(
         tle_line: str
@@ -104,7 +101,8 @@ def add_satellite(
         group: str
 ) -> None:
     logger.debug(f"Adding {name} to the group {group}")
-    satellite_groups[group]["entities"][name] = {
+    entities = satellite_groups[group]["entities"]
+    entities[name] = {
         "noradId": norad_id,
         "tleLine1": tle_line1,
         "tleLine2": tle_line2
@@ -112,7 +110,7 @@ def add_satellite(
     entity_color = special_colors.get(name)
     if entity_color is not None:
         logger.debug(f"Setting the special entity color {entity_color} for this satellite")
-        satellite_groups[group]["entities"][name]["entityColor"] = entity_color
+        entities[name]["entityColor"] = entity_color
 
 def download_content(
     url: str    
@@ -158,21 +156,22 @@ def parse_tle(
     workdir = workdir or pathlib.Path.cwd()
     tle_lines = remove_blanks(lines)
     for line_ndx, line in enumerate(tle_lines):
-        if line_ndx % 3 == 0:
-            sat_name = line.strip()
-        elif line_ndx % 3 == 1:
-            tle_line1 = line.strip()
-            norad_id = get_norad_id(tle_line1)
-            group = find_group(norad_id, group_data)
-        elif line_ndx % 3 == 2:
-            tle_line2 = line.strip()
-            add_satellite(
-                sat_name,
-                tle_line1,
-                tle_line2,
-                norad_id,
-                group
-            )
+        match line_ndx % 3:
+            case 0:
+                sat_name = line.strip()
+            case 1:
+                tle_line1 = line.strip()
+                norad_id = get_norad_id(tle_line1)
+                group = find_group(norad_id, group_data)
+            case 2:
+                tle_line2 = line.strip()
+                add_satellite(
+                    sat_name,
+                    tle_line1,
+                    tle_line2,
+                    norad_id,
+                    group
+                )
     try:
         if one_file:
             write_one_file(infile, workdir)
@@ -182,12 +181,13 @@ def parse_tle(
         logging.error(f"Error writing satellite database: {e}")
         logging.debug("Satellite database is as follows:")
         logging.debug(satellite_groups)
+        raise e
 
 def write_group_files(
         workdir: pathlib.Path
 ) -> None:
     for group in satellite_groups.values():
-        gp_name = group.get("supGpName") or "other"
+        gp_name = group.get("supGpName", "other")
         outfile = workdir / f"{gp_name}.json"
         outfile.write_text(json.dumps(group, indent=2))
 
@@ -230,7 +230,6 @@ def main() -> None:
     parser = setup_parser()
     args = parser.parse_args()
 
-    # download_tle_file(args.level, args.workdir)
     group_data = download_group_files()
     parse_tle(args.infile, group_data, args.workdir, args.one_file)
 

@@ -3,11 +3,13 @@ import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 //import { TrailRenderer } from './trails.js';
+import { Entity, populateButtonGroup, fetchEntities } from './satellites.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl'
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl'
+import { RectAreaLightUniformsLib } from 'three/examples/jsm/Addons.js';
 
 var gui, camera, scene, renderer, controls;
 var earth, earthMaterial, atmosphere, atmosphereMaterial;
@@ -166,54 +168,21 @@ async function init() {
 
 
     window.addEventListener('resize', onWindowResize, false);
-    renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+    //renderer.domElement.addEventListener('mousemove', onMouseMove, false);
 }
 
 // satellite arrays
-var satrecs = [];
-var satellites = [];
+var displayedEntities = [];
+var groupMap = new Map();
+
 
 async function initSatellites() {
-    /* Satellites */
-    const colors = [
-        { color: 0xff0000 },
-        { color: 0x00ff00 },
-        { color: 0x0000ff }
-    ];
-
-    try {
-        // Read the science TLE file
-        const response = await fetch('./active_satellites.txt');
-        if (!response.ok) {
-            throw new Error('Network response was not ok ' + response.statusText);
-        }
-        const data = await response.text();
-
-        // Split the file content by line breaks to get an array of strings
-        const tleLines = data.split('\n');
-
-        // Create satellites one at a time, eventually this should be BufferGeometry
-        for (let i = 0; i < tleLines.length; i += 3) {
-            if (tleLines[i].includes("DEB") || tleLines[i].includes("R/B") || tleLines[i] == "") {
-                continue;
-            }
-            let satreci = satellite.twoline2satrec(
-                tleLines[i+1],
-                tleLines[i+2]
-            );
-            satrecs.push(satreci);
-            let sat = addSatellite(satreci, colors[(i / 3) % 3], tleLines[i]);
-            if (sat != undefined) {
-                satellites.push(sat);
-                scene.add(satellites.at(-1));
-            }
-        }
-        // let trail = addTrail(satellites[0]);
-    } catch (error) {
-        // console.log("satname", satrecs.at(-1).name);
-        console.error('There was a problem with the fetch operation:', error);
-    }
+    window.addEventListener('displayGroup', onGroupDisplayed, false);
+    window.addEventListener('hideGroup', onGroupHidden, false);
+    window.addEventListener('destroyEntity', onEntityDestroyed, false);
+    await populateButtonGroup();
 }
+
 
 function initGuiTweaks() {
     // gui debug controls
@@ -278,30 +247,6 @@ function getSunPointingAngle(tPrime) {
     return sunDirection;
 }
 
-function addSatellite(satrec, color, name) {
-    // Create Satellite Mesh and copy in an initial position
-    const satGeometry = new THREE.IcosahedronGeometry(0.02);
-    const satMaterial = new THREE.MeshBasicMaterial(color);
-    const sat = new THREE.Mesh(satGeometry, satMaterial);
-    sat.name = name;
-    try {
-        const deltaPosVel = satellite.propagate(satrec, now);
-        const deltaPosEci = deltaPosVel.position;
-        const deltaPos = new THREE.Vector3(
-            deltaPosEci.x * scaleFactor,
-            deltaPosEci.z * scaleFactor,
-            -deltaPosEci.y * scaleFactor
-        );
-        sat.position.copy(deltaPos);
-        return sat;
-    } catch(error) {
-        console.log("Satellite", sat.name, " position unknown!");
-        const recNdx = satrecs.indexOf(satrec);
-        satrecs.splice(recNdx, 1);
-        return undefined;
-    }
-}
-
 function addTrail(sat) {
     let trail = new TrailRenderer(scene, false);
     trail.setAdvanceFrequency(30);
@@ -323,27 +268,75 @@ function addTrail(sat) {
     return trail;
 }
 
-// Modifies the position of a given satellite mesh sat with the propagated SPG4
-// position at time t, as a side effect. No retval.
-function updateSatellitePosition(satrec, sat, t) {
-    const deltaPosVel = satellite.propagate(satrec, t);
-    try {
-        const deltaPosEci = deltaPosVel.position;
-        const deltaPos = new THREE.Vector3(
-            deltaPosEci.x * scaleFactor,
-            deltaPosEci.z * scaleFactor,
-            -deltaPosEci.y * scaleFactor
-        );
-        sat.position.copy(deltaPos);
-    } catch(error) {
-        console.log("Satellite", sat.name, " position unknown!");
-        const recNdx = satrecs.indexOf(satrec);
-        satrecs.splice(recNdx, 1);
-        satellites.splice(recNdx, 1);
-        var deorbitedSatellite = scene.getObjectByName(sat.name);
-        scene.remove(deorbitedSatellite);
+async function onGroupDisplayed(event) {
+    const entitiesUrl = event.detail;
+    const entitiesAdded = groupMap[entitiesUrl];
+
+    if (entitiesAdded) {
+        if (entitiesAdded["displayed"]) {
+            return;
+        } else {
+            const entitiesToShow = entitiesAdded["items"];
+            entitiesToShow.forEach(et => {
+                et.display(now);
+                displayedEntities.push(et);
+            });
+            entitiesAdded["displayed"] = true;
+        }
+    } else {
+        initGroup(entitiesUrl);
+    }
+    
+}
+
+async function initGroup(entitiesUrl) {
+    const groupDb = await fetchEntities(entitiesUrl);
+    
+    if (groupDb && groupDb.entities) {
+        const groupData = Object.entries(groupDb.entities);
+        const entities = [];
+
+        const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
+        groupData.forEach(([key, et]) => {
+            let bColor = groupDb.baseColor || et.entityColor || "#ff0000";
+            const entity = new Entity(scene, key, et, bColor);
+            entity.display(deltaNow);
+            entities.push(entity);
+            displayedEntities.push(entity);
+        });
+
+        groupMap[entitiesUrl] = {
+            "displayed": true,
+            "items": entities
+        };
+    } else {
+        console.error('Failed to display group: groupDb is undefined or does not contain entities');
     }
 }
+
+async function onGroupHidden(event) {
+    const entitiesUrl = event.detail;
+    const entitiesAdded = groupMap[entitiesUrl];
+    
+    if (entitiesAdded) {
+        if (!entitiesAdded["displayed"]) {
+            return;
+        } else {
+            const entitiesToHide = entitiesAdded["items"];
+            entitiesToHide.forEach(et => {
+                et.hide();
+            });
+            displayedEntities.filter(entity => !entitiesToHide.includes(entity));
+            entitiesAdded["displayed"] = false;
+        }
+    }
+}
+
+async function onEntityDestroyed(event) {
+    const destroyNdx = displayedEntities.indexOf(event.detail);
+    displayedEntities.splice(destroyNdx, 1);
+}
+
 
 function onMouseMove(event) {
     event.preventDefault();
@@ -355,7 +348,7 @@ function onMouseMove(event) {
     raycaster.setFromCamera(mouseMove, camera);
 
     // Calculate objects intersecting the raycaster
-    var intersects = raycaster.intersectObjects(satellites, true);
+    var intersects = raycaster.intersectObjects(displayedMeshes, true);
 
     if (intersects.length > 0) {
         // Show tooltip with the name
@@ -396,13 +389,9 @@ function animate() {
         getSunPointingAngle(deltaNow);
 
         // Update satellite positions
-        for (let j = 0; j < satellites.length; j++) {
-            updateSatellitePosition(
-                satrecs[j],
-                satellites[j],
-                deltaNow
-            );
-        }
+        displayedEntities.forEach(et => {
+            et.updatePosition(deltaNow);
+        });
 
         //trail.update();
 

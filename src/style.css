@@ -17,3 +17,29 @@ body
     left: 0;
     outline: none;
 }
+
+.toggle-button {
+    padding: 10px 20px;
+    margin: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: #f0f0f0;
+    color: #333;
+    user-select: none;
+    display: inline-block; /* Ensures buttons appear in a row */
+}
+
+.toggle-button img {
+    margin-right: 12px; /* Increased space between flag and text */
+}
+
+.toggle-button.on {
+    background-color: #4caf50;
+    color: white;
+}
+
+.toggle-button.off {
+    background-color: #f44336;
+    color: white;
+}
