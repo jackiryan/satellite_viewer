@@ -3,6 +3,7 @@ import argparse
 import json
 import logging
 import os
+import pathlib
 import requests
 
 logger = logging.getLogger(__name__)
@@ -113,23 +114,6 @@ def add_satellite(
         logger.debug(f"Setting the special entity color {entity_color} for this satellite")
         satellite_groups[group]["entities"][name]["entityColor"] = entity_color
 
-def download_file(
-        url: str,
-        save_path: str
-) -> None:
-    try:
-        response = requests.get(url)
-
-        if response.status_code == 200:
-            with open(save_path, "wb") as fp:
-                fp.write(response.content)
-            logger.debug(f"File successfully downloaded and saved to {save_path}")
-        else:
-            logger.error(f"Failed to download file at {url}. Status code: {response.status_code}")
-    except Exception as e:
-        logger.error(f"A Python error occurred when downloading: {e}")
-        raise e
-
 def download_content(
     url: str    
 ) -> bytes:
@@ -144,18 +128,6 @@ def download_content(
     except Exception as e:
         logger.error(f"A Python error occurred when downloading: {e}")
         raise e
-
-def download_tle_file(
-        level: str | None,
-        workdir: str | None
-) -> str:
-    catgroup = level or "active"
-    catfile = f"{catgroup}_satellites.txt"
-    catalog_url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={catgroup}&FORMAT=tle"
-    save_path = catfile
-    if workdir is not None:
-        save_path = str(os.path.join(workdir, catfile))
-    download_file(catalog_url, save_path)
 
 def download_group_files() -> dict[str, list[int]]:
     group_data = {}
@@ -177,13 +149,13 @@ def download_group_files() -> dict[str, list[int]]:
     return group_data
 
 def parse_tle(
-        infile: str,
+        infile: pathlib.Path,
         group_data: dict[str, list[int]],
-        workdir: str | None,
+        workdir: pathlib.Path | None,
         one_file: bool
 ) -> None:
-    with open(infile) as infp:
-        lines = infp.readlines()
+    lines = infile.read_text().splitlines()
+    workdir = workdir or pathlib.Path.cwd()
     tle_lines = remove_blanks(lines)
     for line_ndx, line in enumerate(tle_lines):
         if line_ndx % 3 == 0:
@@ -212,38 +184,32 @@ def parse_tle(
         logging.debug(satellite_groups)
 
 def write_group_files(
-        workdir: str | None
+        workdir: pathlib.Path
 ) -> None:
     for group in satellite_groups.values():
         gp_name = group.get("supGpName") or "other"
-        outfile = f"{gp_name}.json"
-        if workdir is not None:
-            outfile = os.path.join(workdir, outfile)
-        with open(outfile, "w") as outfp:
-            json.dump(group, outfp, indent=2)
+        outfile = workdir / f"{gp_name}.json"
+        outfile.write_text(json.dumps(group, indent=2))
 
 def write_one_file(
-        infile: str,
-        workdir: str
+        infile: pathlib.Path,
+        workdir: pathlib.Path
 ) -> None:
-    outfile = f"{infile.splitext()[0]}.json"
-    if workdir is not None:
-        outfile = os.path.join(workdir, outfile)
-    with open(outfile, "w") as outfp:
-        json.dump(satellite_groups, outfp, indent=2)
+    outfile = workdir / f"{infile.stem}.json"
+    outfile.write_text(json.dumps(satellite_groups, indent=2))
 
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "infile",
-        type=str,
+        type=pathlib.Path,
         metavar="FILE",
         help="input text file containing TLEs from Celestrak"
     )
     parser.add_argument(
         "-w",
         "--workdir",
-        type=str,
+        type=pathlib.Path,
         help="working directory, default is cwd"
     )
     parser.add_argument(
@@ -251,11 +217,6 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Store output to a single file instead of one group"
     )
-    # parser.add_argument(
-    #     "-l",
-    #     "--level",
-    #     help="catalog level, options are active (default), science, full"
-    # )
     return parser
 
 def main() -> None:
