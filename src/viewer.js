@@ -188,8 +188,8 @@ async function initSatellites() {
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
     window.addEventListener('destroyEntity', onEntityDestroyed, false);
-    await populateButtonGroup();
-    //groupMap.initGroup(scene, "./groups/iss.json", now);
+    const defaultGroups = new Set(["ISS", "OneWeb"]);
+    await populateButtonGroup(defaultGroups);
 }
 
 

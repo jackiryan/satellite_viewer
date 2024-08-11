@@ -71,7 +71,7 @@ export class Entity extends THREE.Object3D {
     }
 }
 
-export async function populateButtonGroup() {
+export async function populateButtonGroup(defaultGroups) {
     const dbUrl = './groups/index.json';
     const response = await fetch(dbUrl);
     const satDb = await response.json();
@@ -84,10 +84,10 @@ export async function populateButtonGroup() {
         };
     });
 
-    populateButtons(buttonGroups);
+    populateButtons(buttonGroups, defaultGroups);
 }
 
-function populateButtons(groups) {
+function populateButtons(groups, defaultGroups) {
     const container = document.getElementsByClassName('button-container')[0];
     //container.className = 'button-container';
 
@@ -105,7 +105,7 @@ function populateButtons(groups) {
         const textNode = document.createTextNode(group.name);
         button.appendChild(textNode);
 
-        if (group.name === "ISS") {
+        if (defaultGroups.has(group.name)) {
             toggleButtonState(button, group.entitiesUrl);
         }
 
