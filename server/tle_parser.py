@@ -4,58 +4,67 @@ import json
 import logging
 import os
 import requests
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 satellite_groups = {
-    "GLONASS Operational": {
+    "GLONASS": {
         "supGpName": "glonass",
         "country": "ru",
+        "baseColor": "#d62718",
         "entities": {}
     },
-    "GPS Operational": {
+    "GPS": {
         "supGpName": "gps",
         "country": "us",
+        "baseColor": "#4b5320",
         "entities": {}
     },
     "Intelsat": {
         "supGpName": "intelsat",
         "country": "lu",
+        "baseColor": "#00a4e1",
         "entities": {}
     },
     "Iridium": {
         "supGpName": "iridium",
         "country": "us",
+        "baseColor": "#00a4e1",
         "entities": {}
     },
     "ISS": {
         "supGpName": "iss",
+        "baseColor": "#00a4e1",
         "entities": {}
     },
     "Kuiper": {
         "supGpName": "kuiper",
         "country": "us",
+        "baseColor": "#00a4e1",
         "entities": {}
     },
     "OneWeb": {
         "supGpName": "oneweb",
-        "country": "uk",
+        "country": "gb",
+        "baseColor": "#00a4e1",
         "entities": {}
     },
-    "Planet": {
+    "Planet Labs": {
         "supGpName": "planet",
         "country": "us",
+        "baseColor": "#00a4e1",
         "entities": {}
     },
     "Starlink": {
         "supGpName": "starlink",
         "country": "us",
+        "baseColor": "#00a4e1",
         "entities": {}
     },
     "Telesat": {
         "supGpName": "telesat",
         "country": "ca",
+        "baseColor": "#00a4e1",
         "entities": {}
     },
     "Other": {
@@ -137,8 +146,8 @@ def download_content(
         raise e
 
 def download_tle_file(
-        level: Optional[str],
-        workdir: Optional[str]
+        level: str | None,
+        workdir: str | None
 ) -> str:
     catgroup = level or "active"
     catfile = f"{catgroup}_satellites.txt"
@@ -170,13 +179,11 @@ def download_group_files() -> dict[str, list[int]]:
 def parse_tle(
         infile: str,
         group_data: dict[str, list[int]],
-        workdir: Optional[str]
+        workdir: str | None,
+        one_file: bool
 ) -> None:
     with open(infile) as infp:
         lines = infp.readlines()
-    outfile = f"{os.path.splitext(infile)[0]}.json"
-    if workdir is not None:
-        outfile = os.path.join(workdir, outfile)
     tle_lines = remove_blanks(lines)
     for line_ndx, line in enumerate(tle_lines):
         if line_ndx % 3 == 0:
@@ -195,12 +202,35 @@ def parse_tle(
                 group
             )
     try:
-        with open(outfile, "w") as outfp:
-            json.dump(satellite_groups, outfp, indent=2)
+        if one_file:
+            write_one_file(infile, workdir)
+        else:
+            write_group_files(workdir)
     except Exception as e:
         logging.error(f"Error writing satellite database: {e}")
         logging.debug("Satellite database is as follows:")
         logging.debug(satellite_groups)
+
+def write_group_files(
+        workdir: str | None
+) -> None:
+    for group in satellite_groups.values():
+        gp_name = group.get("supGpName") or "other"
+        outfile = f"{gp_name}.json"
+        if workdir is not None:
+            outfile = os.path.join(workdir, outfile)
+        with open(outfile, "w") as outfp:
+            json.dump(group, outfp, indent=2)
+
+def write_one_file(
+        infile: str,
+        workdir: str
+) -> None:
+    outfile = f"{infile.splitext()[0]}.json"
+    if workdir is not None:
+        outfile = os.path.join(workdir, outfile)
+    with open(outfile, "w") as outfp:
+        json.dump(satellite_groups, outfp, indent=2)
 
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
@@ -215,6 +245,11 @@ def setup_parser() -> argparse.ArgumentParser:
         "--workdir",
         type=str,
         help="working directory, default is cwd"
+    )
+    parser.add_argument(
+        "--one-file",
+        action="store_true",
+        help="Store output to a single file instead of one group"
     )
     # parser.add_argument(
     #     "-l",
@@ -236,7 +271,7 @@ def main() -> None:
 
     # download_tle_file(args.level, args.workdir)
     group_data = download_group_files()
-    parse_tle(args.infile, group_data, args.workdir)
+    parse_tle(args.infile, group_data, args.workdir, args.one_file)
 
 if __name__ == "__main__":
     main()
