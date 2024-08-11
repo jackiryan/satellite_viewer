@@ -27,6 +27,47 @@ const now = new Date(); // Get current time
 // Use satelliteJS to get the sidereal time, which describes the sidereal rotation (relative to fixed stars aka camera) of the Earth.
 const gmst = satellite.gstime(now);
 
+// satellite arrays
+var groupMap = new Map();
+function checkMembership(item) {
+    for (const group in groupMap) {
+        if (groupMap[group]["items"].has(item)) {
+            return true;
+        }
+    }
+    return false;
+}
+function deleteMember(item) {
+    for (const group in groupMap) {
+        groupMap[group]["items"].delete(item);
+    }
+}
+function addGroup(name, items) {
+    groupMap[name] = {
+        "displayed": true,
+        "items": items
+    }
+    displayGroup(name);
+}
+function removeGroup(name) {
+    groupMap.delete(name);
+}
+function hideGroup(name) {
+    const entitiesToHide = groupMap[name]["items"];
+    entitiesToHide.forEach(et => {
+        et.hide();
+    });
+    groupMap[name]["displayed"] = false;
+}
+function displayGroup(name) {
+    const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
+    const entitiesToShow = groupMap[name]["items"];
+    entitiesToShow.forEach(et => {
+        et.display(deltaNow);
+    });
+    groupMap[name]["displayed"] = true;
+}
+
 /* Animation
  * Uses a renderFrameRate and speedFactor to control the "choppiness" and speed of the animation, respectively. */
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
@@ -171,11 +212,6 @@ async function init() {
     //renderer.domElement.addEventListener('mousemove', onMouseMove, false);
 }
 
-// satellite arrays
-var displayedEntities = [];
-var groupMap = new Map();
-
-
 async function initSatellites() {
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
@@ -273,15 +309,8 @@ async function onGroupDisplayed(event) {
     const entitiesAdded = groupMap[entitiesUrl];
 
     if (entitiesAdded) {
-        if (entitiesAdded["displayed"]) {
-            return;
-        } else {
-            const entitiesToShow = entitiesAdded["items"];
-            entitiesToShow.forEach(et => {
-                et.display(now);
-                displayedEntities.push(et);
-            });
-            entitiesAdded["displayed"] = true;
+        if (!entitiesAdded["displayed"]) {
+            displayGroup(entitiesUrl);
         }
     } else {
         initGroup(entitiesUrl);
@@ -294,21 +323,16 @@ async function initGroup(entitiesUrl) {
     
     if (groupDb && groupDb.entities) {
         const groupData = Object.entries(groupDb.entities);
-        const entities = [];
+        const entities = new Set();
 
-        const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
         groupData.forEach(([key, et]) => {
             let bColor = groupDb.baseColor || et.entityColor || "#ff0000";
             const entity = new Entity(scene, key, et, bColor);
-            entity.display(deltaNow);
-            entities.push(entity);
-            displayedEntities.push(entity);
+            entities.add(entity);
+
         });
 
-        groupMap[entitiesUrl] = {
-            "displayed": true,
-            "items": entities
-        };
+        addGroup(entitiesUrl, entities);
     } else {
         console.error('Failed to display group: groupDb is undefined or does not contain entities');
     }
@@ -316,27 +340,16 @@ async function initGroup(entitiesUrl) {
 
 async function onGroupHidden(event) {
     const entitiesUrl = event.detail;
-    const entitiesAdded = groupMap[entitiesUrl];
     
-    if (entitiesAdded) {
-        if (!entitiesAdded["displayed"]) {
-            return;
-        } else {
-            const entitiesToHide = entitiesAdded["items"];
-            entitiesToHide.forEach(et => {
-                et.hide();
-            });
-            displayedEntities.filter(entity => !entitiesToHide.includes(entity));
-            entitiesAdded["displayed"] = false;
-        }
+    if (groupMap[entitiesUrl]["displayed"]) {
+        hideGroup(entitiesUrl);
     }
 }
 
 async function onEntityDestroyed(event) {
-    const destroyNdx = displayedEntities.indexOf(event.detail);
-    displayedEntities.splice(destroyNdx, 1);
+    const item = event.detail;
+    deleteMember(item);
 }
-
 
 function onMouseMove(event) {
     event.preventDefault();
@@ -389,10 +402,13 @@ function animate() {
         getSunPointingAngle(deltaNow);
 
         // Update satellite positions
-        displayedEntities.forEach(et => {
-            et.updatePosition(deltaNow);
-        });
-
+        for (const group in groupMap) {
+            if (groupMap[group]["displayed"] == true) {
+                groupMap[group]["items"].forEach(et => {
+                    et.updatePosition(deltaNow);
+                });
+            }
+        }
         //trail.update();
 
         // reset the render clock

@@ -51,7 +51,6 @@ export class Entity extends THREE.Object3D {
             window.dispatchEvent(this.destroyEvent);
             this.hide();
             this.destroyMesh();
-            
         }
     }
 
