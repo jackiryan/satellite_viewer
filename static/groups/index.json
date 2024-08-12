@@ -8,7 +8,7 @@
   "GPS": {
     "supGpName": "gps",
     "country": "us",
-    "baseColor": "#4b5320",
+    "baseColor": "#ffffff",
     "entities": "./groups/gps.json"
   },
   "Intelsat": {

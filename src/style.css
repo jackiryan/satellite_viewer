@@ -1,28 +1,24 @@
 @font-face {
     font-family: 'AudioLink Mono';
-    src: url('./fonts/AudioLinkMono-Regular.ttf') format('truetype');
-    font-weight: normal;
+    src: url('./fonts/AudioLinkMono-Light.woff2') format('woff2'),
+         url('./fonts/AudioLinkMono-Light.ttf') format('truetype');
+    font-weight: 300;
     font-style: normal;
 }
 
 @font-face {
     font-family: 'AudioLink Mono';
-    src: url('./fonts/AudioLinkMono-Bold.ttf') format('truetype');
-    font-weight: bold;
+    src: url('./fonts/AudioLinkMono-Regular.woff2') format('woff2'),
+         url('./fonts/AudioLinkMono-Regular.ttf') format('truetype');
+    font-weight: 400;
     font-style: normal;
 }
 
 @font-face {
     font-family: 'AudioLink Mono';
-    src: url('./fonts/AudioLinkMono-Light.ttf') format('truetype');
-    font-weight: light;
-    font-style: normal;
-}
-
-@font-face {
-    font-family: 'AudioLink Mono';
-    src: url('./fonts/AudioLinkMono-Medium.ttf') format('truetype');
-    font-weight: medium;
+    src: url('./fonts/AudioLinkMono-Bold.woff2') format('woff2'),
+         url('./fonts/AudioLinkMono-Bold.ttf') format('truetype');
+    font-weight: 700;
     font-style: normal;
 }
 
@@ -31,6 +27,7 @@ body
     margin: 0;
     overflow: hidden;
     font-family: 'AudioLink Mono', sans-serif;
+    font-weight: 700;
 }
 
 .webgl
@@ -39,7 +36,6 @@ body
 }
 
 .toggle-button {
-    font-family: 'AudioLink Mono', sans-serif;
     padding: 10px 20px;
     margin: 5px;
     border: 1px solid #ccc;

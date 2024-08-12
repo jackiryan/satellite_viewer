@@ -95,5 +95,5 @@ export class EntityGroupMap {
 }
 
 function colorMap() {
-    return '#0000ff';
+    return '#1b1bf9';
 }

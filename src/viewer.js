@@ -171,7 +171,7 @@ async function init() {
     // Create an HTML element to display the name
     tooltip = document.createElement('div');
     tooltip.style.fontFamily = 'AudioLink Mono';
-    tooltip.style.fontWeight = 'light';
+    tooltip.style.fontWeight = '300';
     tooltip.style.position = 'absolute';
     tooltip.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
     tooltip.style.padding = '5px';

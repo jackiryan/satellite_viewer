@@ -24,13 +24,13 @@ satellite_groups = {
     "Intelsat": {
         "supGpName": "intelsat",
         "country": "lu",
-        "baseColor": "#00a4e1",
+        "baseColor": "#ed333f",
         "entities": {}
     },
     "Iridium": {
         "supGpName": "iridium",
         "country": "us",
-        "baseColor": "#8a96a0",
+        "baseColor": "#eaf73b",
         "entities": {}
     },
     "ISS": {
@@ -46,19 +46,19 @@ satellite_groups = {
     "OneWeb": {
         "supGpName": "oneweb",
         "country": "gb",
-        "baseColor": "#fa6464",
+        "baseColor": "#fa1b1b",
         "entities": {}
     },
     "Planet Labs": {
         "supGpName": "planet",
         "country": "us",
-        "baseColor": "#009ea6",
+        "baseColor": "#1bf91b",
         "entities": {}
     },
     "Starlink": {
         "supGpName": "starlink",
         "country": "us",
-        "baseColor": "#821e00",
+        "baseColor": "#6b6b6b",
         "entities": {}
     },
     "Telesat": {

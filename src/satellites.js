@@ -89,7 +89,6 @@ export async function populateButtonGroup(defaultGroups) {
 
 function populateButtons(groups, defaultGroups) {
     const container = document.getElementsByClassName('button-container')[0];
-    //container.className = 'button-container';
 
     groups.forEach(group => {
         const button = document.createElement('div');
