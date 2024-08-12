@@ -10,59 +10,58 @@ logger = logging.getLogger(__name__)
 
 satellite_groups = {
     "GLONASS": {
-        "supGpName": "glonass",
+        "gpName": "glo-ops",
         "country": "ru",
         "baseColor": "#d62718",
         "entities": {}
     },
     "GPS": {
-        "supGpName": "gps",
+        "gpName": "gps-ops",
         "country": "us",
         "baseColor": "#ffffff",
         "entities": {}
     },
-    "Intelsat": {
-        "supGpName": "intelsat",
-        "country": "lu",
+    "Beidou": {
+        "gpName": "beidou",
+        "country": "cn",
+        "baseColor": "#f6d500",
+        "entities": {}
+    },
+    "Molniya": {
+        "gpName": "molniya",
+        "country": "ru",
         "baseColor": "#ed333f",
         "entities": {}
     },
-    "Iridium": {
-        "supGpName": "iridium",
-        "country": "us",
-        "baseColor": "#eaf73b",
+    "Space Stations": {
+        "gpName": "stations",
+        "baseColor": "#f72091",
         "entities": {}
     },
-    "ISS": {
-        "supGpName": "iss",
-        "entities": {}
-    },
-    "Kuiper": {
-        "supGpName": "kuiper",
-        "country": "us",
-        "baseColor": "#f7a51e",
+    "Science": {
+        "gpName": "science",
+        "baseColor": "#4b5320",
         "entities": {}
     },
     "OneWeb": {
-        "supGpName": "oneweb",
+        "gpName": "oneweb",
         "country": "gb",
         "baseColor": "#fa1b1b",
         "entities": {}
     },
-    "Planet Labs": {
-        "supGpName": "planet",
-        "country": "us",
+    "Weather": {
+        "gpName": "weather",
         "baseColor": "#1bf91b",
         "entities": {}
     },
     "Starlink": {
-        "supGpName": "starlink",
+        "gpName": "starlink",
         "country": "us",
         "baseColor": "#6b6b6b",
         "entities": {}
     },
     "Telesat": {
-        "supGpName": "telesat",
+        "gpName": "telesat",
         "country": "ca",
         "baseColor": "#ffe203",
         "entities": {}
@@ -73,8 +72,33 @@ satellite_groups = {
 }
 
 special_colors = {
-    "ISS (ZARYA)": "#f72091"
+    
 }
+
+filter_items = [
+    "ISS (NAUKA)",
+    "FREGAT DEB",
+    "CSS (WENTIAN)",
+    "CSS (MENGTIAN)",
+    "TIANZHOU-7",
+    "PROGRESS-MS 26",
+    "CREW DRAGON 8",
+    "SOYUZ-MS 25",
+    "MICROORBITER-1",
+    "CURTIS",
+    "KASHIWA",
+    "1998-067WJ",
+    "1998-067WL",
+    "BURSTCUBE",
+    "SNOOPI",
+    "SHENZHOU-18 (SZ-18)",
+    "1998-067WP",
+    "1998-067WQ",
+    "SZ-17 MODULE",
+    "PROGRESS-MS 27",
+    "STARLINER CFT-1",
+    "CYGNUS NG-21"
+]
 
 def remove_blanks(
         lines: list[str]
@@ -129,21 +153,72 @@ def download_content(
 def download_group_files() -> dict[str, list[int]]:
     group_data = {}
     for group_name, group in satellite_groups.items():
-        sup_gp_name = group.get("supGpName")
-        if sup_gp_name is None:
+        gp_name = group.get("gpName")
+        if gp_name is None:
             continue
-        sup_gp_url = f"https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE={sup_gp_name}&FORMAT=csv"
-        logger.debug(f"Getting supplemental group data for {sup_gp_name}...")
-        sup_gp_data = download_content(sup_gp_url)
-        sup_gp_lines = remove_blanks(sup_gp_data.decode("utf-8").splitlines())
+        if gp_name == "molniya":
+            handle_molniya()
+            continue
+        if gp_name == "stations":
+            handle_stations()
+        gp_url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={gp_name}&FORMAT=csv"
+        logger.debug(f"Getting group data for {gp_name}...")
+        gp_data = download_content(gp_url)
+        gp_lines = remove_blanks(gp_data.decode("utf-8").splitlines())
         try:
-            id_ndx = sup_gp_lines[0].split(",").index("NORAD_CAT_ID")
+            id_ndx = gp_lines[0].split(",").index("NORAD_CAT_ID")
         except ValueError as e:
             logging.error(f"Failed to find NORAD_CAT_ID in group csv")
             raise e
-        group_data[group_name] = [int(gp_sat.split(",")[id_ndx]) for gp_sat in sup_gp_lines[1:]]
-        logger.debug(f"Found {len(sup_gp_lines)} entries for the {sup_gp_name} group.")
+        group_data[group_name] = [int(gp_sat.split(",")[id_ndx]) for gp_sat in gp_lines[1:]]
+        logger.debug(f"Found {len(gp_lines)} entries for the {gp_name} group.")
     return group_data
+
+def handle_molniya():
+    gp_name = "molniya"
+    gp_url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={gp_name}&FORMAT=tle"
+    logger.debug(f"Getting group data for {gp_name}...")
+    gp_data = download_content(gp_url)
+    gp_lines = remove_blanks(gp_data.decode("utf-8").splitlines())
+    parse_tle_lines(gp_lines, hc_group="Molniya")
+
+def handle_stations():
+    gp_name = "stations"
+    gp_url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={gp_name}&FORMAT=tle"
+    logger.debug(f"Getting group data for {gp_name}...")
+    gp_data = download_content(gp_url)
+    gp_lines = remove_blanks(gp_data.decode("utf-8").splitlines())
+    parse_tle_lines(gp_lines, hc_group="Space Stations")
+    filter_items.extend(["ISS (ZARYA)", "CSS (TIANHE)"])
+
+
+def parse_tle_lines(
+        tle_lines: list[str],
+        group_data: dict[str, list[int]] | None = None,
+        hc_group: str | None = None
+) -> None:
+    for line_ndx, line in enumerate(tle_lines):
+        match line_ndx % 3:
+            case 0:
+                sat_name = line.strip()
+            case 1:
+                tle_line1 = line.strip()
+                norad_id = get_norad_id(tle_line1)
+                if group_data:
+                    group = find_group(norad_id, group_data)
+                else:
+                    group = hc_group
+            case 2:
+                tle_line2 = line.strip()
+                if sat_name in filter_items:
+                    continue
+                add_satellite(
+                    sat_name,
+                    tle_line1,
+                    tle_line2,
+                    norad_id,
+                    group
+                )
 
 def parse_tle(
         infile: pathlib.Path,
@@ -154,23 +229,7 @@ def parse_tle(
     lines = infile.read_text().splitlines()
     workdir = workdir or pathlib.Path.cwd()
     tle_lines = remove_blanks(lines)
-    for line_ndx, line in enumerate(tle_lines):
-        match line_ndx % 3:
-            case 0:
-                sat_name = line.strip()
-            case 1:
-                tle_line1 = line.strip()
-                norad_id = get_norad_id(tle_line1)
-                group = find_group(norad_id, group_data)
-            case 2:
-                tle_line2 = line.strip()
-                add_satellite(
-                    sat_name,
-                    tle_line1,
-                    tle_line2,
-                    norad_id,
-                    group
-                )
+    parse_tle_lines(tle_lines, group_data)
     try:
         if one_file:
             write_one_file(infile, workdir)
@@ -189,7 +248,7 @@ def write_group_files(
     index_file = workdir / "index.json"
     group_index = deepcopy(satellite_groups)
     for k, v in satellite_groups.items():
-        gp_name = v.get("supGpName", "other")
+        gp_name = v.get("gpName", "other")
         outfile = workdir / f"{gp_name}.json"
         outfile.write_text(json.dumps(v, indent=2))
         # Replace the entities tag in the group_index with the uri to the group json

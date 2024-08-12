@@ -188,7 +188,7 @@ async function initSatellites() {
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
     window.addEventListener('destroyEntity', onEntityDestroyed, false);
-    const defaultGroups = new Set(["ISS", "OneWeb"]);
+    const defaultGroups = new Set(["Space Stations", "OneWeb"]);
     await populateButtonGroup(defaultGroups);
 }
 

@@ -1,58 +1,57 @@
 {
   "GLONASS": {
-    "supGpName": "glonass",
+    "gpName": "glo-ops",
     "country": "ru",
     "baseColor": "#d62718",
-    "entities": "./groups/glonass.json"
+    "entities": "./groups/glo-ops.json"
   },
   "GPS": {
-    "supGpName": "gps",
+    "gpName": "gps-ops",
     "country": "us",
     "baseColor": "#ffffff",
-    "entities": "./groups/gps.json"
+    "entities": "./groups/gps-ops.json"
   },
-  "Intelsat": {
-    "supGpName": "intelsat",
-    "country": "lu",
-    "baseColor": "#00a4e1",
-    "entities": "./groups/intelsat.json"
+  "Beidou": {
+    "gpName": "beidou",
+    "country": "cn",
+    "baseColor": "#f6d500",
+    "entities": "./groups/beidou.json"
   },
-  "Iridium": {
-    "supGpName": "iridium",
-    "country": "us",
-    "baseColor": "#8a96a0",
-    "entities": "./groups/iridium.json"
+  "Molniya": {
+    "gpName": "molniya",
+    "country": "ru",
+    "baseColor": "#ed333f",
+    "entities": "./groups/molniya.json"
   },
-  "ISS": {
-    "supGpName": "iss",
-    "entities": "./groups/iss.json"
+  "Space Stations": {
+    "gpName": "stations",
+    "baseColor": "#f72091",
+    "entities": "./groups/stations.json"
   },
-  "Kuiper": {
-    "supGpName": "kuiper",
-    "country": "us",
-    "baseColor": "#f7a51e",
-    "entities": "./groups/kuiper.json"
+  "Science": {
+    "gpName": "science",
+    "baseColor": "#4b5320",
+    "entities": "./groups/science.json"
   },
   "OneWeb": {
-    "supGpName": "oneweb",
+    "gpName": "oneweb",
     "country": "gb",
-    "baseColor": "#fa6464",
+    "baseColor": "#fa1b1b",
     "entities": "./groups/oneweb.json"
   },
-  "Planet Labs": {
-    "supGpName": "planet",
-    "country": "us",
-    "baseColor": "#009ea6",
-    "entities": "./groups/planet.json"
+  "Weather": {
+    "gpName": "weather",
+    "baseColor": "#1bf91b",
+    "entities": "./groups/weather.json"
   },
   "Starlink": {
-    "supGpName": "starlink",
+    "gpName": "starlink",
     "country": "us",
-    "baseColor": "#821e00",
+    "baseColor": "#6b6b6b",
     "entities": "./groups/starlink.json"
   },
   "Telesat": {
-    "supGpName": "telesat",
+    "gpName": "telesat",
     "country": "ca",
     "baseColor": "#ffe203",
     "entities": "./groups/telesat.json"
