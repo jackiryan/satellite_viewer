@@ -1,19 +1,62 @@
-*
-{
-    margin: 0;
-    padding: 0;
+@font-face {
+    font-family: 'AudioLink Mono';
+    src: url('./fonts/AudioLinkMono-Light.woff2') format('woff2'),
+         url('./fonts/AudioLinkMono-Light.ttf') format('truetype');
+    font-weight: 300;
+    font-style: normal;
 }
 
-html,
+@font-face {
+    font-family: 'AudioLink Mono';
+    src: url('./fonts/AudioLinkMono-Regular.woff2') format('woff2'),
+         url('./fonts/AudioLinkMono-Regular.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'AudioLink Mono';
+    src: url('./fonts/AudioLinkMono-Bold.woff2') format('woff2'),
+         url('./fonts/AudioLinkMono-Bold.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+}
+
 body
 {
+    margin: 0;
     overflow: hidden;
+    font-family: 'AudioLink Mono', sans-serif;
+    font-weight: 700;
 }
 
 .webgl
 {
-    position: fixed;
-    top: 0;
-    left: 0;
     outline: none;
+}
+
+.toggle-button {
+    padding: 10px 20px;
+    margin: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: #f0f0f0;
+    color: #333;
+    user-select: none;
+    display: inline-block; /* Ensures buttons appear in a row */
+}
+
+.toggle-button img {
+    margin-right: 12px; /* Increased space between flag and text */
+}
+
+.toggle-button.on {
+    background-color: #ffffff;
+    color: black;
+}
+
+.toggle-button.off {
+    background-color: #000000;
+    color: white;
 }

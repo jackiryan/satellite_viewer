@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+from copy import deepcopy
 import json
 import logging
-import os
 import pathlib
 import requests
 
@@ -18,54 +18,53 @@ satellite_groups = {
     "GPS": {
         "supGpName": "gps",
         "country": "us",
-        "baseColor": "#4b5320",
+        "baseColor": "#ffffff",
         "entities": {}
     },
     "Intelsat": {
         "supGpName": "intelsat",
         "country": "lu",
-        "baseColor": "#00a4e1",
+        "baseColor": "#ed333f",
         "entities": {}
     },
     "Iridium": {
         "supGpName": "iridium",
         "country": "us",
-        "baseColor": "#00a4e1",
+        "baseColor": "#eaf73b",
         "entities": {}
     },
     "ISS": {
         "supGpName": "iss",
-        "baseColor": "#00a4e1",
         "entities": {}
     },
     "Kuiper": {
         "supGpName": "kuiper",
         "country": "us",
-        "baseColor": "#00a4e1",
+        "baseColor": "#f7a51e",
         "entities": {}
     },
     "OneWeb": {
         "supGpName": "oneweb",
         "country": "gb",
-        "baseColor": "#00a4e1",
+        "baseColor": "#fa1b1b",
         "entities": {}
     },
     "Planet Labs": {
         "supGpName": "planet",
         "country": "us",
-        "baseColor": "#00a4e1",
+        "baseColor": "#1bf91b",
         "entities": {}
     },
     "Starlink": {
         "supGpName": "starlink",
         "country": "us",
-        "baseColor": "#00a4e1",
+        "baseColor": "#6b6b6b",
         "entities": {}
     },
     "Telesat": {
         "supGpName": "telesat",
         "country": "ca",
-        "baseColor": "#00a4e1",
+        "baseColor": "#ffe203",
         "entities": {}
     },
     "Other": {
@@ -86,10 +85,7 @@ def find_group(
         norad_id: int,
         group_data: dict[str, list[int]]
 ) -> str:
-    for group_name, entity_ids in group_data.items():
-        if norad_id in entity_ids:
-            return group_name
-    return "Other"
+    return next((k for k, v in group_data.items() if norad_id in v), "Other")
 
 def get_norad_id(
         tle_line: str
@@ -104,7 +100,8 @@ def add_satellite(
         group: str
 ) -> None:
     logger.debug(f"Adding {name} to the group {group}")
-    satellite_groups[group]["entities"][name] = {
+    entities = satellite_groups[group]["entities"]
+    entities[name] = {
         "noradId": norad_id,
         "tleLine1": tle_line1,
         "tleLine2": tle_line2
@@ -112,7 +109,7 @@ def add_satellite(
     entity_color = special_colors.get(name)
     if entity_color is not None:
         logger.debug(f"Setting the special entity color {entity_color} for this satellite")
-        satellite_groups[group]["entities"][name]["entityColor"] = entity_color
+        entities[name]["entityColor"] = entity_color
 
 def download_content(
     url: str    
@@ -158,21 +155,22 @@ def parse_tle(
     workdir = workdir or pathlib.Path.cwd()
     tle_lines = remove_blanks(lines)
     for line_ndx, line in enumerate(tle_lines):
-        if line_ndx % 3 == 0:
-            sat_name = line.strip()
-        elif line_ndx % 3 == 1:
-            tle_line1 = line.strip()
-            norad_id = get_norad_id(tle_line1)
-            group = find_group(norad_id, group_data)
-        elif line_ndx % 3 == 2:
-            tle_line2 = line.strip()
-            add_satellite(
-                sat_name,
-                tle_line1,
-                tle_line2,
-                norad_id,
-                group
-            )
+        match line_ndx % 3:
+            case 0:
+                sat_name = line.strip()
+            case 1:
+                tle_line1 = line.strip()
+                norad_id = get_norad_id(tle_line1)
+                group = find_group(norad_id, group_data)
+            case 2:
+                tle_line2 = line.strip()
+                add_satellite(
+                    sat_name,
+                    tle_line1,
+                    tle_line2,
+                    norad_id,
+                    group
+                )
     try:
         if one_file:
             write_one_file(infile, workdir)
@@ -182,14 +180,21 @@ def parse_tle(
         logging.error(f"Error writing satellite database: {e}")
         logging.debug("Satellite database is as follows:")
         logging.debug(satellite_groups)
+        raise e
 
 def write_group_files(
         workdir: pathlib.Path
 ) -> None:
-    for group in satellite_groups.values():
-        gp_name = group.get("supGpName") or "other"
+    # Write index.json which will be used to find uris to other group json files
+    index_file = workdir / "index.json"
+    group_index = deepcopy(satellite_groups)
+    for k, v in satellite_groups.items():
+        gp_name = v.get("supGpName", "other")
         outfile = workdir / f"{gp_name}.json"
-        outfile.write_text(json.dumps(group, indent=2))
+        outfile.write_text(json.dumps(v, indent=2))
+        # Replace the entities tag in the group_index with the uri to the group json
+        group_index[k]["entities"] = f"./groups/{gp_name}.json"
+    index_file.write_text(json.dumps(group_index, indent=2))
 
 def write_one_file(
         infile: pathlib.Path,
@@ -230,7 +235,6 @@ def main() -> None:
     parser = setup_parser()
     args = parser.parse_args()
 
-    # download_tle_file(args.level, args.workdir)
     group_data = download_group_files()
     parse_tle(args.infile, group_data, args.workdir, args.one_file)
 

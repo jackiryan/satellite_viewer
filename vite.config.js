@@ -1,8 +1,8 @@
 import restart from 'vite-plugin-restart'
 import glsl from 'vite-plugin-glsl'
-import { optimizeDeps } from 'vite'
+import { defineConfig } from 'vite'
 
-export default {
+export default defineConfig ({
     root: 'src/',
     publicDir: '../static/',
     base: './',
@@ -16,6 +16,13 @@ export default {
         outDir: '../dist', // Output in the dist/ folder
         emptyOutDir: true, // Empty the folder first
         sourcemap: true, // Add sourcemap
+        cssCodeSplit: true,
+        assetsInlineLimit: 0,
+        rollupOptions: {
+            output: {
+                assetFileNames: '[name][extname]',
+            },
+        },
         target: "es2022"
     },
     esbuild: {
@@ -31,4 +38,4 @@ export default {
         restart({ restart: [ '../static/**', ] }), // Restart server on static file change
         glsl() // Handle shader files
     ]
-}
+});
