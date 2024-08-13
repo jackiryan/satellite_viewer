@@ -47,6 +47,8 @@ export class Entity extends THREE.Object3D {
                 -deltaPosEci.y * scaleFactor
             );
             this.mesh.position.copy(deltaPos);
+            const newScale = Math.min(4.0, deltaPos.length() / 5.3);
+            this.mesh.scale.copy(new THREE.Vector3(newScale, newScale, newScale));
         } catch(error) {
             console.log('Satellite', this.name, ' position unknown!');
             window.dispatchEvent(this.destroyEvent);

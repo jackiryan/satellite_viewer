@@ -36,7 +36,7 @@ var groupMap = new EntityGroupMap();
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
 const renderParameters = {
     speedFactor: 1, // multiple of realtime
-    animFrameRate: 50.0 // frames per second
+    animFrameRate: 60.0 // frames per second
 };
 // Vars that are used for rendering at a fixed framerate while
 // being able to adjust the simulation speed
