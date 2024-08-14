@@ -8,9 +8,8 @@ import { EntityGroupMap } from './entityGroupMap.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
-import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl'
-import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl'
-import { RectAreaLightUniformsLib } from 'three/examples/jsm/Addons.js';
+import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
+import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
 
 var gui, camera, scene, renderer, controls;
 var earth, earthMaterial, atmosphere, atmosphereMaterial;
