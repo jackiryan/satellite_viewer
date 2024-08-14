@@ -1,25 +1,19 @@
 @font-face {
     font-family: 'AudioLink Mono';
-    src: url('./fonts/AudioLinkMono-Light.woff2') format('woff2'),
-         url('./fonts/AudioLinkMono-Light.ttf') format('truetype');
+    src: url('./fonts/AudioLinkMono-Light.woff2') format('woff2');
     font-weight: 300;
-    font-style: normal;
 }
 
 @font-face {
     font-family: 'AudioLink Mono';
-    src: url('./fonts/AudioLinkMono-Regular.woff2') format('woff2'),
-         url('./fonts/AudioLinkMono-Regular.ttf') format('truetype');
+    src: url('./fonts/AudioLinkMono-Regular.woff2') format('woff2');
     font-weight: 400;
-    font-style: normal;
 }
 
 @font-face {
     font-family: 'AudioLink Mono';
-    src: url('./fonts/AudioLinkMono-Bold.woff2') format('woff2'),
-         url('./fonts/AudioLinkMono-Bold.ttf') format('truetype');
+    src: url('./fonts/AudioLinkMono-Bold.woff2') format('woff2');
     font-weight: 700;
-    font-style: normal;
 }
 
 body

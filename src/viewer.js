@@ -8,9 +8,8 @@ import { EntityGroupMap } from './entityGroupMap.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
-import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl'
-import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl'
-import { RectAreaLightUniformsLib } from 'three/examples/jsm/Addons.js';
+import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
+import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
 
 var gui, camera, scene, renderer, controls;
 var earth, earthMaterial, atmosphere, atmosphereMaterial;
@@ -36,7 +35,7 @@ var groupMap = new EntityGroupMap();
 // Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
 const renderParameters = {
     speedFactor: 1, // multiple of realtime
-    animFrameRate: 50.0 // frames per second
+    animFrameRate: 60.0 // frames per second
 };
 // Vars that are used for rendering at a fixed framerate while
 // being able to adjust the simulation speed
@@ -188,7 +187,7 @@ async function initSatellites() {
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
     window.addEventListener('destroyEntity', onEntityDestroyed, false);
-    const defaultGroups = new Set(["ISS", "OneWeb"]);
+    const defaultGroups = new Set(["Space Stations", "OneWeb"]);
     await populateButtonGroup(defaultGroups);
 }
 

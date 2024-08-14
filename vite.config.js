@@ -1,6 +1,7 @@
-import restart from 'vite-plugin-restart'
-import glsl from 'vite-plugin-glsl'
-import { defineConfig } from 'vite'
+import restart from 'vite-plugin-restart';
+import glsl from 'vite-plugin-glsl';
+import { resolve } from 'path';
+import { defineConfig } from 'vite';
 
 export default defineConfig ({
     root: 'src/',
@@ -19,6 +20,10 @@ export default defineConfig ({
         cssCodeSplit: true,
         assetsInlineLimit: 0,
         rollupOptions: {
+            input: {
+                main: resolve(__dirname, 'src/index.html'),
+                notFound: resolve(__dirname, 'src/custom_404.html'),
+            },
             output: {
                 assetFileNames: '[name][extname]',
             },
