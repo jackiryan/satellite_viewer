@@ -1,25 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Satellite Viewer</title>
-        <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
-        <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
-        <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
-        <link rel="manifest" href="./site.webmanifest">
-        <link rel="stylesheet" href="./style.css" media="print" onload="this.media='all'">
-        <link rel="preload" href="./BlueMarble_8192x4096.avif" as="image" crossorigin>
-        <link rel="preload" href="./BlackMarble_8192x4096.avif" as="image" crossorigin>
-        <link rel="preload" href="./EarthSpec_4096x2048.avif" as="image" crossorigin>
-        <link rel="preload" href="./groups/index.json" as="fetch" crossorigin>
-        <link rel="preload" href="./groups/oneweb.json" as="fetch" crossorigin>
-        <link rel="preload" href="./groups/stations.json" as="fetch" crossorigin>
-        <link rel="preload" href="./fonts/AudioLinkMono-Bold.woff2" as="font" crossorigin>
-        <link rel="preconnect" href="https://flagcdn.com/" />
-        <script defer type="module" src="./viewer.js"></script>
-    </head>
-    <body style="background-color:#000011;">
-        <div class="button-container"></div>
-    </body>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satellite Viewer</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+    <link rel="manifest" href="./site.webmanifest">
+    <link rel="stylesheet" href="./style.css" media="print" onload="this.media='all'">
+    <link rel="preload" href="./BlueMarble_8192x4096.avif" as="image" crossorigin>
+    <link rel="preload" href="./BlackMarble_8192x4096.avif" as="image" crossorigin>
+    <link rel="preload" href="./EarthSpec_4096x2048.avif" as="image" crossorigin>
+    <link rel="preload" href="./groups/index.json" as="fetch" crossorigin>
+    <link rel="preload" href="./groups/oneweb.json" as="fetch" crossorigin>
+    <link rel="preload" href="./groups/stations.json" as="fetch" crossorigin>
+    <link rel="preload" href="./fonts/AudioLinkMono-Bold.woff2" as="font" crossorigin>
+    <link rel="preconnect" href="https://flagcdn.com/" />
+    <script defer type="module" src="./viewer.js"></script>
+</head>
+
+<body style="background-color:#000011;">
+    <div class="top-container">
+        <div class="container-wrapper">
+            <div class="button-container"></div>
+            <div class="toggle-button-container">
+                <span class="chevron">&#9650;</span>
+            </div>
+        </div>
+        <div class="clock-container" id="clock"></div>
+    </div>
+</body>
+
 </html>

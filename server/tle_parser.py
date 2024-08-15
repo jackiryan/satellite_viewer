@@ -103,17 +103,20 @@ filter_items = [
 def remove_blanks(
         lines: list[str]
 ) -> list[str]:
+    """remove blank lines from text responses"""
     return [line for line in lines if line.strip()]
 
 def find_group(
         norad_id: int,
         group_data: dict[str, list[int]]
 ) -> str:
+    """find the satellite group that a satellite belongs to based off its NORAD ID"""
     return next((k for k, v in group_data.items() if norad_id in v), "Other")
 
 def get_norad_id(
         tle_line: str
 ) -> int:
+    """get the NORAD ID of a spacecraft with hardcoded string indices from the TLE spec"""
     return int(tle_line[2:7])
 
 def add_satellite(

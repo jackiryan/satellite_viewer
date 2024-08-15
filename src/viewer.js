@@ -10,8 +10,9 @@ import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
+import Stats from 'three/addons/libs/stats.module.js';
 
-var gui, camera, scene, renderer, controls;
+var gui, camera, scene, renderer, controls, stats;
 var earth, earthMaterial, atmosphere, atmosphereMaterial;
 
 var raycaster, mouseMove, tooltip;
@@ -29,6 +30,8 @@ const gmst = satellite.gstime(now);
 
 // satellite data is stored in this data structure
 var groupMap = new EntityGroupMap();
+
+const clockElement = document.getElementById('clock');
 
 /* Animation
  * Uses a renderFrameRate and speedFactor to control the "choppiness" and speed of the animation, respectively. */
@@ -64,7 +67,16 @@ async function init() {
     renderer.setClearColor('#000011');
     renderer.domElement.classList.add('webgl');
     //renderer.domElement.classList.add('canvas-container');
-    document.body.appendChild(renderer.domElement);
+    const topContainer = document.querySelector('.top-container');
+
+    // Create a div to contain the Three.js canvas
+    const canvasContainer = document.createElement('div');
+    canvasContainer.className = 'canvas-container';
+    topContainer.appendChild(canvasContainer);
+
+    // Set the renderer's DOM element to the canvas container
+    canvasContainer.appendChild(renderer.domElement);
+    //document.body.appendChild(renderer.domElement);
 
     // Add ambient light
     const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
@@ -143,8 +155,13 @@ async function init() {
         const plane = new THREE.Mesh(planeGeometry, planeMaterial);
         scene.add(plane);
         */
-    
+
         getSunPointingAngle(now);
+        // Update the clock every second
+        //setInterval(updateClock, 1000);
+
+        // Initialize the clock immediately
+        updateClock(now);
         controls.update();
         renderer.render(scene, camera);
     });
@@ -163,6 +180,10 @@ async function init() {
     */
 
     initGuiTweaks();
+    stats = new Stats();
+    stats.domElement.style.position = 'absolute';
+    stats.domElement.style.top = '500px';
+    canvasContainer.appendChild(stats.domElement);
 
     raycaster = new THREE.Raycaster();
     mouseMove = new THREE.Vector2();
@@ -199,10 +220,11 @@ function initGuiTweaks() {
         .min(1)
         .max(3600);
 
-    gui
+    /*gui
         .add(renderParameters, 'animFrameRate')
         .min(10)
         .max(60);
+    */
 }
 
 /* Sun Angle Calculations */
@@ -262,7 +284,7 @@ function addTrail(sat) {
     trailMaterial.uniforms.headColor.value.set(1.0, 0.0, 0.0, 1.0);
     trailMaterial.uniforms.tailColor.value.set(1.0, 0.0, 0.0, 0.0);
     const trailLength = 100.0;
-    
+
     const trailHeadGeometry = [
         new THREE.Vector3(-0.05, 0.0, 0.0),
         new THREE.Vector3(0.0, 0.05, 0.0),
@@ -287,12 +309,12 @@ async function onGroupDisplayed(event) {
     } else {
         await groupMap.initGroup(scene, groupName, deltaNow);
     }
-    
+
 }
 
 function onGroupHidden(event) {
     const groupName = event.detail;
-    
+
     if (groupMap.groupDisplayed(groupName)) {
         groupMap.hideGroup(groupName);
     }
@@ -343,32 +365,42 @@ function onWindowResize() {
 function animate() {
     const delta = clock.getDelta();
     const scaledDelta = renderParameters.speedFactor * delta;
-    
+
     elapsedTime += scaledDelta;
-    elapsedSecond += delta;
+    //elapsedSecond += delta;
 
     // This is jank, use a render clock if you want fixed frame rate
-    if (elapsedSecond >= 1.0 / renderParameters.animFrameRate) {
-        // Update the rotations of things
-        const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-        const deltaGmst = satellite.gstime(deltaNow);
-        earth.rotation.y = deltaGmst;
-        //atmosphere.rotation.y = deltaGmst;
-        //sunHelper.setDirection(getSunPointingAngle(deltaNow));
-        getSunPointingAngle(deltaNow);
+    //if (elapsedSecond >= 1.0 / renderParameters.animFrameRate) {
+    // Update the rotations of things
+    const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
+    const deltaGmst = satellite.gstime(deltaNow);
+    earth.rotation.y = deltaGmst;
+    //atmosphere.rotation.y = deltaGmst;
+    //sunHelper.setDirection(getSunPointingAngle(deltaNow));
+    getSunPointingAngle(deltaNow);
 
-        // Update satellite positions
-        groupMap.update(deltaNow);
-        //trail.update();
+    // Update satellite positions
+    groupMap.update(deltaNow);
+    //trail.update();
 
-        // reset the render clock
-        elapsedSecond = 0;
-    }
-    
+    updateClock(deltaNow);
+
+    // reset the render clock
+    //    elapsedSecond = 0;
+    //}
+
     controls.update();
+    stats.update();
+
 
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
+}
+
+function updateClock(deltaNow) {
+    const utcDate = deltaNow.toUTCString().split(' ').slice(1, 4).join(' ');
+    const utcTime = deltaNow.toISOString().split('T')[1].split('.')[0];
+    clockElement.innerHTML = `${utcDate}<br />${utcTime}`;
 }
 
 await init();
