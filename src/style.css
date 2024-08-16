@@ -175,7 +175,7 @@ body {
     font-size: 22px;
     flex-shrink: 0;
     position: relative;
-    width: 190px;
+    width: 150px;
     height: 56px;
     /* Ensures the clock stays on top of other elements */
     user-select: none;

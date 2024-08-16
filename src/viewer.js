@@ -10,9 +10,9 @@ import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
-import Stats from 'three/addons/libs/stats.module.js';
+//import Stats from 'three/addons/libs/stats.module.js';
 
-var gui, camera, scene, renderer, controls, stats;
+var gui, camera, scene, renderer, controls; //, stats;
 var earth, earthMaterial, atmosphere, atmosphereMaterial;
 
 var raycaster, mouseMove, tooltip;
@@ -46,8 +46,9 @@ var elapsedSecond = 0;
 var elapsedTime = 0;
 
 function getOffsetHeight() {
-    const container = document.getElementsByClassName('button-container')[0];
-    return container.offsetHeight == 0 ? 51 : container.offsetHeight;
+    //const container = document.querySelector('.top-container');
+    //return container.offsetHeight == 0 ? 56 : container.offsetHeight;
+    return 0;
 }
 
 async function init() {
@@ -180,10 +181,12 @@ async function init() {
     */
 
     initGuiTweaks();
+    /*
     stats = new Stats();
     stats.domElement.style.position = 'absolute';
     stats.domElement.style.top = '500px';
     canvasContainer.appendChild(stats.domElement);
+    */
 
     raycaster = new THREE.Raycaster();
     mouseMove = new THREE.Vector2();
@@ -197,11 +200,11 @@ async function init() {
     tooltip.style.padding = '5px';
     tooltip.style.borderRadius = '3px';
     tooltip.style.display = 'none';
-    document.body.appendChild(tooltip);
+    canvasContainer.appendChild(tooltip);
 
 
     window.addEventListener('resize', onWindowResize, false);
-    renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+    canvasContainer.addEventListener('mousemove', onMouseMove, false);
 }
 
 async function initSatellites() {
@@ -390,7 +393,7 @@ function animate() {
     //}
 
     controls.update();
-    stats.update();
+    //stats.update();
 
 
     renderer.render(scene, camera);
