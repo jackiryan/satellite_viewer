@@ -28,14 +28,15 @@ export default defineConfig ({
                 assetFileNames: '[name][extname]',
             },
         },
-        target: "es2022"
+        target: "es2023",
+        modulePreload: false
     },
     esbuild: {
-        target: "es2022"
+        target: "es2023"
     },
     optimizeDeps: {
         esbuildOptions: {
-            target: "es2022",
+            target: "es2023"
         }
     },
     plugins:

@@ -2,12 +2,6 @@
 import errorVertexShader from './shaders/error/errorVertex.glsl';
 import errorFragmentShader from './shaders/error/errorFragment.glsl';
 
-
-async function loadShader(url) {
-    const response = await fetch(url);
-    return await response.text();
-}
-
 async function initWebGL() {
     const canvas = document.getElementById('shaderCanvas');
     const gl = canvas.getContext('webgl');
