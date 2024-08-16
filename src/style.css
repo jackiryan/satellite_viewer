@@ -16,33 +16,91 @@
     font-weight: 700;
 }
 
-body
-{
+body {
     margin: 0;
     overflow: hidden;
     font-family: 'AudioLink Mono', sans-serif;
     font-weight: 700;
 }
 
-.webgl
-{
+.webgl {
     outline: none;
 }
 
+.top-container {
+    position: relative;
+    display: flex;
+    align-items: top;
+    background: transparent;
+    justify-content: space-between;
+    position: relative;
+    z-index: 1000;
+}
+
+.canvas-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    /* Place it behind other content */
+}
+
+.container-wrapper {
+    position: relative;
+    width: calc(100% - 190px);
+}
+
+.button-container {
+    display: flex;
+    overflow-x: auto;
+    white-space: nowrap;
+    background-color: #111122;
+    padding: 3px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    cursor: grab;
+    transition: max-height 0.3s ease;
+    max-height: 51px;
+}
+
+.button-container::-webkit-scrollbar {
+    display: none;
+}
+
+.button-container::-webkit-scrollbar-thumb {
+    display: none;
+}
+
+.button-container::-webkit-scrollbar-track {
+    display: none;
+}
+
+.button-container:active {
+    cursor: grabbing;
+}
+
 .toggle-button {
-    padding: 10px 20px;
+    padding: 8px 20px;
     margin: 5px;
     border: 1px solid #ccc;
-    border-radius: 4px;
+    border-radius: 8px;
+    flex-shrink: 0;
     cursor: pointer;
-    background-color: #f0f0f0;
     color: #333;
     user-select: none;
-    display: inline-block; /* Ensures buttons appear in a row */
+    display: inline-block;
+    /* Ensures buttons appear in a row */
+    position: relative;
+    overflow: hidden;
+    transition: color 0.2s ease-out;
+    z-index: 1;
 }
 
 .toggle-button img {
-    margin-right: 12px; /* Increased space between flag and text */
+    margin-right: 12px;
+    /* Increased space between flag and text */
 }
 
 .toggle-button.on {
@@ -51,6 +109,81 @@ body
 }
 
 .toggle-button.off {
-    background-color: #000000;
+    background-color: #000011;
     color: white;
+}
+
+.toggle-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background-color: white;
+    transition: left 0.2s ease-out;
+    z-index: -1;
+}
+
+.toggle-button:hover::before {
+    left: 0;
+}
+
+.toggle-button:hover {
+    color: #000011;
+}
+
+.toggle-button span .toggle-button img {
+    position: relative;
+    z-index: 2;
+}
+
+.toggle-button-container {
+    position: relative;
+    bottom: 0px;
+    /* Position the button below the scrollable container */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 30px;
+    height: 15px;
+    background-color: #111122;
+    border-radius: 0 0 15px 15px;
+    /* Creates the semicircular shape */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+}
+
+.toggle-button-container .chevron {
+    color: white;
+    font-size: 12px;
+}
+
+.hidden {
+    max-height: 0;
+    /* Collapse the scrollable container when hidden */
+    padding: 0;
+    /* Remove padding when hidden */
+}
+
+.clock-container {
+    padding: 10px 20px;
+    background-color: #111122;
+    color: white;
+    font-family: 'AudioLink Mono', sans-serif;
+    font-size: 22px;
+    flex-shrink: 0;
+    position: relative;
+    width: 150px;
+    height: 56px;
+    /* Ensures the clock stays on top of other elements */
+    user-select: none;
+}
+
+.lil-gui {
+    position: fixed !important;
+    bottom: 10px;
+    right: 10px;
+    top: auto !important;
 }
