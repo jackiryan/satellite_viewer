@@ -181,12 +181,7 @@ async function init() {
     */
 
     initGuiTweaks();
-    /*
-    stats = new Stats();
-    stats.domElement.style.position = 'absolute';
-    stats.domElement.style.top = '500px';
-    canvasContainer.appendChild(stats.domElement);
-    */
+    // addStats();
 
     raycaster = new THREE.Raycaster();
     mouseMove = new THREE.Vector2();
@@ -202,7 +197,6 @@ async function init() {
     tooltip.style.display = 'none';
     canvasContainer.appendChild(tooltip);
 
-
     window.addEventListener('resize', onWindowResize, false);
     canvasContainer.addEventListener('mousemove', onMouseMove, false);
 }
@@ -211,6 +205,8 @@ async function initSatellites() {
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
     window.addEventListener('destroyEntity', onEntityDestroyed, false);
+    // Set the space stations (ISS & CSS) as well as the one web constellation
+    // to show on page load.
     const defaultGroups = new Set(["Space Stations", "OneWeb"]);
     await populateButtonGroup(defaultGroups);
 }
@@ -222,12 +218,6 @@ function initGuiTweaks() {
         .add(renderParameters, 'speedFactor')
         .min(1)
         .max(3600);
-
-    /*gui
-        .add(renderParameters, 'animFrameRate')
-        .min(10)
-        .max(60);
-    */
 }
 
 /* Sun Angle Calculations */
@@ -251,7 +241,7 @@ function getSolarDeclinationAngle(date) {
 
 function getTwilightAngle() {
     // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
-    // For some reason doubling the number gives me a result that's closer to reality
+    // I am only using the first two for this value since Astronomical Twilight is essentially night
     return 12.0 * Math.PI / 180.0;
 }
 
@@ -299,6 +289,13 @@ function addTrail(sat) {
     trail.activate();
 
     return trail;
+}
+
+function addStats() {
+    stats = new Stats();
+    stats.domElement.style.position = 'absolute';
+    stats.domElement.style.top = '500px';
+    canvasContainer.appendChild(stats.domElement);
 }
 
 async function onGroupDisplayed(event) {
@@ -368,17 +365,12 @@ function onWindowResize() {
 function animate() {
     const delta = clock.getDelta();
     const scaledDelta = renderParameters.speedFactor * delta;
-
     elapsedTime += scaledDelta;
-    //elapsedSecond += delta;
 
-    // This is jank, use a render clock if you want fixed frame rate
-    //if (elapsedSecond >= 1.0 / renderParameters.animFrameRate) {
     // Update the rotations of things
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
     const deltaGmst = satellite.gstime(deltaNow);
     earth.rotation.y = deltaGmst;
-    //atmosphere.rotation.y = deltaGmst;
     //sunHelper.setDirection(getSunPointingAngle(deltaNow));
     getSunPointingAngle(deltaNow);
 
@@ -388,13 +380,8 @@ function animate() {
 
     updateClock(deltaNow);
 
-    // reset the render clock
-    //    elapsedSecond = 0;
-    //}
-
     controls.update();
     //stats.update();
-
 
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
