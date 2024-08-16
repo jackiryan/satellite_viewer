@@ -17,15 +17,20 @@ export default defineConfig ({
         outDir: '../dist', // Output in the dist/ folder
         emptyOutDir: true, // Empty the folder first
         sourcemap: true, // Add sourcemap
-        cssCodeSplit: true,
-        assetsInlineLimit: 0,
+        assetsInlineLimit: (filePath, content) => {
+            if (filePath.endsWith('fonts.css')) {
+                return false;
+            }
+
+            return content.length < 4096;
+        },
         rollupOptions: {
             input: {
                 main: resolve(__dirname, 'src/index.html'),
                 notFound: resolve(__dirname, 'src/custom_404.html'),
             },
             output: {
-                assetFileNames: '[name][extname]',
+                assetFileNames: '[name].[hash][extname]',
             },
         },
         target: "es2023",
