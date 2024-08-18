@@ -18,9 +18,10 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-uniform sampler2D uYoffData;
-uniform sampler2D uXoffData;
-uniform sampler2D uMagData;
+uniform sampler2D uStarData;
+//uniform sampler2D uYoffData;
+//uniform sampler2D uXoffData;
+//uniform sampler2D uMagData;
 uniform sampler2D uTempData;
 uniform float uPixelSize;
 uniform float uSigma;
@@ -85,10 +86,11 @@ vec4 getPixInfo(vec3 dir, vec2 offset) {
     vec2 pixelCenter = (ceil(pixelSpaceUV) - 0.5) + offset;
     vec2 uvCenter = pixelCenter / uPixelSize;
 
-    float magData = texture(uMagData, uvCenter).r;
+    vec3 starData = texture(uStarData, uvCenter).rgb;
     vec3 tempData = texture(uTempData, uvCenter).rgb;
-    float xData = texture(uXoffData, uvCenter).r;
-    float yData = texture(uYoffData, uvCenter).r;
+    float xData = starData.r;
+    float yData = starData.g;
+    float magData = starData.b;
 
     float starBrightness = magnitudeToBrightness(decodeMagnitude(magData) - uScaleFactor);
 
@@ -155,8 +157,9 @@ vec4 desaturate(vec4 color, float desaturationAmount) {
 }
 
 void main() {
-    vec3 ndir1 = (rotationMatrix(0.0, 90.0, 180.0) * vec4(vDirection, 1.0)).xyz;
-    vec3 dir = (rotationMatrix(uRotY, 90.0 - uRotX, -uRotZ) * vec4(vDirection, 1.0)).xyz;
+    //vec3 dir = (rotationMatrix(0.0, 90.0, 180.0) * vec4(vDirection, 1.0)).xyz;
+    // JR - I don't trust my math on the baked in rotation for this, but it seems right
+    vec3 dir = (rotationMatrix(-90.0 + uRotY, -90.0 + uRotX, uRotZ) * vec4(vDirection, 1.0)).xyz;
 
     vec2 offsets[25] = vec2[](
         vec2(0, 0), vec2(1, 0), vec2(1, 1), vec2(0, 1), vec2(-1, 1),
@@ -166,11 +169,12 @@ void main() {
         vec2(-1, 2), vec2(-2, -2), vec2(2, -2), vec2(-2, 2), vec2(2, 2)
     );
     vec4 starColor = vec4(0.0, 0.0, 0.0, 0.0);
-    for (int i = 0; i < 25; i++) {
+    for (int i = 0; i < 9; i++) {
         starColor += getPixInfo(dir, offsets[i]);
     }
 
-    mat4 rotMatrix = rotationMatrix(180.0, 0.0, 164.6);
+    // experimentally derived rotation -- fix this!
+    mat4 rotMatrix = rotationMatrix(0.0, 30.0, 10.0);
     vec3 rotDirection = (rotMatrix * vec4(dir, 1.0)).xyz;
     vec4 skyColor = desaturate(texture(uSkyboxCubemap, rotDirection) * uMwBright, 0.6);
     //vec4 skyColor = texture(uSkyboxCubemap, dir);

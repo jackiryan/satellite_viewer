@@ -3,17 +3,18 @@ import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 //import { TrailRenderer } from './trails.js';
-import { Entity, populateButtonGroup, fetchEntities } from './satellites.js';
+import { populateButtonGroup } from './satellites.js';
 import { EntityGroupMap } from './entityGroupMap.js';
+import { initSky } from './skybox.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
-//import Stats from 'three/addons/libs/stats.module.js';
+import Stats from 'three/addons/libs/stats.module.js';
 
-var gui, camera, scene, renderer, controls; //, stats;
-var earth, earthMaterial, atmosphere, atmosphereMaterial;
+var gui, camera, scene, renderer, controls, stats;
+var earth, earthMaterial, atmosphere, atmosphereMaterial, sun;
 
 var raycaster, mouseMove, tooltip;
 
@@ -40,9 +41,7 @@ const renderParameters = {
     speedFactor: 1, // multiple of realtime
     animFrameRate: 60.0 // frames per second
 };
-// Vars that are used for rendering at a fixed framerate while
-// being able to adjust the simulation speed
-var elapsedSecond = 0;
+// Var that is used for adjusting simulation speed
 var elapsedTime = 0;
 
 function getOffsetHeight() {
@@ -64,10 +63,9 @@ async function init() {
         antialias: true
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    //renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor('#000011');
     renderer.domElement.classList.add('webgl');
-    //renderer.domElement.classList.add('canvas-container');
     const topContainer = document.querySelector('.top-container');
 
     // Create a div to contain the Three.js canvas
@@ -77,7 +75,6 @@ async function init() {
 
     // Set the renderer's DOM element to the canvas container
     canvasContainer.appendChild(renderer.domElement);
-    //document.body.appendChild(renderer.domElement);
 
     // Add ambient light
     const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
@@ -157,10 +154,6 @@ async function init() {
         scene.add(plane);
         */
 
-        getSunPointingAngle(now);
-        // Update the clock every second
-        //setInterval(updateClock, 1000);
-
         // Initialize the clock immediately
         updateClock(now);
         controls.update();
@@ -181,7 +174,7 @@ async function init() {
     */
 
     initGuiTweaks();
-    // addStats();
+    addStats();
 
     raycaster = new THREE.Raycaster();
     mouseMove = new THREE.Vector2();
@@ -292,6 +285,7 @@ function addTrail(sat) {
 }
 
 function addStats() {
+    const canvasContainer = document.getElementsByClassName('canvas-container')[0];
     stats = new Stats();
     stats.domElement.style.position = 'absolute';
     stats.domElement.style.top = '500px';
@@ -340,7 +334,7 @@ function onMouseMove(event) {
     if (intersects.length > 0) {
         // Show tooltip with the name
         const intersectedObject = intersects[0].object;
-        if (intersectedObject.name == "earth" || intersectedObject.name == "atm") {
+        if (intersectedObject.name == 'earth' || intersectedObject.name == 'atm' || intersectedObject.name == 'sky') {
             tooltip.style.display = 'none';
             return;
         }
@@ -358,7 +352,7 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    //renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 }
 
 // Function to animate the scene
@@ -381,7 +375,7 @@ function animate() {
     updateClock(deltaNow);
 
     controls.update();
-    //stats.update();
+    stats.update();
 
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
@@ -394,6 +388,7 @@ function updateClock(deltaNow) {
 }
 
 await init();
+await initSky(scene);
 await initSatellites();
 // Start the animation loop
 const clock = new THREE.Clock();

@@ -20,7 +20,12 @@
 varying vec3 vDirection;
 
 void main() {
-    vDirection = normalize(position);
+    // since we render BackSide, need to flip over the y-axis
+    mat3 flipMat = mat3(
+    -1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0);
+    vDirection = flipMat * normalize(position);
 
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     gl_Position.z = gl_Position.w; // set z to camera.far

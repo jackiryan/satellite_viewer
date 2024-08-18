@@ -3,16 +3,24 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Satellite Viewer</title>
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+    <link rel="preload" href="./skybox/2_StarData16bit.png" as="image" crossorigin>
+    <link rel="preload" href="./skybox/2_Tmap8bit.png" as="image" crossorigin>
+    <link rel="preload" href="./skybox/sky_pos_nx.avif" as="image" crossorigin>
+    <link rel="preload" href="./skybox/sky_pos_ny.avif" as="image" crossorigin>
+    <link rel="preload" href="./skybox/sky_pos_nz.avif" as="image" crossorigin>
+    <link rel="preload" href="./skybox/sky_pos_px.avif" as="image" crossorigin>
+    <link rel="preload" href="./skybox/sky_pos_py.avif" as="image" crossorigin>
+    <link rel="preload" href="./skybox/sky_pos_pz.avif" as="image" crossorigin>
     <style>
         body { margin: 0; }
         canvas { display: block; }
     </style>
-    <script defer type="module" src="./skybox.js"></script>
+    <script defer type="module" src="./nightsky.js"></script>
 </head>
 
 <body style="background-color:#000011;">
