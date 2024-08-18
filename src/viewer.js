@@ -3,17 +3,18 @@ import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 //import { TrailRenderer } from './trails.js';
-import { Entity, populateButtonGroup, fetchEntities } from './satellites.js';
+import { populateButtonGroup } from './satellites.js';
 import { EntityGroupMap } from './entityGroupMap.js';
+import { initSky } from './skybox.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
-//import Stats from 'three/addons/libs/stats.module.js';
+import Stats from 'three/addons/libs/stats.module.js';
 
-var gui, camera, scene, renderer, controls; //, stats;
-var earth, earthMaterial, atmosphere, atmosphereMaterial;
+var gui, camera, scene, renderer, controls, stats;
+var earth, earthMaterial, atmosphere, atmosphereMaterial, sun;
 
 var raycaster, mouseMove, tooltip;
 
@@ -40,9 +41,7 @@ const renderParameters = {
     speedFactor: 1, // multiple of realtime
     animFrameRate: 60.0 // frames per second
 };
-// Vars that are used for rendering at a fixed framerate while
-// being able to adjust the simulation speed
-var elapsedSecond = 0;
+// Var that is used for adjusting simulation speed
 var elapsedTime = 0;
 
 function getOffsetHeight() {
@@ -64,10 +63,9 @@ async function init() {
         antialias: true
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    //renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor('#000011');
     renderer.domElement.classList.add('webgl');
-    //renderer.domElement.classList.add('canvas-container');
     const topContainer = document.querySelector('.top-container');
 
     // Create a div to contain the Three.js canvas
@@ -77,7 +75,6 @@ async function init() {
 
     // Set the renderer's DOM element to the canvas container
     canvasContainer.appendChild(renderer.domElement);
-    //document.body.appendChild(renderer.domElement);
 
     // Add ambient light
     const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
@@ -157,10 +154,6 @@ async function init() {
         scene.add(plane);
         */
 
-        getSunPointingAngle(now);
-        // Update the clock every second
-        //setInterval(updateClock, 1000);
-
         // Initialize the clock immediately
         updateClock(now);
         controls.update();
@@ -181,12 +174,7 @@ async function init() {
     */
 
     initGuiTweaks();
-    /*
-    stats = new Stats();
-    stats.domElement.style.position = 'absolute';
-    stats.domElement.style.top = '500px';
-    canvasContainer.appendChild(stats.domElement);
-    */
+    addStats();
 
     raycaster = new THREE.Raycaster();
     mouseMove = new THREE.Vector2();
@@ -202,7 +190,6 @@ async function init() {
     tooltip.style.display = 'none';
     canvasContainer.appendChild(tooltip);
 
-
     window.addEventListener('resize', onWindowResize, false);
     canvasContainer.addEventListener('mousemove', onMouseMove, false);
 }
@@ -211,6 +198,8 @@ async function initSatellites() {
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
     window.addEventListener('destroyEntity', onEntityDestroyed, false);
+    // Set the space stations (ISS & CSS) as well as the one web constellation
+    // to show on page load.
     const defaultGroups = new Set(["Space Stations", "OneWeb"]);
     await populateButtonGroup(defaultGroups);
 }
@@ -222,12 +211,6 @@ function initGuiTweaks() {
         .add(renderParameters, 'speedFactor')
         .min(1)
         .max(3600);
-
-    /*gui
-        .add(renderParameters, 'animFrameRate')
-        .min(10)
-        .max(60);
-    */
 }
 
 /* Sun Angle Calculations */
@@ -251,7 +234,7 @@ function getSolarDeclinationAngle(date) {
 
 function getTwilightAngle() {
     // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
-    // For some reason doubling the number gives me a result that's closer to reality
+    // I am only using the first two for this value since Astronomical Twilight is essentially night
     return 12.0 * Math.PI / 180.0;
 }
 
@@ -301,6 +284,14 @@ function addTrail(sat) {
     return trail;
 }
 
+function addStats() {
+    const canvasContainer = document.getElementsByClassName('canvas-container')[0];
+    stats = new Stats();
+    stats.domElement.style.position = 'absolute';
+    stats.domElement.style.top = '500px';
+    canvasContainer.appendChild(stats.domElement);
+}
+
 async function onGroupDisplayed(event) {
     const groupName = event.detail;
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
@@ -343,7 +334,7 @@ function onMouseMove(event) {
     if (intersects.length > 0) {
         // Show tooltip with the name
         const intersectedObject = intersects[0].object;
-        if (intersectedObject.name == "earth" || intersectedObject.name == "atm") {
+        if (intersectedObject.name == 'earth' || intersectedObject.name == 'atm' || intersectedObject.name == 'sky') {
             tooltip.style.display = 'none';
             return;
         }
@@ -361,24 +352,19 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    //renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 }
 
 // Function to animate the scene
 function animate() {
     const delta = clock.getDelta();
     const scaledDelta = renderParameters.speedFactor * delta;
-
     elapsedTime += scaledDelta;
-    //elapsedSecond += delta;
 
-    // This is jank, use a render clock if you want fixed frame rate
-    //if (elapsedSecond >= 1.0 / renderParameters.animFrameRate) {
     // Update the rotations of things
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
     const deltaGmst = satellite.gstime(deltaNow);
     earth.rotation.y = deltaGmst;
-    //atmosphere.rotation.y = deltaGmst;
     //sunHelper.setDirection(getSunPointingAngle(deltaNow));
     getSunPointingAngle(deltaNow);
 
@@ -388,13 +374,8 @@ function animate() {
 
     updateClock(deltaNow);
 
-    // reset the render clock
-    //    elapsedSecond = 0;
-    //}
-
     controls.update();
-    //stats.update();
-
+    stats.update();
 
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
@@ -407,6 +388,7 @@ function updateClock(deltaNow) {
 }
 
 await init();
+await initSky(scene);
 await initSatellites();
 // Start the animation loop
 const clock = new THREE.Clock();

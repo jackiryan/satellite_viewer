@@ -1,3 +1,17 @@
 node_modules/
 dist/
 .DS_Store
+
+getSatellites_service.log
+# All json files except index.json
+static/groups/beidou.json
+static/groups/glo-ops.json
+static/groups/gps-ops.json
+static/groups/molniya.json
+static/groups/oneweb.json
+static/groups/other.json
+static/groups/science.json
+static/groups/starlink.json
+static/groups/stations.json
+static/groups/telesat.json
+static/groups/weather.json
