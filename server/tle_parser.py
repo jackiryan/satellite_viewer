@@ -82,6 +82,8 @@ filter_items = [
     "CSS (MENGTIAN)",
     "TIANZHOU-7",
     "PROGRESS-MS 26",
+    "PROGRESS-MS 27",
+    "PROGRESS-MS 28",
     "CREW DRAGON 8",
     "SOYUZ-MS 25",
     "MICROORBITER-1",
@@ -94,8 +96,8 @@ filter_items = [
     "SHENZHOU-18 (SZ-18)",
     "1998-067WP",
     "1998-067WQ",
+    "SL-4 R/B",
     "SZ-17 MODULE",
-    "PROGRESS-MS 27",
     "STARLINER CFT-1",
     "CYGNUS NG-21"
 ]

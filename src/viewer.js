@@ -64,7 +64,9 @@ async function init() {
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor('#000011');
+    // should return 0x000011
+    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--default-bg-color').trim();
+    renderer.setClearColor(bgColor);
     renderer.domElement.classList.add('webgl');
     const topContainer = document.querySelector('.top-container');
 
@@ -82,6 +84,8 @@ async function init() {
 
     // Add controls
     controls = new OrbitControls(camera, renderer.domElement);
+    controls.minDistance = 5.5;
+    controls.maxDistance = 1000;
     controls.enablePan = false;
     controls.update();
 
@@ -263,27 +267,6 @@ function getSunPointingAngle(tPrime) {
     return sunDirection;
 }
 
-function addTrail(sat) {
-    let trail = new TrailRenderer(scene, false);
-    trail.setAdvanceFrequency(30);
-    const trailMaterial = TrailRenderer.createBaseMaterial();
-    trailMaterial.uniforms.headColor.value.set(1.0, 0.0, 0.0, 1.0);
-    trailMaterial.uniforms.tailColor.value.set(1.0, 0.0, 0.0, 0.0);
-    const trailLength = 100.0;
-
-    const trailHeadGeometry = [
-        new THREE.Vector3(-0.05, 0.0, 0.0),
-        new THREE.Vector3(0.0, 0.05, 0.0),
-        new THREE.Vector3(0.05, 0.0, 0.0),
-        new THREE.Vector3(-0.05, 0.0, 0.0)
-    ];
-
-    trail.initialize(trailMaterial, trailLength, false, 0, trailHeadGeometry, sat);
-    trail.activate();
-
-    return trail;
-}
-
 function addStats() {
     const canvasContainer = document.getElementsByClassName('canvas-container')[0];
     stats = new Stats();
@@ -370,7 +353,6 @@ function animate() {
 
     // Update satellite positions
     groupMap.update(deltaNow);
-    //trail.update();
 
     updateClock(deltaNow);
 
@@ -384,11 +366,11 @@ function animate() {
 function updateClock(deltaNow) {
     const utcDate = deltaNow.toUTCString().split(' ').slice(1, 4).join(' ');
     const utcTime = deltaNow.toISOString().split('T')[1].split('.')[0];
-    clockElement.innerHTML = `${utcDate}<br />${utcTime}`;
+    clockElement.innerHTML = `${utcDate}<br />${utcTime}Z`;
 }
 
 await init();
-await initSky(scene);
+await initSky({ sceneObj: scene });
 await initSatellites();
 // Start the animation loop
 const clock = new THREE.Clock();

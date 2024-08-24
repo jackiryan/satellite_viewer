@@ -19,35 +19,29 @@
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 uniform sampler2D uStarData;
-//uniform sampler2D uYoffData;
-//uniform sampler2D uXoffData;
-//uniform sampler2D uMagData;
 uniform sampler2D uTempData;
 uniform float uPixelSize;
 uniform float uSigma;
 uniform float uScaleFactor;
 uniform float uBrightnessScale;
 
-uniform samplerCube uSkyboxCubemap;
-uniform float uRotY;
+uniform sampler2D uSkybox;
 uniform float uRotX;
+uniform float uRotY;
 uniform float uRotZ;
 uniform float uMwBright;
 
 varying vec3 vDirection;
-
- float log10(float x) {
-    return log(x) / log(10.0);
- }
+varying vec2 vUv;
 
 float decodeMagnitude(float encodedValue) {
     float maxMag = -1.46; // Brightest
-    float minMag = 14.0; // Dimmest
-    if (encodedValue == 0.0) {
-        return 30.0;
-    } else {
-        return (minMag + (minMag - maxMag) * ((encodedValue) * -1.0));
-    }
+    float minMag = 14.0;  // Dimmest
+    float dftMag = 30.0;  // Used if the encoded value is ~= 0.0
+    float thresh = 1e-6;
+
+    float decodedMag = (minMag + (minMag - maxMag) * ((encodedValue) * -1.0));
+    return mix(dftMag, decodedMag, step(threshold, abs(encodedValue)));
 }
 
 float magnitudeToBrightness(float magnitude) {
@@ -150,17 +144,19 @@ mat4 rotationMatrix(float y, float x, float z) {
     return rotMatrix;
 }
 
-vec4 desaturate(vec4 color, float desaturationAmount) {
-    float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114)); // Luminance calculation
-    vec3 desaturatedColor = mix(color.rgb, vec3(gray, gray, gray), desaturationAmount);
-    return vec4(desaturatedColor, color.a); // Maintain original alpha
+vec4 desaturate(vec4 color, float saturation) {
+    // standard coefficients for sRGB colorspace
+    float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    vec3 desaturatedColor = mix(vec3(luminance), color.rgb, saturation);
+    return vec4(desaturatedColor, color.a);
 }
 
 void main() {
-    //vec3 dir = (rotationMatrix(0.0, 90.0, 180.0) * vec4(vDirection, 1.0)).xyz;
-    // JR - I don't trust my math on the baked in rotation for this, but it seems right
+    // JR - I don't trust my math on the baked in rotation for this, but it looks correct
     vec3 dir = (rotationMatrix(-90.0 + uRotY, -90.0 + uRotX, uRotZ) * vec4(vDirection, 1.0)).xyz;
 
+    // to be as correct as possible, a 5-by-5 grid of points should be sampled from the datapack
+    // a 3-by-3 grid is chosen instead to save on the render budget
     vec2 offsets[25] = vec2[](
         vec2(0, 0), vec2(1, 0), vec2(1, 1), vec2(0, 1), vec2(-1, 1),
         vec2(-1, 0), vec2(-1, -1), vec2(0, -1), vec2(1, -1), vec2(-2, 0),
@@ -174,10 +170,9 @@ void main() {
     }
 
     // experimentally derived rotation -- fix this!
-    mat4 rotMatrix = rotationMatrix(0.0, 30.0, 10.0);
-    vec3 rotDirection = (rotMatrix * vec4(dir, 1.0)).xyz;
-    vec4 skyColor = desaturate(texture(uSkyboxCubemap, rotDirection) * uMwBright, 0.6);
-    //vec4 skyColor = texture(uSkyboxCubemap, dir);
+    //mat4 rotMatrix = rotationMatrix(0.0, 30.0, 10.0);
+    //vec3 rotDirection = (rotMatrix * vec4(dir, 1.0)).xyz;
+    vec4 skyColor = desaturate(texture(uSkybox, vUv) * uMwBright, 0.6);
 
     gl_FragColor = skyColor + starColor;
 
