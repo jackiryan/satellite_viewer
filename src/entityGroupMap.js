@@ -1,99 +1,96 @@
-import { Entity, fetchEntities } from './satellites.js';
+import { Entity } from './entity.js';
 
 export class EntityGroupMap {
-    constructor() {
+    constructor(scene) {
+        this.scene = scene;
+
         this.map = new Map();
+
+        this.worker = new Worker('./satelliteWorker.js', { type: 'module' });
+        console.log('secure context:', window.isSecureContext);
+        this.worker.onmessage = (e) => {
+            const { messageType, result } = e.data;
+            if (messageType === 'groupInitialized') {
+                const { groupUrl, satObjs } = result;
+                this.onWorkerInitGroup(groupUrl, satObjs);
+            } else if (messageType === 'satGroupUpdated') {
+                const { groupUrl, posBuffer, scaleBuffer, dataValidBuffer } = result;
+                this.onGroupUpdated(groupUrl, posBuffer, scaleBuffer, dataValidBuffer);
+            }
+        };
     }
 
-    getGroup(name) {
-        return this.map[name];
+    dispatchInitGroup(groupUrl) {
+        this.worker.postMessage({ action: 'initGroup', data: groupUrl });
+    }
+
+    onWorkerInitGroup(groupUrl, satObjs) {
+        const entities = new Set();
+        satObjs.forEach(sat => {
+            const et = new Entity(sat.name, sat.color);
+            entities.add(et);
+            this.scene.add(et);
+        });
+        this.map.set(groupUrl, {
+            displayed: false,
+            items: entities
+        });
+        this.displayGroup(groupUrl);
+    }
+
+    dispatchUpdate(t) {
+        for (const group of this.map.keys()) {
+            if (this.groupDisplayed(group)) {
+                this.worker.postMessage({ action: 'updateSatelliteGroup', data: { group, t } });
+            }
+        }
+    }
+
+    onGroupUpdated(groupUrl, posBuffer, scaleBuffer, dataValidBuffer) {
+        let i = 0;
+        for (const et of this.getGroupItems(groupUrl)) {
+            et.updatePosScale(posBuffer[i], scaleBuffer[i], dataValidBuffer[i]);
+            i++;
+        }
     }
 
     getGroupItems(name) {
-        return this.map[name]['items'];
+        if (this.hasGroup(name)) {
+            return this.map.get(name).items;
+        } else {
+            return new Set();
+        }
     }
 
     hasGroup(name) {
-        return this.map.hasOwnProperty(name);
-    }
-
-    groupHasItem(group, item) {
-        return this.getGroupItems(group).has(item);
-    }
-
-    hasItem(item) {
-        for (const group in this.map) {
-            if (this.groupHasItem(group, item)) {
-                return true;
-            }
-        }
-        return false;
+        return this.map.has(name);
     }
 
     groupDisplayed(name) {
-        return this.getGroup(name)["displayed"];
-    }
-
-    deleteMember(item) {
-        for (const group in this.map) {
-            this.getGroupItems(group).delete(item);
-        }
-    }
-
-    async initGroup(scene, uri, t) {
-        const groupDb = await fetchEntities(uri);
-    
-        if (groupDb && groupDb.entities) {
-            const groupData = Object.entries(groupDb.entities);
-            const entities = new Set();
-    
-            groupData.forEach(([key, et]) => {
-                let bColor = groupDb.baseColor || et.entityColor || colorMap();
-                const entity = new Entity(scene, key, et, bColor);
-                entities.add(entity);
-            });
-    
-            this.map[uri] = {
-                'displayed': true,
-                'items': entities
-            }
-            this.displayGroup(uri, t);
+        if (this.hasGroup(name)) {
+            return this.map.get(name).displayed;
         } else {
-            console.error('Failed to add group: groupDb is undefined or does not contain entities');
+            return false;
         }
     }
 
-    removeGroup(name) {
-        this.map.delete(name);
+    displayGroup(name) {
+        if (!this.groupDisplayed(name)) { 
+            const entitiesToShow = this.getGroupItems(name);
+            entitiesToShow.forEach(et => {
+                this.scene.add(et.mesh);
+            });
+            this.map.get(name).displayed = true;
+        }
     }
 
     hideGroup(name) {
-        const entitiesToHide = this.map[name]['items'];
-        entitiesToHide.forEach(et => {
-            et.hide();
-        });
-        this.map[name]['displayed'] = false;
+        if (this.groupDisplayed(name)) {
+            const entitiesToHide = this.getGroupItems(name);
+            entitiesToHide.forEach(et => {
+                this.scene.remove(et.mesh);
+            });
+            this.map.get(name).displayed = false;
+        }   
     }
-
-    displayGroup(name, t) {
-        const entitiesToShow = this.map[name]['items'];
-        entitiesToShow.forEach(et => {
-            et.display(t);
-        });
-        this.map[name]['displayed'] = true;
-    }
-
-    update(t) {
-        for (const group in this.map) {
-            if (this.groupDisplayed(group)) {
-                this.getGroupItems(group).forEach(et => {
-                    et.updatePosition(t);
-                });
-            }
-        }
-    }
-}
-
-function colorMap() {
-    return '#1b1bf9';
 }

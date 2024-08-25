@@ -41,7 +41,7 @@ float decodeMagnitude(float encodedValue) {
     float thresh = 1e-6;
 
     float decodedMag = (minMag + (minMag - maxMag) * ((encodedValue) * -1.0));
-    return mix(dftMag, decodedMag, step(threshold, abs(encodedValue)));
+    return mix(dftMag, decodedMag, step(thresh, abs(encodedValue)));
 }
 
 float magnitudeToBrightness(float magnitude) {

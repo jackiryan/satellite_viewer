@@ -1,78 +1,3 @@
-import * as THREE from 'three';
-import * as satellite from 'satellite.js';
-
-const scaleFactor = 5 / 6378;
-
-export class Entity extends THREE.Object3D {
-    constructor(scene, name, attribs, color) {
-        super();
-        this.scene = scene;
-        this.name = name;
-        this.noradId = attribs.noradId;
-        this.color = color;
-        try {
-            this.satrec = satellite.twoline2satrec(
-                attribs.tleLine1,
-                attribs.tleLine2
-            );
-        } catch (error) {
-            console.error('There was a problem creating the satellite record:', error);
-        }
-        this.initMesh();
-        this.destroyEvent = new CustomEvent('destroyEntity', { detail: this });
-        this.displayed = false;
-    }
-
-    initMesh() {
-        this.geometry = new THREE.IcosahedronGeometry(0.02);
-        this.material = new THREE.MeshBasicMaterial({ color: this.color });
-        this.mesh = new THREE.Mesh(this.geometry, this.material);
-        this.mesh.name = this.name;
-    }
-
-    destroyMesh() {
-        if (this.mesh) {
-            this.scene.remove(this.mesh);
-            this.mesh = null;
-        }
-    }
-
-    updatePosition(t) {
-        const deltaPosVel = satellite.propagate(this.satrec, t);
-        try {
-            const deltaPosEci = deltaPosVel.position;
-            const deltaPos = new THREE.Vector3(
-                deltaPosEci.x * scaleFactor,
-                deltaPosEci.z * scaleFactor,
-                -deltaPosEci.y * scaleFactor
-            );
-            this.mesh.position.copy(deltaPos);
-            const newScale = Math.min(4.0, deltaPos.length() / 5.3);
-            this.mesh.scale.copy(new THREE.Vector3(newScale, newScale, newScale));
-        } catch (error) {
-            console.log('Satellite', this.name, ' position unknown!');
-            window.dispatchEvent(this.destroyEvent);
-            this.hide();
-            this.destroyMesh();
-        }
-    }
-
-    display(t) {
-        if (!this.displayed) {
-            this.displayed = true;
-            this.scene.add(this.mesh);
-            this.updatePosition(t);
-        }
-    }
-
-    hide() {
-        if (this.displayed) {
-            this.displayed = false;
-            this.scene.remove(this.mesh);
-        }
-    }
-}
-
 export async function populateButtonGroup(defaultGroups) {
     const dbUrl = './groups/index.json';
     const response = await fetch(dbUrl);
@@ -117,7 +42,6 @@ function populateButtons(groups, defaultGroups) {
 
     addButtonGroupGrab();
     addButtonGroupToggle();
-    //document.body.appendChild(container);
 }
 
 async function toggleButtonState(button, entitiesUrl) {
@@ -132,21 +56,6 @@ async function toggleButtonState(button, entitiesUrl) {
         window.dispatchEvent(hideEvent);
     }
 }
-
-export async function fetchEntities(entitiesUrl) {
-    try {
-        const response = await fetch(entitiesUrl);
-        if (!response.ok) {
-            throw new Error(`Network response was not ok: ${response.statusText}`);
-        }
-        const groupDb = await response.json();
-        return groupDb;
-    } catch (error) {
-        console.error('Failed to fetch entity names:', error);
-        return undefined;
-    }
-}
-
 
 function addButtonGroupGrab() {
     const buttonContainer = document.querySelector('.button-container');

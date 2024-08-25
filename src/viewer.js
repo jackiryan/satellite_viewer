@@ -2,8 +2,7 @@
 import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-//import { TrailRenderer } from './trails.js';
-import { populateButtonGroup } from './satellites.js';
+import { populateButtonGroup } from './buttonGroup.js';
 import { EntityGroupMap } from './entityGroupMap.js';
 import { initSky } from './skybox.js';
 import GUI from 'lil-gui';
@@ -14,7 +13,7 @@ import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.gl
 import Stats from 'three/addons/libs/stats.module.js';
 
 var gui, camera, scene, renderer, controls, stats;
-var earth, earthMaterial, atmosphere, atmosphereMaterial, sun;
+var earth, earthMaterial, atmosphere, atmosphereMaterial, groupMap;
 
 var raycaster, mouseMove, tooltip;
 
@@ -29,8 +28,7 @@ const now = new Date(); // Get current time
 // Use satelliteJS to get the sidereal time, which describes the sidereal rotation (relative to fixed stars aka camera) of the Earth.
 const gmst = satellite.gstime(now);
 
-// satellite data is stored in this data structure
-var groupMap = new EntityGroupMap();
+
 
 const clockElement = document.getElementById('clock');
 
@@ -199,13 +197,32 @@ async function init() {
 }
 
 async function initSatellites() {
+    // satellite data is stored in this data structure, position state is handled in a separate webworker
+    groupMap = new EntityGroupMap(scene);
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
-    window.addEventListener('destroyEntity', onEntityDestroyed, false);
+    
     // Set the space stations (ISS & CSS) as well as the one web constellation
     // to show on page load.
     const defaultGroups = new Set(["Space Stations", "OneWeb"]);
     await populateButtonGroup(defaultGroups);
+}
+
+function onGroupDisplayed(event) {
+    const groupName = event.detail;
+
+    if (groupMap.hasGroup(groupName)) {
+        groupMap.displayGroup(groupName);
+    } else {
+        // Will post a message to the dedicated webworker to initialize the group
+        groupMap.dispatchInitGroup(groupName);
+    }
+
+}
+
+function onGroupHidden(event) {
+    const groupName = event.detail;
+    groupMap.hideGroup(groupName);
 }
 
 
@@ -275,38 +292,11 @@ function addStats() {
     canvasContainer.appendChild(stats.domElement);
 }
 
-async function onGroupDisplayed(event) {
-    const groupName = event.detail;
-    const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-
-    if (groupMap.hasGroup(groupName)) {
-        if (!groupMap.groupDisplayed(groupName)) {
-            groupMap.displayGroup(groupName, deltaNow);
-        }
-    } else {
-        await groupMap.initGroup(scene, groupName, deltaNow);
-    }
-
-}
-
-function onGroupHidden(event) {
-    const groupName = event.detail;
-
-    if (groupMap.groupDisplayed(groupName)) {
-        groupMap.hideGroup(groupName);
-    }
-}
-
-function onEntityDestroyed(event) {
-    groupMap.deleteMember(event.detail);
-}
-
 function onMouseMove(event) {
     event.preventDefault();
     // Update the mouse variable
     mouseMove.x = ((event.clientX) / window.innerWidth) * 2 - 1;
     mouseMove.y = -((event.clientY - getOffsetHeight()) / window.innerHeight) * 2 + 1;
-    //console.log(`x: ${event.clientX} y: ${event.clientY}`);
 
     // Update the raycaster with the camera and mouse position
     raycaster.setFromCamera(mouseMove, camera);
@@ -352,7 +342,7 @@ function animate() {
     getSunPointingAngle(deltaNow);
 
     // Update satellite positions
-    groupMap.update(deltaNow);
+    groupMap.dispatchUpdate(deltaNow);
 
     updateClock(deltaNow);
 
