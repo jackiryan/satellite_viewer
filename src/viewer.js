@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import * as satellite from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { populateButtonGroup } from './buttonGroup.js';
-import { EntityGroupMap } from './entityGroupMap.js';
+import { SatelliteGroupMap } from './satelliteGroupMap.js';
 import { initSky } from './skybox.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
@@ -198,40 +198,44 @@ async function init() {
 
 async function initSatellites() {
     // satellite data is stored in this data structure, position state is handled in a separate webworker
-    groupMap = new EntityGroupMap(scene);
+    groupMap = new SatelliteGroupMap(scene);
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
     
-    // Set the space stations (ISS & CSS) as well as the one web constellation
-    // to show on page load.
+    // Set the space stations (ISS & CSS) and the OneWeb constellation to show
+    // on page load. Why OneWeb? Because it looks cool, I guess!
     const defaultGroups = new Set(["Space Stations", "OneWeb"]);
     await populateButtonGroup(defaultGroups);
 }
 
 function onGroupDisplayed(event) {
-    const groupName = event.detail;
+    const groupUrl = event.detail;
 
-    if (groupMap.hasGroup(groupName)) {
-        groupMap.displayGroup(groupName);
+    if (groupMap.hasGroup(groupUrl)) {
+        // Will post a message to the dedicated webworker to start updating
+        // transform matrices for the InstancedMesh associated with this group
+        groupMap.displayGroup(groupUrl);
     } else {
-        // Will post a message to the dedicated webworker to initialize the group
-        groupMap.dispatchInitGroup(groupName);
+        // Will post a message to the dedicated webworker to initialize the group,
+        // and creates a new InstancedMesh.
+        groupMap.onInitGroup(groupUrl);
     }
-
 }
 
 function onGroupHidden(event) {
-    const groupName = event.detail;
-    groupMap.hideGroup(groupName);
+    const groupUrl = event.detail;
+    groupMap.hideGroup(groupUrl);
 }
-
 
 function initGuiTweaks() {
     // gui debug controls
     gui
         .add(renderParameters, 'speedFactor')
         .min(1)
-        .max(3600);
+        .max(3600)
+        .onChange(() => {
+            groupMap.setSpeed(renderParameters.speedFactor);
+        });
 }
 
 /* Sun Angle Calculations */
@@ -341,10 +345,9 @@ function animate() {
     //sunHelper.setDirection(getSunPointingAngle(deltaNow));
     getSunPointingAngle(deltaNow);
 
-    // Update satellite positions
-    groupMap.dispatchUpdate(deltaNow);
-
     updateClock(deltaNow);
+
+    groupMap.update();
 
     controls.update();
     stats.update();
@@ -356,7 +359,7 @@ function animate() {
 function updateClock(deltaNow) {
     const utcDate = deltaNow.toUTCString().split(' ').slice(1, 4).join(' ');
     const utcTime = deltaNow.toISOString().split('T')[1].split('.')[0];
-    clockElement.innerHTML = `${utcDate}<br />${utcTime}Z`;
+    clockElement.innerHTML = `${utcDate}<br />${utcTime} Z`;
 }
 
 await init();

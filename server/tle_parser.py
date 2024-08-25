@@ -13,60 +13,71 @@ satellite_groups = {
         "gpName": "glo-ops",
         "country": "ru",
         "baseColor": "#d62718",
+        "count": 0,
         "entities": {}
     },
     "GPS": {
         "gpName": "gps-ops",
         "country": "us",
         "baseColor": "#ffffff",
+        "count": 0,
         "entities": {}
     },
     "Beidou": {
         "gpName": "beidou",
         "country": "cn",
         "baseColor": "#f6d500",
+        "count": 0,
         "entities": {}
     },
     "Molniya": {
         "gpName": "molniya",
         "country": "ru",
         "baseColor": "#ed333f",
+        "count": 0,
         "entities": {}
     },
     "Space Stations": {
         "gpName": "stations",
         "baseColor": "#f72091",
+        "count": 0,
         "entities": {}
     },
     "Science": {
         "gpName": "science",
         "baseColor": "#4b5320",
+        "count": 0,
         "entities": {}
     },
     "OneWeb": {
         "gpName": "oneweb",
         "country": "gb",
         "baseColor": "#fa1b1b",
+        "count": 0,
         "entities": {}
     },
     "Weather": {
         "gpName": "weather",
         "baseColor": "#1bf91b",
+        "count": 0,
         "entities": {}
     },
     "Starlink": {
         "gpName": "starlink",
         "country": "us",
         "baseColor": "#6b6b6b",
+        "count": 0,
         "entities": {}
     },
     "Telesat": {
         "gpName": "telesat",
         "country": "ca",
         "baseColor": "#ffe203",
+        "count": 0,
         "entities": {}
     },
     "Other": {
+        "count": 0,
         "entities": {}
     }
 }
@@ -130,6 +141,7 @@ def add_satellite(
 ) -> None:
     logger.debug(f"Adding {name} to the group {group}")
     entities = satellite_groups[group]["entities"]
+    satellite_groups[group]["count"] += 1
     entities[name] = {
         "noradId": norad_id,
         "tleLine1": tle_line1,

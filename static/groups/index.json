@@ -3,60 +3,71 @@
     "gpName": "glo-ops",
     "country": "ru",
     "baseColor": "#d62718",
+    "count": 26,
     "entities": "./groups/glo-ops.json"
   },
   "GPS": {
     "gpName": "gps-ops",
     "country": "us",
     "baseColor": "#ffffff",
+    "count": 31,
     "entities": "./groups/gps-ops.json"
   },
   "Beidou": {
     "gpName": "beidou",
     "country": "cn",
     "baseColor": "#f6d500",
+    "count": 52,
     "entities": "./groups/beidou.json"
   },
   "Molniya": {
     "gpName": "molniya",
     "country": "ru",
     "baseColor": "#ed333f",
+    "count": 32,
     "entities": "./groups/molniya.json"
   },
   "Space Stations": {
     "gpName": "stations",
     "baseColor": "#f72091",
+    "count": 2,
     "entities": "./groups/stations.json"
   },
   "Science": {
     "gpName": "science",
     "baseColor": "#4b5320",
+    "count": 53,
     "entities": "./groups/science.json"
   },
   "OneWeb": {
     "gpName": "oneweb",
     "country": "gb",
     "baseColor": "#fa1b1b",
+    "count": 631,
     "entities": "./groups/oneweb.json"
   },
   "Weather": {
     "gpName": "weather",
     "baseColor": "#1bf91b",
+    "count": 73,
     "entities": "./groups/weather.json"
   },
   "Starlink": {
     "gpName": "starlink",
     "country": "us",
     "baseColor": "#6b6b6b",
+    "count": 6312,
     "entities": "./groups/starlink.json"
   },
   "Telesat": {
     "gpName": "telesat",
     "country": "ca",
     "baseColor": "#ffe203",
+    "count": 20,
     "entities": "./groups/telesat.json"
   },
   "Other": {
+    "count": 2893,
     "entities": "./groups/other.json"
   }
 }
