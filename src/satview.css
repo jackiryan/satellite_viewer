@@ -1,4 +1,9 @@
+:root {
+    --default-bg-color: #000011;
+}
+
 body {
+    background-color: var(--default-bg-color);
     margin: 0;
     overflow: hidden;
     font-family: 'AudioLink Mono', sans-serif;
@@ -91,7 +96,7 @@ body {
 }
 
 .toggle-button.off {
-    background-color: #000011;
+    background-color: var(--default-bg-color);
     color: white;
 }
 
@@ -112,7 +117,7 @@ body {
 }
 
 .toggle-button:hover {
-    color: #000011;
+    color: var(--default-bg-color);
 }
 
 .toggle-button span .toggle-button img {

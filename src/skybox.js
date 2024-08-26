@@ -4,111 +4,164 @@ import GUI from 'lil-gui';
 import skyVertexShader from './shaders/skybox/skyVertex.glsl';
 import skyFragmentShader from './shaders/skybox/skyFragment.glsl';
 
-var skybox;
-
 export class Sky extends THREE.Mesh {
-    constructor(textures) {
-        textures[0].type = THREE.HalfFloatType;
-        textures[0].minFilter = THREE.LinearFilter;
-        textures[0].magFilter = THREE.LinearFilter;
-        textures[0].needsUpdate = true;
-
-        const uniforms = {
-            'uStarData': { type: 't', value: textures[0] },
-            'uTempData': { type: 't', value: textures[1] },
-            'uPixelSize': { type: 'f', value: 1024.0 },
-            'uSigma': { type: 'f', value: 150.0 },
-            'uScaleFactor': { type: 'f', value: 0.0 },
-            'uBrightnessScale': { type: 'f', value: 20.0 },
-            'uSkyboxCubemap': { type: 't', value: textures[2] },
-            'uRotY': { type: 'f', value: 0.0 },
-            'uRotX': { type: 'f', value: 0.0 },
-            'uRotZ': { type: 'f', value: 0.0 },
-            'uMwBright': { type: 'f', value: 1.0 },
-        };
-        const material = new THREE.ShaderMaterial({
-            name: 'StarShader',
-            uniforms: uniforms,
-            vertexShader: skyVertexShader,
-            fragmentShader: skyFragmentShader,
+    constructor() {
+        const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--default-bg-color').trim();
+        // prior to initialization, use a blank skybox with our default color
+        const blankMaterial = new THREE.MeshBasicMaterial({
+            color: bgColor,
             side: THREE.BackSide,
             depthWrite: false
         });
-        super( new THREE.SphereGeometry(1, 32, 32), material );
+
+        super(new THREE.SphereGeometry(1, 32, 32), blankMaterial);
+
+        // used to avoid highlighting with mouseMove event
+        this.name = 'sky';
+        this.blankMaterial = blankMaterial;
+        this.starsEnabled = false;
         this.isSky = true;
-        
+        // Setting the scale to be huge so that zooming in and out will not affect
+        // the position of the stars. The 
+        this.scale.setScalar(450000);
     }
 
-}
-
-function loadTexture(url) {
-    return new Promise((resolve, reject) => {
-        const loader = new THREE.TextureLoader();
-        loader.load(
-            url,
-            texture => {
-                // Resolve the promise with the loaded texture
-                resolve(texture);
-            },
-            undefined,
-            error => {
-                // Reject the promise if there's an error
-                reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
-            }
-        );
-    });
-}
-
-function loadCubemap() {
-    const prefix = 'sky_pos';
-    const extension = 'avif';
-    const loader = new THREE.CubeTextureLoader();
-    const texture = loader.load([
-        `./skybox/${prefix}_px.${extension}`, // positive x
-        `./skybox/${prefix}_nx.${extension}`, // negative x
-        `./skybox/${prefix}_py.${extension}`, // positive y
-        `./skybox/${prefix}_ny.${extension}`, // negative y
-        `./skybox/${prefix}_pz.${extension}`, // positive z
-        `./skybox/${prefix}_nz.${extension}`  // negative z
-    ]);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    return texture;
-}
-
-export async function initSky(scene, gui = undefined) {
-    const texPromises = [
-        loadTexture('./skybox/2_StarData16bit.png'),
-        loadTexture('./skybox/2_Tmap8bit.png'),
-        Promise.resolve(loadCubemap())
-    ]
-    Promise.all(texPromises).then((textures) => {
-        skybox = new Sky(textures);
-        skybox.scale.setScalar(450000);
-        skybox.name = 'sky';
-        scene.add(skybox);
-
-        if (gui != undefined) {
-            initTweaks(gui);
+    async initMaterial(textureUrls) {
+        if (textureUrls.length !== 3) {
+            throw new Error('initMaterial requires exactly three texture URLs');
         }
 
-        return skybox;
+        try {
+            const textures = await Promise.all(textureUrls.map(url => this.loadTexture(url)));
+            // this will become less tedious when moving to a single starmap texture
+            for (let i = 0; i < 3; i++) {
+                if (i === 0) {
+                    // 16-bit datapack texture
+                    textures[i].type = THREE.HalfFloatType;
+                }
+                if (i === 0 || i === 1) {
+                    // 8- or 16-bit datapacks should not mipmap
+                    textures[i].minFilter = THREE.LinearFilter;
+                    textures[i].magFilter = THREE.LinearFilter;
+                } else {
+                    // Milky way texture -- use sRGBColorSpace
+                    textures[i].colorSpace = THREE.SRGBColorSpace;
+                    // since we don't have the renderer capabilities in scope, this should work
+                    // on all devices we care about. This texture is barely visible anyways
+                    textures[i].anisotropy = 2;
+                }
+                textures[i].needsUpdate = true;
+            }
+            
+            // uPixelSize should not be adjusted at runtime -- its value is based on the
+            // resolution of the datapack texture uStarData
+            const uniforms = {
+                'uStarData': { type: 't', value: textures[0] },
+                'uTempData': { type: 't', value: textures[1] },
+                'uPixelSize': { type: 'f', value: 1024.0 },
+                'uSigma': { type: 'f', value: 150.0 },
+                'uScaleFactor': { type: 'f', value: 0.0 },
+                'uBrightnessScale': { type: 'f', value: 20.0 },
+                'uSkybox': { type: 't', value: textures[2] },
+                'uRotX': { type: 'f', value: 0.0 },
+                'uRotY': { type: 'f', value: 0.0 },
+                'uRotZ': { type: 'f', value: 0.0 },
+                'uMwBright': { type: 'f', value: 0.05 },
+            };
+            this.starMaterial = new THREE.ShaderMaterial({
+                name: 'StarShader',
+                uniforms: uniforms,
+                vertexShader: skyVertexShader,
+                fragmentShader: skyFragmentShader,
+                side: THREE.BackSide,
+                depthWrite: false
+            });
+            
+            this.material = this.starMaterial;
+            this.starsEnabled = true;
+        } catch(error) {
+            console.error('Failed to initialize starmap material:', error);
+        }
+    }
 
-    })
-    .catch(error => {
-        console.error('An error occurred while loading one of the textures:', error);
-    });
+    loadTexture(url) {
+        return new Promise((resolve, reject) => {
+            const loader = new THREE.TextureLoader();
+            loader.load(
+                url,
+                texture => {
+                    resolve(texture);
+                },
+                undefined,
+                error => {
+                    reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
+                }
+            );
+        });
+    }
+
+    loadCubemap(prefix, extension) {
+        return new Promise((resolve, reject) => {
+            const loader = new THREE.CubeTextureLoader();
+            loader.load(
+                [
+                    `${prefix}_px.${extension}`, // positive x
+                    `${prefix}_nx.${extension}`, // negative x
+                    `${prefix}_py.${extension}`, // positive y
+                    `${prefix}_ny.${extension}`, // negative y
+                    `${prefix}_pz.${extension}`, // positive z
+                    `${prefix}_nz.${extension}`  // negative z
+                ],
+                texture => {
+                    resolve(texture);
+                },
+                undefined,
+                error => {
+                    reject(
+                        new Error(`Failed to load cubemap from ${prefix}_*.${extension}: ${error.message}`)
+                    );
+                }
+            );
+        });
+    }
+
+    toggleStars() {
+        this.starsEnabled = !this.starsEnabled;
+        if (this.starsEnabled) {
+            this.material = this.starMaterial;
+        } else {
+            this.material = this.blankMaterial;
+        }
+    }
 }
 
-function initTweaks(gui) {
+export async function initSky({ sceneObj, stars = true, guiObj = undefined } = {}) {
+    const textureUrls = [
+        './skybox/StarData_1024x1024_16bit.png',
+        './skybox/2_Tmap8bit.png',
+        './skybox/milkyway_2020_1024x512.avif'
+    ];
+    const skybox = new Sky();
+    sceneObj.add(skybox);
+    if (stars) {
+        await skybox.initMaterial(textureUrls);
+        if (guiObj !== undefined) {
+            initTweaks(guiObj, skybox);
+        }
+    }
+    return skybox;
+}
+
+function initTweaks(gui, skybox) {
+    const uniforms = skybox.material.uniforms;
     const effectController = {
-        pixelSize: 1024.0,
-        sigma: 150.0,
-        scaleFactor: 0.0,
-        brightnessScale: 20.0,
-        mwBright: 1.0,
-        rotY: 90.0,
-        rotX: 180.0,
-        rotZ: 56.0
+        sigma: uniforms[ 'uSigma' ].value,
+        scaleFactor: uniforms[ 'uScaleFactor' ].value,
+        brightnessScale: uniforms[ 'uBrightnessScale' ].value,
+        mwBright: uniforms[ 'uMwBright' ].value,
+        rotX: uniforms[ 'uRotX' ].value,
+        rotY: uniforms[ 'uRotY' ].value,
+        rotZ: uniforms[ 'uRotZ' ].value 
     };
 
     gui.add( effectController, 'sigma', 0.0, 500.0, 0.1 ).onChange( guiChanged );
@@ -126,9 +179,13 @@ function initTweaks(gui) {
         uniforms[ 'uScaleFactor' ].value = effectController.scaleFactor;
         uniforms[ 'uBrightnessScale' ].value = effectController.brightnessScale;
         uniforms[ 'uMwBright' ].value = effectController.mwBright;
-        uniforms[ 'uRotY' ].value = effectController.rotY;
         uniforms[ 'uRotX' ].value = effectController.rotX;
+        uniforms[ 'uRotY' ].value = effectController.rotY;
         uniforms[ 'uRotZ' ].value = effectController.rotZ;
     
     }
+
+    // run the initialization function once to set uniforms to their starting values
+    // in the effectController
+    guiChanged();
 }

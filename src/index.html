@@ -9,22 +9,22 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
     <link rel="manifest" href="./site.webmanifest">
+    <link rel="preload" href="./fonts/AudioLinkMono-Bold.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="./fonts.css" media="print" onload="this.media='all'">
     <link rel="stylesheet" href="./satview.css" media="print" onload="this.media='all'">
     <link rel="preload" href="./BlueMarble_8192x4096.avif" as="image" crossorigin>
     <link rel="preload" href="./BlackMarble_8192x4096.avif" as="image" crossorigin>
     <link rel="preload" href="./EarthSpec_4096x2048.avif" as="image" crossorigin>
-    <link rel="preload" href="./skybox/2_StarData16bit.png" as="image" crossorigin>
+    <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="image" crossorigin>
+    <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="image" crossorigin>
     <link rel="preload" href="./skybox/2_Tmap8bit.png" as="image" crossorigin>
-    <link rel="preload" href="./groups/index.json" as="fetch" crossorigin>
-    <link rel="preload" href="./groups/oneweb.json" as="fetch" crossorigin>
-    <link rel="preload" href="./groups/stations.json" as="fetch" crossorigin>
-    <link rel="preload" href="./fonts/AudioLinkMono-Bold.woff2" as="font" crossorigin>
-    <link rel="preconnect" href="https://flagcdn.com/" />
-    <script defer type="module" src="./viewer.js"></script>
+    <link rel="preload" href="./groups/index.json" as="fetch" type="application/json" crossorigin>
+    <script type="module" src="./viewer.js" defer></script>
+    <script type="module" src="./skybox.js" defer></script>
+    <script type="module" src="./satelliteWorker.js" defer></script>
 </head>
 
-<body style="background-color:#000011;">
+<body>
     <div class="top-container">
         <div class="container-wrapper">
             <div class="button-container"></div>

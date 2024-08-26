@@ -9,6 +9,11 @@ export default defineConfig ({
     base: './',
     server:
     {
+        // the application uses SharedArrayBuffer, so these headers are required
+        headers: {
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Cross-Origin-Embedder-Policy': 'require-corp',
+        },
         host: true, // Open to local network and display URL
         open: !('SANDBOX_URL' in process.env || 'CODESANDBOX_HOST' in process.env) // Open if it's not a CodeSandbox
     },

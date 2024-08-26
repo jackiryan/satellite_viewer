@@ -13,60 +13,71 @@ satellite_groups = {
         "gpName": "glo-ops",
         "country": "ru",
         "baseColor": "#d62718",
+        "count": 0,
         "entities": {}
     },
     "GPS": {
         "gpName": "gps-ops",
         "country": "us",
         "baseColor": "#ffffff",
+        "count": 0,
         "entities": {}
     },
     "Beidou": {
         "gpName": "beidou",
         "country": "cn",
         "baseColor": "#f6d500",
+        "count": 0,
         "entities": {}
     },
     "Molniya": {
         "gpName": "molniya",
         "country": "ru",
         "baseColor": "#ed333f",
+        "count": 0,
         "entities": {}
     },
     "Space Stations": {
         "gpName": "stations",
         "baseColor": "#f72091",
+        "count": 0,
         "entities": {}
     },
     "Science": {
         "gpName": "science",
         "baseColor": "#4b5320",
+        "count": 0,
         "entities": {}
     },
     "OneWeb": {
         "gpName": "oneweb",
         "country": "gb",
         "baseColor": "#fa1b1b",
+        "count": 0,
         "entities": {}
     },
     "Weather": {
         "gpName": "weather",
         "baseColor": "#1bf91b",
+        "count": 0,
         "entities": {}
     },
     "Starlink": {
         "gpName": "starlink",
         "country": "us",
         "baseColor": "#6b6b6b",
+        "count": 0,
         "entities": {}
     },
     "Telesat": {
         "gpName": "telesat",
         "country": "ca",
         "baseColor": "#ffe203",
+        "count": 0,
         "entities": {}
     },
     "Other": {
+        "count": 0,
         "entities": {}
     }
 }
@@ -82,6 +93,8 @@ filter_items = [
     "CSS (MENGTIAN)",
     "TIANZHOU-7",
     "PROGRESS-MS 26",
+    "PROGRESS-MS 27",
+    "PROGRESS-MS 28",
     "CREW DRAGON 8",
     "SOYUZ-MS 25",
     "MICROORBITER-1",
@@ -94,8 +107,8 @@ filter_items = [
     "SHENZHOU-18 (SZ-18)",
     "1998-067WP",
     "1998-067WQ",
+    "SL-4 R/B",
     "SZ-17 MODULE",
-    "PROGRESS-MS 27",
     "STARLINER CFT-1",
     "CYGNUS NG-21"
 ]
@@ -128,6 +141,7 @@ def add_satellite(
 ) -> None:
     logger.debug(f"Adding {name} to the group {group}")
     entities = satellite_groups[group]["entities"]
+    satellite_groups[group]["count"] += 1
     entities[name] = {
         "noradId": norad_id,
         "tleLine1": tle_line1,
@@ -227,7 +241,8 @@ def parse_tle(
         infile: pathlib.Path,
         group_data: dict[str, list[int]],
         workdir: pathlib.Path | None,
-        one_file: bool
+        one_file: bool,
+        is_dev: bool
 ) -> None:
     lines = infile.read_text().splitlines()
     workdir = workdir or pathlib.Path.cwd()
@@ -237,7 +252,7 @@ def parse_tle(
         if one_file:
             write_one_file(infile, workdir)
         else:
-            write_group_files(workdir)
+            write_group_files(workdir, is_dev)
     except Exception as e:
         logging.error(f"Error writing satellite database: {e}")
         logging.debug("Satellite database is as follows:")
@@ -245,7 +260,8 @@ def parse_tle(
         raise e
 
 def write_group_files(
-        workdir: pathlib.Path
+        workdir: pathlib.Path,
+        is_dev: bool
 ) -> None:
     # Write index.json which will be used to find uris to other group json files
     index_file = workdir / "index.json"
@@ -255,7 +271,10 @@ def write_group_files(
         outfile = workdir / f"{gp_name}.json"
         outfile.write_text(json.dumps(v, indent=2))
         # Replace the entities tag in the group_index with the uri to the group json
-        group_index[k]["entities"] = f"./groups/{gp_name}.json"
+        if is_dev:
+            group_index[k]["entities"] = f"./groups/{gp_name}.json"
+        else:
+            group_index[k]["entities"] = f"https://jackiepi.xyz/groups/{gp_name}.json"
     index_file.write_text(json.dumps(group_index, indent=2))
 
 def write_one_file(
@@ -284,6 +303,11 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Store output to a single file instead of one group"
     )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="Use relative urls for groups in index.json (for dev)"
+    )
     return parser
 
 def main() -> None:
@@ -298,7 +322,7 @@ def main() -> None:
     args = parser.parse_args()
 
     group_data = download_group_files()
-    parse_tle(args.infile, group_data, args.workdir, args.one_file)
+    parse_tle(args.infile, group_data, args.workdir, args.one_file, args.dev)
 
 if __name__ == "__main__":
     main()

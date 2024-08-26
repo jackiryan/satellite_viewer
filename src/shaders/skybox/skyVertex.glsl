@@ -18,6 +18,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 varying vec3 vDirection;
+varying vec2 vUv;
 
 void main() {
     // since we render BackSide, need to flip over the y-axis
@@ -26,6 +27,7 @@ void main() {
     0.0, 1.0, 0.0,
     0.0, 0.0, 1.0);
     vDirection = flipMat * normalize(position);
+    vUv = uv;
 
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     gl_Position.z = gl_Position.w; // set z to camera.far

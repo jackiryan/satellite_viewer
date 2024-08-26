@@ -12,11 +12,11 @@ async function init() {
 
     renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setAnimationLoop(animate);
     document.body.appendChild(renderer.domElement);
 
-    console.log("hello, world!");
-
     controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableZoom = false;
     controls.update();
 
     // Add ambient light
@@ -25,7 +25,7 @@ async function init() {
 
     const gui = new GUI();
 
-    await initSky(scene, gui);
+    await initSky({ sceneObj: scene, guiObj: gui });
 
     // Handle window resize
     window.addEventListener('resize', function () {
@@ -39,10 +39,8 @@ async function init() {
 }
 
 function animate() {
-    requestAnimationFrame(animate);
     controls.update();
     renderer.render(scene, camera);
 }
 
 await init();
-animate();
