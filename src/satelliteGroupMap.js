@@ -73,11 +73,13 @@ export class SatelliteGroupMap {
         );
         groupMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         const dummy = new THREE.Object3D();
+        // set initial positions to be random so that bounding sphere is large,
+        // avoids a race condition
         for (let i = 0; i < count; i++) {
             dummy.position.set(
-                0,
-                5.5,
-                0
+                Math.random() * 100 - 50,
+                Math.random() * 100 - 50,
+                Math.random() * 100 - 50
             );
             dummy.updateMatrix();
             groupMesh.setMatrixAt(i, dummy.matrix);
