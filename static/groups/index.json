@@ -56,7 +56,7 @@
     "gpName": "starlink",
     "country": "us",
     "baseColor": "#6b6b6b",
-    "count": 6312,
+    "count": 6311,
     "entities": "./groups/starlink.json"
   },
   "Telesat": {
