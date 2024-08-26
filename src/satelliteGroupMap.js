@@ -1,5 +1,6 @@
 
 import * as THREE from 'three';
+import Worker from './satelliteWorker.js?worker';
 
 export class SatelliteGroupMap {
     constructor(scene) {
@@ -13,12 +14,13 @@ export class SatelliteGroupMap {
         // All objects in the Other category have this blue color
         this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#1b1bf9' });
 
-        this.worker = new Worker('./satelliteWorker.js', { type: 'module' });
+        this.worker = new Worker();
         this.worker.onmessage = (event) => {
             // The worker only ever posts a message when it starts the callback loop,
             // so we can assume that event.data is always the group that was added
-            const groupUrl = event.data;
-            this.onWorkerInitGroup(groupUrl);
+            // and the names that were parsed from the JSON response
+            const { url, names } = event.data;
+            this.onWorkerInitGroup(url, names);
         }
     }
 
@@ -73,19 +75,22 @@ export class SatelliteGroupMap {
         const dummy = new THREE.Object3D();
         for (let i = 0; i < count; i++) {
             dummy.position.set(
-                Math.random() * 100 - 50,
-                Math.random() * 100 - 50,
-                Math.random() * 100 - 50
+                0,
+                5.5,
+                0
             );
             dummy.updateMatrix();
             groupMesh.setMatrixAt(i, dummy.matrix);
         }
+        groupMesh.name = groupUrl;
+        groupMesh.frustumCulled = false;
 
 
         // displayed is false because the mesh will be shown later after
         // the transform matrices are initialized by the webworker
         this.map.set(groupUrl, {
             displayed: false,
+            names: new Array(count).fill(''),
             mesh: groupMesh
         });
 
@@ -95,11 +100,12 @@ export class SatelliteGroupMap {
         });
     }
 
-    onWorkerInitGroup(groupUrl) {
+    onWorkerInitGroup(groupUrl, satelliteNames) {
         const groupObj = this.map.get(groupUrl);
-        groupObj.displayed = true;
-        groupObj.mesh.instanceMatrix.needsUpdate = true;
-        this.scene.add(groupObj.mesh);
+        for (let i = 0; i < satelliteNames.length; i++) {
+            groupObj.names[i] = satelliteNames[i];
+        }
+        this.displayGroup(groupUrl);
     }
 
     displayGroup(groupUrl) {
@@ -108,9 +114,10 @@ export class SatelliteGroupMap {
                 action: 'display',
                 data: { url: groupUrl }
             });
-            // This effectively displays the group, so re-use the code
-            // from this function even though the name is not the best
-            this.onWorkerInitGroup(groupUrl);
+            const groupObj = this.map.get(groupUrl);
+            groupObj.displayed = true;
+            groupObj.mesh.instanceMatrix.needsUpdate = true;
+            this.scene.add(groupObj.mesh);
         }
     }
 

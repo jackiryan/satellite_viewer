@@ -315,10 +315,14 @@ function onMouseMove(event) {
             tooltip.style.display = 'none';
             return;
         }
-        tooltip.style.left = `${event.clientX + 5}px`;
-        tooltip.style.top = `${event.clientY + 5}px`;
-        tooltip.style.display = 'block';
-        tooltip.innerHTML = intersectedObject.name;
+        if (groupMap.hasGroup(intersectedObject.name)) {
+            const groupName = intersectedObject.name;
+            const satelliteName = groupMap.map.get(groupName).names[intersects[0].instanceId];
+            tooltip.style.left = `${event.clientX + 5}px`;
+            tooltip.style.top = `${event.clientY + 5}px`;
+            tooltip.style.display = 'block';
+            tooltip.innerHTML = satelliteName;
+        }
     } else {
         // Hide the tooltip
         tooltip.style.display = 'none';

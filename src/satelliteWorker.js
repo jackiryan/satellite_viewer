@@ -49,6 +49,7 @@ async function workerInitGroup(data) {
     const groupDb = await fetchEntities(url);
     const groupAttribs = Object.values(groupDb.entities);
     
+    const names = Object.keys(groupDb.entities);
     const satRecs = groupAttribs.map((attribs) => initSatrec(attribs));
     satelliteMap.set(url, {
         displayed: true,
@@ -62,7 +63,7 @@ async function workerInitGroup(data) {
         }, 1000 / refreshRate);
         started = true;
     }
-    postMessage(url);
+    postMessage({ url, names });
 }
 
 async function fetchEntities(entitiesUrl) {
