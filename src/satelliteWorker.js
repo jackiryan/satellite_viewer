@@ -18,6 +18,7 @@ const maxScale = 4.0;
 // millis since start of Unix epoch at the time the worker is started, used to
 // compute the elapsedTime
 const startTime = new Date().getTime();
+let oldTime = startTime;
 let elapsedTime = 0.0;
 const refreshRate = 60;
 
@@ -96,7 +97,9 @@ function initSatrec(satAttribs) {
 }
 
 function updatePositions() {
-    elapsedTime = (Date.now() - startTime) * speedFactor;
+    const newTime = Date.now();
+    elapsedTime += (newTime - oldTime) * speedFactor;
+    oldTime = newTime;
     const t = new Date(startTime + elapsedTime);
     for (const groupObj of satelliteMap.values()) {
         if (groupObj.displayed) {

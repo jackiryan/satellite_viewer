@@ -23,7 +23,7 @@ function populateButtons(groups, defaultGroups) {
 
         if (group.country) {
             const flag = document.createElement('img');
-            flag.src = `https://flagcdn.com/w20/${group.country}.png`;
+            flag.src = `./flags/${group.country}.png`;
             flag.alt = `${group.country} flag`;
             button.appendChild(flag);
         }

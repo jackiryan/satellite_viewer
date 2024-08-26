@@ -9,6 +9,7 @@ export default defineConfig ({
     base: './',
     server:
     {
+        // the application uses SharedArrayBuffer, so these headers are required
         headers: {
             'Cross-Origin-Opener-Policy': 'same-origin',
             'Cross-Origin-Embedder-Policy': 'require-corp',
