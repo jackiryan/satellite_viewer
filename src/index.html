@@ -9,7 +9,8 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
     <link rel="manifest" href="./site.webmanifest">
-    <link rel="preload" href="./fonts/AudioLinkMono-Bold.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="prefetch" href="./fonts/AudioLinkMono-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="prefetch" href="./fonts/AudioLinkMono-Light.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <link rel="stylesheet" href="./fonts.css" media="print" onload="this.media='all'">
     <link rel="stylesheet" href="./satview.css" media="print" onload="this.media='all'">
     <link rel="preload" href="./BlueMarble_8192x4096.avif" as="image" crossorigin>
@@ -19,6 +20,8 @@
     <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="image" crossorigin>
     <link rel="preload" href="./skybox/2_Tmap8bit.png" as="image" crossorigin>
     <link rel="preload" href="./groups/index.json" as="fetch" type="application/json" crossorigin>
+    <link rel="preload" href="./groups/stations.json" as="fetch" type="application/json" crossorigin>
+    <link rel="preload" href="./groups/oneweb.json" as="fetch" type="application/json" crossorigin>
     <script type="module" src="./viewer.js" defer></script>
     <script type="module" src="./skybox.js" defer></script>
     <script type="module" src="./satelliteWorker.js" defer></script>

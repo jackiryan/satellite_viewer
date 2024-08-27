@@ -18,9 +18,8 @@ export class SatelliteGroupMap {
         this.worker.onmessage = (event) => {
             // The worker only ever posts a message when it starts the callback loop,
             // so we can assume that event.data is always the group that was added
-            // and the names that were parsed from the JSON response
-            const { url, names } = event.data;
-            this.onWorkerInitGroup(url, names);
+            const url = event.data;
+            this.displayGroup(url);
         }
     }
 
@@ -87,27 +86,49 @@ export class SatelliteGroupMap {
         groupMesh.name = groupUrl;
         groupMesh.frustumCulled = false;
 
+        const groupDb = await this.fetchEntities(groupUrl);
 
         // displayed is false because the mesh will be shown later after
         // the transform matrices are initialized by the webworker
         this.map.set(groupUrl, {
             displayed: false,
-            names: new Array(count).fill(''),
+            names: Object.keys(groupDb.entities),
             mesh: groupMesh
         });
 
         this.worker.postMessage({
             action: 'init',
-            data: { url: groupUrl, buffer: sharedTransformBuffer }
+            data: { url: groupUrl, groupData: this.JSONtoArrayBuffer(groupDb), buffer: sharedTransformBuffer }
         });
     }
 
-    onWorkerInitGroup(groupUrl, satelliteNames) {
-        const groupObj = this.map.get(groupUrl);
-        for (let i = 0; i < satelliteNames.length; i++) {
-            groupObj.names[i] = satelliteNames[i];
+    async fetchEntities(entitiesUrl) {
+        try {
+            const response = await fetch(entitiesUrl);
+            if (!response.ok) {
+                throw new Error(`Network response was not ok: ${response.statusText}`);
+            }
+            const groupDb = await response.json();
+            if (groupDb && groupDb.entities) {
+                return groupDb;
+            } else {
+                throw new Error('Failed to add group: groupDb is undefined or does not contain entities');
+            }
+        } catch (error) {
+            console.error('Failed to fetch entity names:', error);
+            return undefined;
         }
-        this.displayGroup(groupUrl);
+    }
+
+    JSONtoArrayBuffer(jsonObject) {
+        const dataString = JSON.stringify(jsonObject);
+        const len = dataString.length;
+        const arr = new Uint8Array(len);
+        let i = -1;
+        while (++i < len) {
+            arr[i] = dataString.charCodeAt(i);
+        }
+        return arr.buffer;
     }
 
     displayGroup(groupUrl) {

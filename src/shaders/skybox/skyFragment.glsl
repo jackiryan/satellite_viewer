@@ -151,7 +151,7 @@ vec4 desaturate(vec4 color, float saturation) {
     // standard coefficients for sRGB colorspace
     float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));
     vec3 desaturatedColor = mix(vec3(luminance), color.rgb, saturation);
-    return vec4(desaturatedColor, color.a);
+    return vec4(desaturatedColor, 1.0);
 }
 
 void main() {
@@ -175,7 +175,7 @@ void main() {
     // bake in -90 degree rotation about X axis for UV coordinate
     vec4 skyColor = desaturate(texture(uSkybox, vec2(1.0 - vUv.x, vUv.y)) * uMwBright, 0.6);
 
-    gl_FragColor = skyColor + starColor;
+    gl_FragColor = starColor + skyColor;
 
     #include <tonemapping_fragment>
 	#include <colorspace_fragment>

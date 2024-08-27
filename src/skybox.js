@@ -66,7 +66,7 @@ export class Sky extends THREE.Mesh {
                 // 'uRotX': { type: 'f', value: 0.0 },
                 // 'uRotY': { type: 'f', value: 0.0 },
                 // 'uRotZ': { type: 'f', value: 0.0 },
-                'uMwBright': { type: 'f', value: 0.1 },
+                'uMwBright': { type: 'f', value: 0.05 },
             };
             this.starMaterial = new THREE.ShaderMaterial({
                 name: 'StarShader',

@@ -28,8 +28,6 @@ const now = new Date(); // Get current time
 // Use satelliteJS to get the sidereal time, which describes the sidereal rotation (relative to fixed stars aka camera) of the Earth.
 const gmst = satellite.gstime(now);
 
-
-
 const clockElement = document.getElementById('clock');
 
 /* Animation
@@ -63,9 +61,10 @@ async function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     // should return 0x000011
-    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--default-bg-color').trim();
-    renderer.setClearColor(bgColor);
+    //const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--default-bg-color').trim();
+    renderer.setClearColor(0x000000);
     renderer.toneMapping = THREE.LinearToneMapping;
+    renderer.toneMappingExposure = 1.3;
     renderer.domElement.classList.add('webgl');
     const topContainer = document.querySelector('.top-container');
 
@@ -78,13 +77,15 @@ async function init() {
     canvasContainer.appendChild(renderer.domElement);
 
     // Add ambient light
-    const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
+    const ambientLight = new THREE.AmbientLight(0xcccccc, 0.6);
     scene.add(ambientLight);
 
     // Add controls
     controls = new OrbitControls(camera, renderer.domElement);
     controls.minDistance = 7;
-    controls.maxDistance = 1000;
+    controls.maxDistance = 150;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
     controls.enablePan = false;
     controls.update();
 
@@ -99,11 +100,10 @@ async function init() {
     const nightTexturePromise = Promise.resolve(textureLoader.load('./BlackMarble_8192x4096.avif'));
     const specularMapTexturePromise = Promise.resolve(textureLoader.load('./EarthSpec_4096x2048.avif'));
     Promise.all([dayTexturePromise, nightTexturePromise, specularMapTexturePromise]).then((textures) => {
-        textures[0].colorSpace = THREE.SRGBColorSpace;
-        textures[0].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-        textures[1].colorSpace = THREE.SRGBColorSpace;
-        textures[1].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-        textures[2].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+        for (let i = 0; i < textures.length - 1; i++) {
+            textures[i].colorSpace = THREE.SRGBColorSpace;
+            textures[i].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+        }
 
         // Shader material can only be created after all three textures have loaded
         earthMaterial = new THREE.ShaderMaterial({
@@ -184,13 +184,7 @@ async function init() {
 
     // Create an HTML element to display the name
     tooltip = document.createElement('div');
-    tooltip.style.fontFamily = 'AudioLink Mono';
-    tooltip.style.fontWeight = '300';
-    tooltip.style.position = 'absolute';
-    tooltip.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
-    tooltip.style.padding = '5px';
-    tooltip.style.borderRadius = '3px';
-    tooltip.style.display = 'none';
+    tooltip.className = 'tooltip';
     canvasContainer.appendChild(tooltip);
 
     window.addEventListener('resize', onWindowResize, false);
@@ -312,17 +306,16 @@ function onMouseMove(event) {
     if (intersects.length > 0) {
         // Show tooltip with the name
         const intersectedObject = intersects[0].object;
-        if (intersectedObject.name == 'earth' || intersectedObject.name == 'atm' || intersectedObject.name == 'sky') {
-            tooltip.style.display = 'none';
-            return;
-        }
+        // only display tooltip for instancedMesh objects
         if (groupMap.hasGroup(intersectedObject.name)) {
             const groupName = intersectedObject.name;
             const satelliteName = groupMap.map.get(groupName).names[intersects[0].instanceId];
-            tooltip.style.left = `${event.clientX + 5}px`;
-            tooltip.style.top = `${event.clientY + 5}px`;
+            tooltip.style.left = `${event.clientX + 10}px`;
+            tooltip.style.top = `${event.clientY + 10}px`;
             tooltip.style.display = 'block';
             tooltip.innerHTML = satelliteName;
+        } else {
+            tooltip.style.display = 'none';
         }
     } else {
         // Hide the tooltip
@@ -331,10 +324,13 @@ function onMouseMove(event) {
 }
 
 function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(width, height);
+    //renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 }
 
 // Function to animate the scene
@@ -351,9 +347,7 @@ function animate() {
     getSunPointingAngle(deltaNow);
 
     updateClock(deltaNow);
-
     groupMap.update();
-
     controls.update();
     stats.update();
 

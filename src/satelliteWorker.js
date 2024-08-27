@@ -22,12 +22,12 @@ let oldTime = startTime;
 let elapsedTime = 0.0;
 const refreshRate = 60;
 
-self.onmessage = async function(e) {
+self.onmessage = function(e) {
     const { action, data } = e.data;
 
     switch(action) {
         case 'init':
-            await workerInitGroup(data);
+            workerInitGroup(data);
             break;
         case 'display':
             workerDisplayGroup(data);
@@ -41,15 +41,17 @@ self.onmessage = async function(e) {
     }
 };
 
-async function workerInitGroup(data) {
-    const { url, buffer } = data;
+function workerInitGroup(data) {
+    const { url, groupData, buffer } = data;
     // This is not the full instance Matrix, but merely a view to the 
     // instanceMatrix.array's buffer
+    const dataString = new TextDecoder().decode(groupData);
+    const groupDb = JSON.parse(dataString);
     const instanceMatrix = new Float32Array(buffer);
-    const groupDb = await fetchEntities(url);
+    //const groupDb = await fetchEntities(url);
     const groupAttribs = Object.values(groupDb.entities);
     
-    const names = Object.keys(groupDb.entities);
+    //const names = Object.keys(groupDb.entities);
     const satRecs = groupAttribs.map((attribs) => initSatrec(attribs));
     satelliteMap.set(url, {
         displayed: true,
@@ -63,25 +65,7 @@ async function workerInitGroup(data) {
         }, 1000 / refreshRate);
         started = true;
     }
-    postMessage({ url, names });
-}
-
-async function fetchEntities(entitiesUrl) {
-    try {
-        const response = await fetch(entitiesUrl);
-        if (!response.ok) {
-            throw new Error(`Network response was not ok: ${response.statusText}`);
-        }
-        const groupDb = await response.json();
-        if (groupDb && groupDb.entities) {
-            return groupDb;
-        } else {
-            throw new Error('Failed to add group: groupDb is undefined or does not contain entities');
-        }
-    } catch (error) {
-        console.error('Failed to fetch entity names:', error);
-        return undefined;
-    }
+    postMessage(url);
 }
 
 function initSatrec(satAttribs) {
