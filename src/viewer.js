@@ -65,6 +65,7 @@ async function init() {
     // should return 0x000011
     const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--default-bg-color').trim();
     renderer.setClearColor(bgColor);
+    renderer.toneMapping = THREE.LinearToneMapping;
     renderer.domElement.classList.add('webgl');
     const topContainer = document.querySelector('.top-container');
 
@@ -82,7 +83,7 @@ async function init() {
 
     // Add controls
     controls = new OrbitControls(camera, renderer.domElement);
-    controls.minDistance = 5.5;
+    controls.minDistance = 7;
     controls.maxDistance = 1000;
     controls.enablePan = false;
     controls.update();
@@ -201,7 +202,7 @@ async function initSatellites() {
     groupMap = new SatelliteGroupMap(scene);
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
-    
+
     // Set the space stations (ISS & CSS) and the OneWeb constellation to show
     // on page load. Why OneWeb? Because it looks cool, I guess!
     const defaultGroups = new Set(["Space Stations", "OneWeb"]);
