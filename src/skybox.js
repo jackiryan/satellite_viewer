@@ -24,6 +24,8 @@ export class Sky extends THREE.Mesh {
         // Setting the scale to be huge so that zooming in and out will not affect
         // the position of the stars. The 
         this.scale.setScalar(450000);
+        this.loader = new THREE.ImageBitmapLoader();
+        this.loader.setOptions({ imageOrientation: 'flipY' });
     }
 
     async initMaterial(textureUrls) {
@@ -86,11 +88,10 @@ export class Sky extends THREE.Mesh {
 
     loadTexture(url) {
         return new Promise((resolve, reject) => {
-            const loader = new THREE.TextureLoader();
-            loader.load(
+            this.loader.load(
                 url,
-                texture => {
-                    resolve(texture);
+                image => {
+                    resolve(new THREE.CanvasTexture(image));
                 },
                 undefined,
                 error => {
