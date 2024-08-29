@@ -25,7 +25,7 @@
     <link rel="preload" href="./groups/oneweb.json" as="fetch" type="application/json" crossorigin>
     <script type="module" src="./viewer.js" defer></script>
     <script type="module" src="./skybox.js" defer></script>
-    <script type="module" src="./satelliteWorker.js" defer></script>
+    <!--link rel="modulepreload" href="./satelliteWorker.js" crossorigin-->
 </head>
 
 <body>
@@ -36,7 +36,7 @@
                 <span class="chevron">&#9650;</span>
             </div>
         </div>
-        <div class="clock-container" id="clock"></div>
+        <div class="clock-container" id="clock"><span id="clock-text"></span></div>
     </div>
 </body>
 

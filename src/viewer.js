@@ -1,6 +1,6 @@
 // Import necessary Three.js components
 import * as THREE from 'three';
-import * as satellite from 'satellite.js';
+import { gstime } from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { populateButtonGroup } from './buttonGroup.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
@@ -30,7 +30,7 @@ const now = new Date(); // Get current time
 
 // Use satelliteJS to get the sidereal time, which describes the sidereal rotation
 // (relative to fixed stars aka camera) of the Earth.
-const gmst = satellite.gstime(now);
+const gmst = gstime(now);
 
 // mutable that is used for adjusting simulation speed
 let elapsedTime = 0;
@@ -255,7 +255,7 @@ function getSolarTime(date) {
 }
 
 function getSunPointingAngle(tPrime) {
-    const siderealTime = satellite.gstime(tPrime);
+    const siderealTime = gstime(tPrime);
     const solarTime = getSolarTime(tPrime);
     const declinationAngle = getSolarDeclinationAngle(tPrime);
 
@@ -353,7 +353,7 @@ function animate() {
     const delta = renderParameters.speedFactor * renderClock.getDelta();
     elapsedTime += delta;
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-    const deltaGmst = satellite.gstime(deltaNow);
+    const deltaGmst = gstime(deltaNow);
 
     earth.rotation.y = deltaGmst;
     // Uncomment this line if using the sun pointing helper for debugging

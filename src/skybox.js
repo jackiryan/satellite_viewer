@@ -1,6 +1,5 @@
 
 import * as THREE from 'three';
-import GUI from 'lil-gui';
 import skyVertexShader from './shaders/skybox/skyVertex.glsl';
 import skyFragmentShader from './shaders/skybox/skyFragment.glsl';
 
