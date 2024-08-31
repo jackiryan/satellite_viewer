@@ -10,6 +10,10 @@ body {
     font-weight: 700;
 }
 
+canvas {
+    display: block;
+}
+
 .webgl {
     outline: none;
 }
@@ -20,8 +24,17 @@ body {
     align-items: top;
     background: transparent;
     justify-content: space-between;
-    position: relative;
     z-index: 1000;
+}
+
+.tooltip {
+    font-family: 'AudioLink Mono', sans-serif;
+    font-weight: 300;
+    background-color: rgba(255, 255, 255, 0.7);
+    position: absolute;
+    padding: 5px;
+    border-radius: 3px;
+    display: block;
 }
 
 .canvas-container {

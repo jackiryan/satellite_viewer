@@ -26,9 +26,9 @@ uniform float uScaleFactor;
 uniform float uBrightnessScale;
 
 uniform sampler2D uSkybox;
-uniform float uRotX;
-uniform float uRotY;
-uniform float uRotZ;
+// uniform float uRotX;
+// uniform float uRotY;
+// uniform float uRotZ;
 uniform float uMwBright;
 
 varying vec3 vDirection;
@@ -55,7 +55,7 @@ float drawStar(float dist, float sigma) {
     return gaussianIntensity;
 }
 
-vec4 getPixInfo(vec3 dir, vec2 offset) {
+vec2 lookDirToTetrahedralUV(vec3 dir) {
     float Px = -1.0 * dir.x;
     float Py = dir.y;
     float Pz = dir.z;
@@ -63,20 +63,24 @@ vec4 getPixInfo(vec3 dir, vec2 offset) {
     float sumAbs = abs(Px) + abs(Py) + abs(Pz);
     vec3 Pprime = vec3(Px, Py, Pz) / sumAbs;
 
-    vec2 coord;
-    if (Pprime.z >= 0.0) {
-        coord = Pprime.xy;
-    } else {
-        coord = vec2(
-            sign(Pprime.x) * (1.0 - abs(Pprime.y)),
-            sign(Pprime.y) * (1.0 - abs(Pprime.x))
-        );
-    }
+    float zSign = step(0.0, Pprime.z);
+    vec2 coordPos = Pprime.xy;
+    vec2 coordNeg = vec2(
+        sign(Pprime.x) * (1.0 - abs(Pprime.y)),
+        sign(Pprime.y) * (1.0 - abs(Pprime.x))
+    );
+    vec2 coord = mix(coordNeg, coordPos, zSign);
 
-    float u = (coord.x + 1.0) * 0.5;
-    float v = (coord.y + 1.0) * 0.5;
+    return vec2(
+        (coord.x + 1.0) * 0.5,
+        (coord.y + 1.0) * 0.5
+    );
+}
 
-    vec2 pixelSpaceUV = vec2(u, v) * uPixelSize;
+vec4 getPixInfo(vec3 dir, vec2 offset) {
+    vec2 uv = lookDirToTetrahedralUV(dir);
+
+    vec2 pixelSpaceUV = uv * uPixelSize;
     vec2 pixelCenter = (ceil(pixelSpaceUV) - 0.5) + offset;
     vec2 uvCenter = pixelCenter / uPixelSize;
 
@@ -108,7 +112,7 @@ vec4 getPixInfo(vec3 dir, vec2 offset) {
 
     vec3 p = normalize(Pprime1); // This normalization assumes Pprime was a direction vector.
 
-    float vecDist = length((p - normalize(vec3(Px, Py, Pz)))) * 206265.0;
+    float vecDist = length((p - normalize(vec3(-1.0 * dir.x, dir.yz)))) * 206265.0;
 
     float intensity = drawStar(vecDist, uSigma);
 
@@ -116,8 +120,7 @@ vec4 getPixInfo(vec3 dir, vec2 offset) {
 
     // Use the brightness as the alpha value
     return vec4(tempData, 1.0) * (starBrightness * intensity);
-} 
-
+}
 
 mat4 rotationMatrix(float y, float x, float z) {
     // Convert angles from degrees to radians
@@ -148,12 +151,12 @@ vec4 desaturate(vec4 color, float saturation) {
     // standard coefficients for sRGB colorspace
     float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));
     vec3 desaturatedColor = mix(vec3(luminance), color.rgb, saturation);
-    return vec4(desaturatedColor, color.a);
+    return vec4(desaturatedColor, 1.0);
 }
 
 void main() {
-    // JR - I don't trust my math on the baked in rotation for this, but it looks correct
-    vec3 dir = (rotationMatrix(-90.0 + uRotY, -90.0 + uRotX, uRotZ) * vec4(vDirection, 1.0)).xyz;
+    // bake in -90 degree rotation about y and x axes
+    vec3 dir = vec3(vDirection.z, vDirection.x, vDirection.y);
 
     // to be as correct as possible, a 5-by-5 grid of points should be sampled from the datapack
     // a 3-by-3 grid is chosen instead to save on the render budget
@@ -169,12 +172,10 @@ void main() {
         starColor += getPixInfo(dir, offsets[i]);
     }
 
-    // experimentally derived rotation -- fix this!
-    //mat4 rotMatrix = rotationMatrix(0.0, 30.0, 10.0);
-    //vec3 rotDirection = (rotMatrix * vec4(dir, 1.0)).xyz;
-    vec4 skyColor = desaturate(texture(uSkybox, vUv) * uMwBright, 0.6);
+    // bake in -90 degree rotation about X axis for UV coordinate
+    vec4 skyColor = desaturate(texture(uSkybox, vec2(1.0 - vUv.x, vUv.y)) * uMwBright, 0.6);
 
-    gl_FragColor = skyColor + starColor;
+    gl_FragColor = starColor + skyColor;
 
     #include <tonemapping_fragment>
 	#include <colorspace_fragment>

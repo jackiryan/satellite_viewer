@@ -1,6 +1,6 @@
 // Import necessary Three.js components
 import * as THREE from 'three';
-import * as satellite from 'satellite.js';
+import { gstime } from 'satellite.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { populateButtonGroup } from './buttonGroup.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
@@ -12,24 +12,35 @@ import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
 import Stats from 'three/addons/libs/stats.module.js';
 
-var gui, camera, scene, renderer, controls, stats;
-var earth, earthMaterial, atmosphere, atmosphereMaterial, groupMap;
-
-var raycaster, mouseMove, tooltip;
+let camera, controls, gui, scene, renderer, stats;
+let earth, earthMaterial, atmosphere, atmosphereMaterial, groupMap;
+let raycaster, mouseMove, tooltip;
+let sunHelper;
 
 const earthParameters = {
     radius: 5,
     dayColor: '#d7eaf9',
     twilightColor: '#fd5e53'
 };
-//const scaleFactor = earthParameters.radius / 6378;
 // Determine the initial rotation of the Earth based on the current sidereal time
 const now = new Date(); // Get current time
-// Use satelliteJS to get the sidereal time, which describes the sidereal rotation (relative to fixed stars aka camera) of the Earth.
-const gmst = satellite.gstime(now);
+// Vernal Equinox 2024, the terminator will be along prime meridian
+// Uncomment this line if using the debug plane to check solar vs sidereal time drift
+// const now = new Date(Date.UTC(2024,2,24,3,6,0,0));
 
+// Use satelliteJS to get the sidereal time, which describes the sidereal rotation
+// (relative to fixed stars aka camera) of the Earth.
+const gmst = gstime(now);
 
+// mutable that is used for adjusting simulation speed
+let elapsedTime = 0;
+const renderClock = new THREE.Clock();
 
+// Create a div to contain the Three.js canvas
+const canvasContainer = document.createElement('div');
+canvasContainer.className = 'canvas-container';
+const topContainer = document.querySelector('.top-container');
+topContainer.appendChild(canvasContainer);
 const clockElement = document.getElementById('clock');
 
 /* Animation
@@ -39,192 +50,167 @@ const renderParameters = {
     speedFactor: 1, // multiple of realtime
     animFrameRate: 60.0 // frames per second
 };
-// Var that is used for adjusting simulation speed
-var elapsedTime = 0;
 
-function getOffsetHeight() {
-    //const container = document.querySelector('.top-container');
-    //return container.offsetHeight == 0 ? 56 : container.offsetHeight;
-    return 0;
-}
+await init().then( async () => {
+    await initSky({ sceneObj: scene });
+    await initSatellites();
+});
 
 async function init() {
     /* Boilerplate */
-    gui = new GUI();
-    scene = new THREE.Scene();
-
     // The camera will be in a fixed intertial reference, so the Earth will rotate
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.z = -13;
 
-    renderer = new THREE.WebGLRenderer({
-        antialias: true
-    });
+    renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    // should return 0x000011
-    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--default-bg-color').trim();
-    renderer.setClearColor(bgColor);
+    renderer.setClearColor(0x000000);
+    renderer.toneMapping = THREE.LinearToneMapping;
+    renderer.toneMappingExposure = 1.3;
     renderer.domElement.classList.add('webgl');
-    const topContainer = document.querySelector('.top-container');
-
-    // Create a div to contain the Three.js canvas
-    const canvasContainer = document.createElement('div');
-    canvasContainer.className = 'canvas-container';
-    topContainer.appendChild(canvasContainer);
-
-    // Set the renderer's DOM element to the canvas container
     canvasContainer.appendChild(renderer.domElement);
 
+    gui = new GUI();
+    scene = new THREE.Scene();
+
     // Add ambient light
-    const ambientLight = new THREE.AmbientLight(0xcccccc, 0.5);
+    const ambientLight = new THREE.AmbientLight(0xcccccc, 0.6);
     scene.add(ambientLight);
 
-    // Add controls
+    /* Controls */
     controls = new OrbitControls(camera, renderer.domElement);
-    controls.minDistance = 5.5;
-    controls.maxDistance = 1000;
+    controls.minDistance = 7;
+    controls.maxDistance = 150;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
     controls.enablePan = false;
     controls.update();
 
-    const textureLoader = new THREE.TextureLoader();
+    /* Other objects that are updated during animation callback */
+    // Paint the clock immediately
+    updateClock(now);
 
+    addStats();
+    // satellite data is stored in this data structure, position state is handled in a separate webworker
+    groupMap = new SatelliteGroupMap(scene);
+
+    const imageLoader = new THREE.ImageBitmapLoader();
+    imageLoader.setOptions({ imageOrientation: 'flipY' });
     /* Earth */
     // Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
     // but were chosen so that snowy regions would approximately line up between day and night.
     const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
     // Textures
-    const dayTexturePromise = Promise.resolve(textureLoader.load('./BlueMarble_8192x4096.avif'));
-    const nightTexturePromise = Promise.resolve(textureLoader.load('./BlackMarble_8192x4096.avif'));
-    const specularMapTexturePromise = Promise.resolve(textureLoader.load('./EarthSpec_4096x2048.avif'));
-    Promise.all([dayTexturePromise, nightTexturePromise, specularMapTexturePromise]).then((textures) => {
-        textures[0].colorSpace = THREE.SRGBColorSpace;
-        textures[0].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-        textures[1].colorSpace = THREE.SRGBColorSpace;
-        textures[1].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-        textures[2].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const earthImageUrls = [
+        './BlueMarble_8192x4096.avif',
+        './BlackMarble_8192x4096.avif',
+        './EarthSpec_4096x2048.avif'
+    ];
+    // has to resolve or page load will essentially fail... shaders depend on it
+    Promise.all(earthImageUrls.map( (url) => {
+            return new Promise((resolve, reject) => {
+                imageLoader.load(
+                    url,
+                    image => {
+                        resolve(new THREE.CanvasTexture(image));
+                    },
+                    undefined,
+                    error => {
+                        reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
+                    }
+                );
+            });
+        })).then((textures) => {
+            for (let i = 0; i < textures.length - 1; i++) {
+                textures[i].colorSpace = THREE.SRGBColorSpace;
+                textures[i].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+            }
 
-        // Shader material can only be created after all three textures have loaded
-        earthMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                dayTexture: new THREE.Uniform(textures[0]),
-                nightTexture: new THREE.Uniform(textures[1]),
-                specularMapTexture: new THREE.Uniform(textures[2]),
-                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                twilightAngle: new THREE.Uniform(getTwilightAngle()),
-                dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
-                twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor))
-            },
-            vertexShader: earthVertexShader,
-            fragmentShader: earthFragmentShader
-        });
+            // Shader material can only be created after all three textures have loaded
+            earthMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    dayTexture: new THREE.Uniform(textures[0]),
+                    nightTexture: new THREE.Uniform(textures[1]),
+                    specularMapTexture: new THREE.Uniform(textures[2]),
+                    sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
+                    twilightAngle: new THREE.Uniform(getTwilightAngle()),
+                    dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
+                    twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor))
+                },
+                vertexShader: earthVertexShader,
+                fragmentShader: earthFragmentShader
+            });
 
-        earth = new THREE.Mesh(earthGeometry, earthMaterial);
-        scene.add(earth);
-        earth.name = "earth";
+            earth = new THREE.Mesh(earthGeometry, earthMaterial);
+            scene.add(earth);
+            earth.name = "earth";
 
-        /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
-        const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
-        atmosphereMaterial = new THREE.ShaderMaterial({
-            vertexShader: atmosphereVertexShader,
-            fragmentShader: atmosphereFragmentShader,
-            uniforms:
-            {
-                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
-                twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor)),
-                twilightAngle: new THREE.Uniform(getTwilightAngle()),
-            },
-            side: THREE.BackSide,
-            transparent: true
-        });
-        atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-        scene.add(atmosphere);
-        atmosphere.name = "atm";
+            /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
+            const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
+            atmosphereMaterial = new THREE.ShaderMaterial({
+                vertexShader: atmosphereVertexShader,
+                fragmentShader: atmosphereFragmentShader,
+                uniforms:
+                {
+                    sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
+                    dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
+                    twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor)),
+                    twilightAngle: new THREE.Uniform(getTwilightAngle()),
+                },
+                side: THREE.BackSide,
+                transparent: true
+            });
+            atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+            scene.add(atmosphere);
+            atmosphere.name = "atm";
 
-        // Refer back to definition of gmst if you are confused
-        earth.rotation.y = gmst;
-        atmosphere.rotation.y = gmst;
+            // Refer back to definition of gmst if you are confused
+            earth.rotation.y = gmst;
+            atmosphere.rotation.y = gmst;
 
-        /* Debug stuff for checking seasonal variation and other long-term issues
-        // Vernal Equinox 2024, the terminator will be along prime meridian
-        const now = new Date(Date.UTC(2024,2,24,3,6,0,0)); 
-        // Create a test plane for checking sidereal vs solar day issues.
-        const planeGeometry = new THREE.BoxGeometry(0.1, 10, 10);
-        const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
-        const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-        scene.add(plane);
-        */
-
-        // Initialize the clock immediately
-        updateClock(now);
-        controls.update();
-        renderer.render(scene, camera);
+            /* Debug plane for checking seasonal variation and other long-term issues */
+            if (now === Date.UTC(2024,2,24,3,6,0,0)) {
+                // If the start time is the 2024 vernal equinox (which is in the past),
+                // this plane will align with the terminator at be on the prime meridian
+                // on page load
+                const planeGeometry = new THREE.BoxGeometry(0.1, 10, 10);
+                const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+                const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+                scene.add(plane);
+                initSunPointingHelper();
+            }
+            
+            renderer.setAnimationLoop(animate);
     });
 
-    // Create the sun pointing helper, if needed
-    /*
-    const length = 7;
-    const color = 0x00ffff;
-    const sunHelper = new THREE.ArrowHelper(
-        getSunPointingAngle(now),
-        new THREE.Vector3(0, 0, 0),
-        length,
-        color
-    );
-    scene.add(sunHelper);
-    */
-
-    initGuiTweaks();
-    addStats();
-
-    raycaster = new THREE.Raycaster();
-    mouseMove = new THREE.Vector2();
-
-    // Create an HTML element to display the name
-    tooltip = document.createElement('div');
-    tooltip.style.fontFamily = 'AudioLink Mono';
-    tooltip.style.fontWeight = '300';
-    tooltip.style.position = 'absolute';
-    tooltip.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
-    tooltip.style.padding = '5px';
-    tooltip.style.borderRadius = '3px';
-    tooltip.style.display = 'none';
-    canvasContainer.appendChild(tooltip);
-
     window.addEventListener('resize', onWindowResize, false);
-    canvasContainer.addEventListener('mousemove', onMouseMove, false);
 }
 
 async function initSatellites() {
-    // satellite data is stored in this data structure, position state is handled in a separate webworker
-    groupMap = new SatelliteGroupMap(scene);
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
-    
+
     // Set the space stations (ISS & CSS) and the OneWeb constellation to show
     // on page load. Why OneWeb? Because it looks cool, I guess!
     const defaultGroups = new Set(["Space Stations", "OneWeb"]);
-    await populateButtonGroup(defaultGroups);
+    await populateButtonGroup(defaultGroups).then( () => {
+        initGuiTweaks();
+        raycaster = new THREE.Raycaster();
+        mouseMove = new THREE.Vector2();
+        // Create an HTML element to display the name of a satellite on mouse hover
+        tooltip = document.createElement('div');
+        tooltip.className = 'tooltip';
+        canvasContainer.appendChild(tooltip);
+        canvasContainer.addEventListener('mousemove', onMouseMove, false);
+    });
 }
 
-function onGroupDisplayed(event) {
-    const groupUrl = event.detail;
-
-    if (groupMap.hasGroup(groupUrl)) {
-        // Will post a message to the dedicated webworker to start updating
-        // transform matrices for the InstancedMesh associated with this group
-        groupMap.displayGroup(groupUrl);
-    } else {
-        // Will post a message to the dedicated webworker to initialize the group,
-        // and creates a new InstancedMesh.
-        groupMap.onInitGroup(groupUrl);
-    }
-}
-
-function onGroupHidden(event) {
-    const groupUrl = event.detail;
-    groupMap.hideGroup(groupUrl);
+function addStats() {
+    stats = new Stats();
+    stats.domElement.style.position = 'absolute';
+    stats.domElement.style.top = '500px';
+    canvasContainer.appendChild(stats.domElement);
 }
 
 function initGuiTweaks() {
@@ -269,7 +255,7 @@ function getSolarTime(date) {
 }
 
 function getSunPointingAngle(tPrime) {
-    const siderealTime = satellite.gstime(tPrime);
+    const siderealTime = gstime(tPrime);
     const solarTime = getSolarTime(tPrime);
     const declinationAngle = getSolarDeclinationAngle(tPrime);
 
@@ -288,19 +274,45 @@ function getSunPointingAngle(tPrime) {
     return sunDirection;
 }
 
-function addStats() {
-    const canvasContainer = document.getElementsByClassName('canvas-container')[0];
-    stats = new Stats();
-    stats.domElement.style.position = 'absolute';
-    stats.domElement.style.top = '500px';
-    canvasContainer.appendChild(stats.domElement);
+function initSunPointingHelper() {
+    // Create the sun pointing helper, if needed
+    const length = 7;
+    const color = 0x00ffff;
+    sunHelper = new THREE.ArrowHelper(
+        getSunPointingAngle(now),
+        new THREE.Vector3(0, 0, 0),
+        length,
+        color
+    );
+    scene.add(sunHelper);
 }
 
+/* Button group event handlers (Show/Hide Satellites) */
+function onGroupDisplayed(event) {
+    const groupUrl = event.detail;
+
+    if (groupMap.hasGroup(groupUrl)) {
+        // Will post a message to the dedicated webworker to start updating
+        // transform matrices for the InstancedMesh associated with this group
+        groupMap.displayGroup(groupUrl);
+    } else {
+        // Will post a message to the dedicated webworker to initialize the group,
+        // and creates a new InstancedMesh.
+        groupMap.onInitGroup(groupUrl);
+    }
+}
+
+function onGroupHidden(event) {
+    const groupUrl = event.detail;
+    groupMap.hideGroup(groupUrl);
+}
+
+/* Other event handlers */
 function onMouseMove(event) {
     event.preventDefault();
     // Update the mouse variable
-    mouseMove.x = ((event.clientX) / window.innerWidth) * 2 - 1;
-    mouseMove.y = -((event.clientY - getOffsetHeight()) / window.innerHeight) * 2 + 1;
+    mouseMove.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouseMove.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
     // Update the raycaster with the camera and mouse position
     raycaster.setFromCamera(mouseMove, camera);
@@ -311,17 +323,16 @@ function onMouseMove(event) {
     if (intersects.length > 0) {
         // Show tooltip with the name
         const intersectedObject = intersects[0].object;
-        if (intersectedObject.name == 'earth' || intersectedObject.name == 'atm' || intersectedObject.name == 'sky') {
-            tooltip.style.display = 'none';
-            return;
-        }
+        // only display tooltip for instancedMesh objects
         if (groupMap.hasGroup(intersectedObject.name)) {
             const groupName = intersectedObject.name;
             const satelliteName = groupMap.map.get(groupName).names[intersects[0].instanceId];
-            tooltip.style.left = `${event.clientX + 5}px`;
-            tooltip.style.top = `${event.clientY + 5}px`;
+            tooltip.style.left = `${event.clientX + 10}px`;
+            tooltip.style.top = `${event.clientY + 10}px`;
             tooltip.style.display = 'block';
             tooltip.innerHTML = satelliteName;
+        } else {
+            tooltip.style.display = 'none';
         }
     } else {
         // Hide the tooltip
@@ -330,34 +341,31 @@ function onMouseMove(event) {
 }
 
 function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(width, height);
 }
 
-// Function to animate the scene
 function animate() {
-    const delta = clock.getDelta();
-    const scaledDelta = renderParameters.speedFactor * delta;
-    elapsedTime += scaledDelta;
-
-    // Update the rotations of things
+    const delta = renderParameters.speedFactor * renderClock.getDelta();
+    elapsedTime += delta;
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-    const deltaGmst = satellite.gstime(deltaNow);
+    const deltaGmst = gstime(deltaNow);
+
     earth.rotation.y = deltaGmst;
-    //sunHelper.setDirection(getSunPointingAngle(deltaNow));
+    // Uncomment this line if using the sun pointing helper for debugging
+    // sunHelper.setDirection(getSunPointingAngle(deltaNow));
     getSunPointingAngle(deltaNow);
 
     updateClock(deltaNow);
-
     groupMap.update();
-
     controls.update();
     stats.update();
 
     renderer.render(scene, camera);
-    requestAnimationFrame(animate);
 }
 
 function updateClock(deltaNow) {
@@ -365,11 +373,3 @@ function updateClock(deltaNow) {
     const utcTime = deltaNow.toISOString().split('T')[1].split('.')[0];
     clockElement.innerHTML = `${utcDate}<br />${utcTime} Z`;
 }
-
-await init();
-await initSky({ sceneObj: scene });
-await initSatellites();
-// Start the animation loop
-const clock = new THREE.Clock();
-animate();
-

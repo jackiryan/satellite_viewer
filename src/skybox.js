@@ -1,6 +1,5 @@
 
 import * as THREE from 'three';
-import GUI from 'lil-gui';
 import skyVertexShader from './shaders/skybox/skyVertex.glsl';
 import skyFragmentShader from './shaders/skybox/skyFragment.glsl';
 
@@ -24,6 +23,8 @@ export class Sky extends THREE.Mesh {
         // Setting the scale to be huge so that zooming in and out will not affect
         // the position of the stars. The 
         this.scale.setScalar(450000);
+        this.loader = new THREE.ImageBitmapLoader();
+        this.loader.setOptions({ imageOrientation: 'flipY' });
     }
 
     async initMaterial(textureUrls) {
@@ -52,7 +53,7 @@ export class Sky extends THREE.Mesh {
                 }
                 textures[i].needsUpdate = true;
             }
-            
+
             // uPixelSize should not be adjusted at runtime -- its value is based on the
             // resolution of the datapack texture uStarData
             const uniforms = {
@@ -63,9 +64,9 @@ export class Sky extends THREE.Mesh {
                 'uScaleFactor': { type: 'f', value: 0.0 },
                 'uBrightnessScale': { type: 'f', value: 20.0 },
                 'uSkybox': { type: 't', value: textures[2] },
-                'uRotX': { type: 'f', value: 0.0 },
-                'uRotY': { type: 'f', value: 0.0 },
-                'uRotZ': { type: 'f', value: 0.0 },
+                // 'uRotX': { type: 'f', value: 0.0 },
+                // 'uRotY': { type: 'f', value: 0.0 },
+                // 'uRotZ': { type: 'f', value: 0.0 },
                 'uMwBright': { type: 'f', value: 0.05 },
             };
             this.starMaterial = new THREE.ShaderMaterial({
@@ -76,21 +77,20 @@ export class Sky extends THREE.Mesh {
                 side: THREE.BackSide,
                 depthWrite: false
             });
-            
+
             this.material = this.starMaterial;
             this.starsEnabled = true;
-        } catch(error) {
+        } catch (error) {
             console.error('Failed to initialize starmap material:', error);
         }
     }
 
     loadTexture(url) {
         return new Promise((resolve, reject) => {
-            const loader = new THREE.TextureLoader();
-            loader.load(
+            this.loader.load(
                 url,
-                texture => {
-                    resolve(texture);
+                image => {
+                    resolve(new THREE.CanvasTexture(image));
                 },
                 undefined,
                 error => {
@@ -155,34 +155,34 @@ export async function initSky({ sceneObj, stars = true, guiObj = undefined } = {
 function initTweaks(gui, skybox) {
     const uniforms = skybox.material.uniforms;
     const effectController = {
-        sigma: uniforms[ 'uSigma' ].value,
-        scaleFactor: uniforms[ 'uScaleFactor' ].value,
-        brightnessScale: uniforms[ 'uBrightnessScale' ].value,
-        mwBright: uniforms[ 'uMwBright' ].value,
-        rotX: uniforms[ 'uRotX' ].value,
-        rotY: uniforms[ 'uRotY' ].value,
-        rotZ: uniforms[ 'uRotZ' ].value 
+        sigma: uniforms['uSigma'].value,
+        scaleFactor: uniforms['uScaleFactor'].value,
+        brightnessScale: uniforms['uBrightnessScale'].value,
+        mwBright: uniforms['uMwBright'].value,
+        // rotX: uniforms[ 'uRotX' ].value,
+        // rotY: uniforms[ 'uRotY' ].value,
+        // rotZ: uniforms[ 'uRotZ' ].value 
     };
 
-    gui.add( effectController, 'sigma', 0.0, 500.0, 0.1 ).onChange( guiChanged );
-    gui.add( effectController, 'scaleFactor', 0.0, 10.0, 0.01 ).onChange( guiChanged );
-    gui.add( effectController, 'brightnessScale', 0.0, 1000.0, 0.1 ).onChange( guiChanged );
-    gui.add( effectController, 'mwBright', 0.0, 1.0, 0.01 ).onChange( guiChanged );
-    gui.add( effectController, 'rotX', -90, 90, 1 ).onChange( guiChanged );
-    gui.add( effectController, 'rotY', -180, 180, 1 ).onChange( guiChanged );
-    gui.add( effectController, 'rotZ', -180, 180, 1 ).onChange( guiChanged );
+    gui.add(effectController, 'sigma', 0.0, 500.0, 0.1).onChange(guiChanged);
+    gui.add(effectController, 'scaleFactor', 0.0, 10.0, 0.01).onChange(guiChanged);
+    gui.add(effectController, 'brightnessScale', 0.0, 1000.0, 0.1).onChange(guiChanged);
+    gui.add(effectController, 'mwBright', 0.0, 1.0, 0.01).onChange(guiChanged);
+    // gui.add( effectController, 'rotX', -90, 90, 1 ).onChange( guiChanged );
+    // gui.add( effectController, 'rotY', -180, 180, 1 ).onChange( guiChanged );
+    // gui.add( effectController, 'rotZ', -180, 180, 1 ).onChange( guiChanged );
 
     function guiChanged() {
-        
+
         const uniforms = skybox.material.uniforms;
-        uniforms[ 'uSigma' ].value = effectController.sigma;
-        uniforms[ 'uScaleFactor' ].value = effectController.scaleFactor;
-        uniforms[ 'uBrightnessScale' ].value = effectController.brightnessScale;
-        uniforms[ 'uMwBright' ].value = effectController.mwBright;
-        uniforms[ 'uRotX' ].value = effectController.rotX;
-        uniforms[ 'uRotY' ].value = effectController.rotY;
-        uniforms[ 'uRotZ' ].value = effectController.rotZ;
-    
+        uniforms['uSigma'].value = effectController.sigma;
+        uniforms['uScaleFactor'].value = effectController.scaleFactor;
+        uniforms['uBrightnessScale'].value = effectController.brightnessScale;
+        uniforms['uMwBright'].value = effectController.mwBright;
+        // uniforms[ 'uRotX' ].value = effectController.rotX;
+        // uniforms[ 'uRotY' ].value = effectController.rotY;
+        // uniforms[ 'uRotZ' ].value = effectController.rotZ;
+
     }
 
     // run the initialization function once to set uniforms to their starting values
