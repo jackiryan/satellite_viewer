@@ -54,7 +54,7 @@ export class Sky extends THREE.Mesh {
                 'uPixelSize': { type: 'f', value: 1024.0 },
                 'uSigma': { type: 'f', value: 150.0 },
                 'uScaleFactor': { type: 'f', value: 0.0 },
-                'uBrightnessScale': { type: 'f', value: 20.0 },
+                'uBrightnessScale': { type: 'f', value: 8.0 },
                 'uSunDirection': { type: 'v3', value: new THREE.Vector3(0.0, 0.0, 0.0) },
                 'uSkybox': { type: 't', value: textures[1] },
                 // 'uRotX': { type: 'f', value: 0.0 },

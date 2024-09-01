@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { initSky } from './skybox.js';
-import getSunPointingAngle from './sunangle.js';
+import { initSky } from './skyboxcolor.js';
+//import getSunPointingAngle from './sunangle.js';
 
 let scene, renderer, camera, controls, clock, skybox;
 let elapsedTime = 0;
@@ -56,11 +56,11 @@ async function init() {
 }
 
 function animate() {
-    const delta = renderParameters.speedFactor * clock.getDelta();
-    elapsedTime += delta;
-    const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
+    //const delta = renderParameters.speedFactor * clock.getDelta();
+    //elapsedTime += delta;
+    //const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
 
-    skybox.material.uniforms.uSunDirection.value.copy(getSunPointingAngle(deltaNow));
+    //skybox.material.uniforms.uSunDirection.value.copy(getSunPointingAngle(deltaNow));
 
     controls.update();
     renderer.render(scene, camera);

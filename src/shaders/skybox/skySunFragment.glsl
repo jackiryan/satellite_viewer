@@ -234,7 +234,7 @@ void main() {
     }
 
     vec3 sunDistance = normalize(vNormal) - uSunDirection;
-    float sunRays = ringRayNoise(normalize(uSunDirection), normalize(vNormal), 0.015, 15.0);
+    float sunRays = ringRayNoise(normalize(uSunDirection), normalize(vNormal), 0.00296, 15.0);
     // Sorry, everyone... the sun is white actually. Approximating the spectral irradiance of
     // the sun as a 5900k blackbody (observed at the top of the atmosphere), the sRGB value
     // would be (255, 255, 253). This is rather boring to look at, so I've made it a bit more
