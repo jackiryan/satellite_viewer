@@ -1,10 +1,11 @@
 // Import necessary Three.js components
 import * as THREE from 'three';
-import { gstime } from 'satellite.js';
+import gstime from './gstime.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { populateButtonGroup } from './buttonGroup.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
 import { initSky } from './skybox.js';
+import getSunPointingAngle from './sunangle.js';
 import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
@@ -13,7 +14,7 @@ import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.gl
 import Stats from 'three/addons/libs/stats.module.js';
 
 let camera, controls, gui, scene, renderer, stats;
-let earth, earthMaterial, atmosphere, atmosphereMaterial, groupMap;
+let earth, earthMaterial, atmosphere, atmosphereMaterial, skybox, groupMap;
 let raycaster, mouseMove, tooltip;
 let sunHelper;
 
@@ -28,7 +29,7 @@ const now = new Date(); // Get current time
 // Uncomment this line if using the debug plane to check solar vs sidereal time drift
 // const now = new Date(Date.UTC(2024,2,24,3,6,0,0));
 
-// Use satelliteJS to get the sidereal time, which describes the sidereal rotation
+// Get the sidereal time, which describes the sidereal rotation
 // (relative to fixed stars aka camera) of the Earth.
 const gmst = gstime(now);
 
@@ -52,7 +53,9 @@ const renderParameters = {
 };
 
 await init().then( async () => {
-    await initSky({ sceneObj: scene });
+    await initSky({ sceneObj: scene }).then((sky) => {
+        skybox = sky;
+    });
     await initSatellites();
 });
 
@@ -127,6 +130,10 @@ async function init() {
                 textures[i].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
             }
 
+            // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
+            // I am only using the first two for this value since Astronomical Twilight is essentially night
+            const twilightAngle = 12.0 * Math.PI / 180.0;
+
             // Shader material can only be created after all three textures have loaded
             earthMaterial = new THREE.ShaderMaterial({
                 uniforms: {
@@ -134,7 +141,7 @@ async function init() {
                     nightTexture: new THREE.Uniform(textures[1]),
                     specularMapTexture: new THREE.Uniform(textures[2]),
                     sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                    twilightAngle: new THREE.Uniform(getTwilightAngle()),
+                    twilightAngle: new THREE.Uniform(twilightAngle),
                     dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
                     twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor))
                 },
@@ -156,7 +163,7 @@ async function init() {
                     sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
                     dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
                     twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor)),
-                    twilightAngle: new THREE.Uniform(getTwilightAngle()),
+                    twilightAngle: new THREE.Uniform(twilightAngle),
                 },
                 side: THREE.BackSide,
                 transparent: true
@@ -222,56 +229,6 @@ function initGuiTweaks() {
         .onChange(() => {
             groupMap.setSpeed(renderParameters.speedFactor);
         });
-}
-
-/* Sun Angle Calculations */
-function dayOfYear(date) {
-    // Calculate the day of the year for a given date
-    const start = new Date(date.getFullYear(), 0, 0);
-    const diff = date - start;
-    const oneDay = 1000 * 60 * 60 * 24;
-    const day = Math.floor(diff / oneDay);
-    return day;
-}
-
-// Calculate Solar Declination angle (the angle between the sun and the equator used to calculate the terminator)
-function getSolarDeclinationAngle(date) {
-    const N = dayOfYear(date);
-    const obliquityAngle = 23.44 * Math.PI / 180.0;
-    // Simplified formula for calculating declination angle https://solarsena.com/solar-declination-angle-calculator/
-    const declinationAngle = -obliquityAngle * Math.cos((360 / 365) * (N + 10) * (Math.PI / 180));
-    return declinationAngle;
-}
-
-function getTwilightAngle() {
-    // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
-    // I am only using the first two for this value since Astronomical Twilight is essentially night
-    return 12.0 * Math.PI / 180.0;
-}
-
-function getSolarTime(date) {
-    const hours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
-    return ((hours - 12) / 24) * 2 * Math.PI;
-}
-
-function getSunPointingAngle(tPrime) {
-    const siderealTime = gstime(tPrime);
-    const solarTime = getSolarTime(tPrime);
-    const declinationAngle = getSolarDeclinationAngle(tPrime);
-
-    // The solar azimuth in ECI is siderealTime (the GMST) - solarTime (the LST)
-    const solarAzimuthEci = siderealTime - solarTime;
-    // The solar elevation relative to the equator (the x-z plane in scene space) is the declinationAngle
-    const solarElevationEci = declinationAngle;
-    // Get the unit vector of the sun angle, accounting for the modified axis convention
-    const sunDirection = new THREE.Vector3(
-        Math.cos(solarElevationEci) * Math.cos(solarAzimuthEci),
-        Math.sin(solarElevationEci),
-        -Math.cos(solarElevationEci) * Math.sin(solarAzimuthEci)
-    );
-    earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
-    atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
-    return sunDirection;
 }
 
 function initSunPointingHelper() {
@@ -353,12 +310,14 @@ function animate() {
     const delta = renderParameters.speedFactor * renderClock.getDelta();
     elapsedTime += delta;
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-    const deltaGmst = gstime(deltaNow);
 
-    earth.rotation.y = deltaGmst;
+    earth.rotation.y = gstime(deltaNow);
     // Uncomment this line if using the sun pointing helper for debugging
     // sunHelper.setDirection(getSunPointingAngle(deltaNow));
-    getSunPointingAngle(deltaNow);
+    const sunDirection = getSunPointingAngle(deltaNow);
+    earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
+    atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
+    skybox.material.uniforms.uSunDirection.value.copy(sunDirection);
 
     updateClock(deltaNow);
     groupMap.update();

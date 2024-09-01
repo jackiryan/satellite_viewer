@@ -1,7 +1,7 @@
 
 import * as THREE from 'three';
-import skyVertexShader from './shaders/skybox/skySunVertex.glsl';
-import skyFragmentShader from './shaders/skybox/skySunFragment.glsl';
+import skyVertexShader from './shaders/skybox/skyVertex.glsl';
+import skyFragmentShader from './shaders/skybox/skyFragment.glsl';
 
 export class Sky extends THREE.Mesh {
     constructor() {
@@ -13,10 +13,10 @@ export class Sky extends THREE.Mesh {
             depthWrite: false
         });
 
-        super(new THREE.SphereGeometry(1, 128, 128), blankMaterial);
+        super(new THREE.SphereGeometry(1, 32, 32), blankMaterial);
 
         // used to avoid highlighting with mouseMove event
-        this.name = 'skysun';
+        this.name = 'sky';
         this.blankMaterial = blankMaterial;
         this.starsEnabled = false;
         this.isSky = true;
@@ -28,42 +28,49 @@ export class Sky extends THREE.Mesh {
     }
 
     async initMaterial(textureUrls) {
-        if (textureUrls.length !== 2) {
-            throw new Error('initMaterial requires exactly two texture URLs');
+        if (textureUrls.length !== 3) {
+            throw new Error('initMaterial requires exactly three texture URLs');
         }
 
         try {
             const textures = await Promise.all(textureUrls.map(url => this.loadTexture(url)));
             // this will become less tedious when moving to a single starmap texture
-            // 16-bit datapack texture
-            textures[0].type = THREE.HalfFloatType;
-            textures[0].minFilter = THREE.LinearFilter;
-            textures[0].magFilter = THREE.LinearFilter;
-            textures[0].needsUpdate = true;
-            // Milky way texture -- use sRGBColorSpace
-            textures[1].colorSpace = THREE.SRGBColorSpace;
-            // since we don't have the renderer capabilities in scope, this should work
-            // on all devices we care about. This texture is barely visible anyways
-            textures[1].anisotropy = 2;
-            textures[1].needsUpdate = true;
+            for (let i = 0; i < 3; i++) {
+                if (i === 0) {
+                    // 16-bit datapack texture
+                    textures[i].type = THREE.HalfFloatType;
+                }
+                if (i === 0 || i === 1) {
+                    // 8- or 16-bit datapacks should not mipmap
+                    textures[i].minFilter = THREE.LinearFilter;
+                    textures[i].magFilter = THREE.LinearFilter;
+                } else {
+                    // Milky way texture -- use sRGBColorSpace
+                    textures[i].colorSpace = THREE.SRGBColorSpace;
+                    // since we don't have the renderer capabilities in scope, this should work
+                    // on all devices we care about. This texture is barely visible anyways
+                    textures[i].anisotropy = 2;
+                }
+                textures[i].needsUpdate = true;
+            }
 
             // uPixelSize should not be adjusted at runtime -- its value is based on the
             // resolution of the datapack texture uStarData
             const uniforms = {
                 'uStarData': { type: 't', value: textures[0] },
+                'uTempData': { type: 't', value: textures[1] },
                 'uPixelSize': { type: 'f', value: 1024.0 },
                 'uSigma': { type: 'f', value: 150.0 },
                 'uScaleFactor': { type: 'f', value: 0.0 },
                 'uBrightnessScale': { type: 'f', value: 20.0 },
-                'uSunDirection': { type: 'v3', value: new THREE.Vector3(0.0, 0.0, 0.0) },
-                'uSkybox': { type: 't', value: textures[1] },
+                'uSkybox': { type: 't', value: textures[2] },
                 // 'uRotX': { type: 'f', value: 0.0 },
                 // 'uRotY': { type: 'f', value: 0.0 },
                 // 'uRotZ': { type: 'f', value: 0.0 },
                 'uMwBright': { type: 'f', value: 0.05 },
             };
             this.starMaterial = new THREE.ShaderMaterial({
-                name: 'StarSunShader',
+                name: 'StarShader',
                 uniforms: uniforms,
                 vertexShader: skyVertexShader,
                 fragmentShader: skyFragmentShader,
@@ -131,6 +138,7 @@ export class Sky extends THREE.Mesh {
 export async function initSky({ sceneObj, stars = true, guiObj = undefined } = {}) {
     const textureUrls = [
         './skybox/StarData_1024x1024_16bit.png',
+        './skybox/2_Tmap8bit.png',
         './skybox/milkyway_2020_1024x512.avif'
     ];
     const skybox = new Sky();

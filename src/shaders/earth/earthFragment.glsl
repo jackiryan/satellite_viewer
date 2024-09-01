@@ -10,6 +10,24 @@ varying vec2 vUv;
 varying vec3 vPosition;
 varying vec3 vNormal;
 
+float retinaEffect(vec3 sunPos, vec3 origin, float r) {
+    vec3 sunCam = normalize(cameraPosition - sunPos * 1000.0);
+    vec3 earthCam = cameraPosition - origin;
+    float a = dot(sunCam, sunCam);
+    float b = 2.0 * dot(sunCam, earthCam);
+    float c = dot(earthCam, earthCam) - (r * r);
+    float disc = b * b - 4.0 * a * c;
+    float disc2 = mix(0.0, disc, smoothstep(0.0, 2.0, b));
+
+    // experimentally derived smoothstep limits
+    return smoothstep(10.0, 100.0, disc2);
+}
+
+vec3 gammaCorrection(vec3 color, float gamma) {
+    return pow(color, vec3(1.0 / gamma));
+}
+
+
 void main() {
     vec3 viewDirection = normalize(vPosition - cameraPosition);
     vec3 normal = normalize(vNormal);
@@ -48,7 +66,8 @@ void main() {
 
     vec3 specularColor = mix(vec3(0.31, 0.31, 0.35), atmosphereColor, fresnel);
     color += specular * specularColor;
-    //color = mix(color, atmosphereColor, dayMix);
+    vec3 retinaColor = mix(gammaCorrection(color, 1.11), color, specularTexColor);
+    color = mix(color, retinaColor, retinaEffect(sunDirection, vec3(0.0), 5.0));
 
     gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
