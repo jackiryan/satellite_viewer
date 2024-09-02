@@ -60,14 +60,14 @@ export class Sky extends THREE.Mesh {
                 'uStarData': { type: 't', value: textures[0] },
                 'uTempData': { type: 't', value: textures[1] },
                 'uPixelSize': { type: 'f', value: 1024.0 },
-                'uSigma': { type: 'f', value: 150.0 },
+                'uSigma': { type: 'f', value: 100.0 },
                 'uScaleFactor': { type: 'f', value: 0.0 },
-                'uBrightnessScale': { type: 'f', value: 20.0 },
+                'uBrightnessScale': { type: 'f', value: 30.0 },
                 'uSkybox': { type: 't', value: textures[2] },
                 // 'uRotX': { type: 'f', value: 0.0 },
                 // 'uRotY': { type: 'f', value: 0.0 },
                 // 'uRotZ': { type: 'f', value: 0.0 },
-                'uMwBright': { type: 'f', value: 0.05 },
+                'uMwBright': { type: 'f', value: 0.10 },
             };
             this.starMaterial = new THREE.ShaderMaterial({
                 name: 'StarShader',
@@ -166,7 +166,7 @@ function initTweaks(gui, skybox) {
 
     gui.add(effectController, 'sigma', 0.0, 500.0, 0.1).onChange(guiChanged);
     gui.add(effectController, 'scaleFactor', 0.0, 10.0, 0.01).onChange(guiChanged);
-    gui.add(effectController, 'brightnessScale', 0.0, 1000.0, 0.1).onChange(guiChanged);
+    gui.add(effectController, 'brightnessScale', 0.0, 100.0, 0.1).onChange(guiChanged);
     gui.add(effectController, 'mwBright', 0.0, 1.0, 0.01).onChange(guiChanged);
     // gui.add( effectController, 'rotX', -90, 90, 1 ).onChange( guiChanged );
     // gui.add( effectController, 'rotY', -180, 180, 1 ).onChange( guiChanged );
