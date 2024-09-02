@@ -5,7 +5,7 @@ import { initSky } from './skyboxcolor.js';
 //import getSunPointingAngle from './sunangle.js';
 
 let scene, renderer, camera, controls, clock, skybox;
-let elapsedTime = 0;
+// let elapsedTime = 0;
 
 const renderParameters = {
     speedFactor: 1
@@ -16,8 +16,8 @@ const now = new Date();
 async function init() {
     scene = new THREE.Scene();
     
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = 3;
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 1;
 
     renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);

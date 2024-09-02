@@ -199,7 +199,7 @@ float ringRayNoise(vec3 sunDirection, vec3 pos, float r, float size) {
 
     // multiple of ps controls the frequency of the noise
     float n = noise4q(vec4(ps * 1.0, c * 2.0));
-    float ns = noise4q(vec4(ps * size, c * 2.0)) * 2.0;
+    float ns = noise4q(vec4(ps * 10.0, c * 2.0)) * 2.0;
     n = pow(ns, 2.0) * pow(n, 2.0);
     
     // this power of s controls the amount the noise is pushed in towards
@@ -234,7 +234,7 @@ void main() {
     }
 
     vec3 sunDistance = normalize(vNormal) - uSunDirection;
-    float sunRays = ringRayNoise(normalize(uSunDirection), normalize(vNormal), 0.00296, 15.0);
+    float sunRays = ringRayNoise(normalize(uSunDirection), normalize(vNormal), 0.00296, 25.0);
     // Sorry, everyone... the sun is white actually. Approximating the spectral irradiance of
     // the sun as a 5900k blackbody (observed at the top of the atmosphere), the sRGB value
     // would be (255, 255, 253). This is rather boring to look at, so I've made it a bit more
