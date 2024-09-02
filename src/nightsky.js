@@ -7,9 +7,10 @@ import { initSky } from './skyboxcolor.js';
 let scene, renderer, camera, controls, clock, skybox;
 // let elapsedTime = 0;
 
+/*
 const renderParameters = {
     speedFactor: 1
-}
+} */
 
 const now = new Date();
 
@@ -33,11 +34,12 @@ async function init() {
     scene.add(ambientLight);
 
     const gui = new GUI();
+    /*
     gui
         .add(renderParameters, 'speedFactor')
         .min(1)
         .max(7200);
-
+    */
     await initSky({ sceneObj: scene, guiObj: gui }).then((sky) => {
         skybox = sky;
         clock = new THREE.Clock();

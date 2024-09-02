@@ -168,7 +168,7 @@ void main() {
         vec2(-1, 2), vec2(-2, -2), vec2(2, -2), vec2(-2, 2), vec2(2, 2)
     );
     vec4 starColor = vec4(0.0, 0.0, 0.0, 0.0);
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < 25; i++) {
         starColor += getPixInfo(dir, offsets[i]);
     }
 
