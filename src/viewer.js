@@ -317,7 +317,9 @@ function animate() {
     const sunDirection = getSunPointingAngle(deltaNow);
     earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
     atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
-    skybox.material.uniforms.uSunDirection.value.copy(sunDirection);
+    if (skybox !== undefined) {
+        skybox.material.uniforms.uSunDirection.value.copy(sunDirection);
+    }
 
     updateClock(deltaNow);
     groupMap.update();
