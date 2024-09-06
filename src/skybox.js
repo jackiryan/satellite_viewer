@@ -72,7 +72,8 @@ export class Sky extends THREE.Mesh {
             });
 
             this.material = this.starMaterial;
-            this.starsEnabled = true;
+            // I felt like it would be good practice to make this a "private" member
+            this.m_starsEnabled = true;
         } catch (error) {
             console.error('Failed to initialize starmap material:', error);
         }
@@ -119,12 +120,16 @@ export class Sky extends THREE.Mesh {
     }
 
     toggleStars() {
-        this.starsEnabled = !this.starsEnabled;
-        if (this.starsEnabled) {
+        this.m_starsEnabled = !this.m_starsEnabled;
+        if (this.m_starsEnabled) {
             this.material = this.starMaterial;
         } else {
             this.material = this.blankMaterial;
         }
+    }
+
+    isStarry() {
+        return this.m_starsEnabled;
     }
 }
 

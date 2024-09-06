@@ -37,12 +37,8 @@ const gmst = gstime(now);
 let elapsedTime = 0;
 const renderClock = new THREE.Clock();
 
-// Create a div to contain the Three.js canvas
-const canvasContainer = document.createElement('div');
-canvasContainer.className = 'canvas-container';
-const topContainer = document.querySelector('.top-container');
-topContainer.appendChild(canvasContainer);
-const clockElement = document.getElementById('clock');
+const mainElement = document.querySelector('main');
+const clockElement = document.getElementById('clock-time');
 
 /* Animation
  * Uses a renderFrameRate and speedFactor to control the "choppiness" and speed of the animation, respectively. */
@@ -72,9 +68,10 @@ async function init() {
     renderer.toneMapping = THREE.LinearToneMapping;
     renderer.toneMappingExposure = 1.3;
     renderer.domElement.classList.add('webgl');
-    canvasContainer.appendChild(renderer.domElement);
+    
+    mainElement.appendChild(renderer.domElement);
 
-    gui = new GUI();
+    // gui = new GUI();
     scene = new THREE.Scene();
 
     // Add ambient light
@@ -202,22 +199,23 @@ async function initSatellites() {
     // on page load. Why OneWeb? Because it looks cool, I guess!
     const defaultGroups = new Set(["Space Stations", "OneWeb"]);
     await populateButtonGroup(defaultGroups).then( () => {
-        initGuiTweaks();
+        initSettingsMenu();
         raycaster = new THREE.Raycaster();
         mouseMove = new THREE.Vector2();
         // Create an HTML element to display the name of a satellite on mouse hover
         tooltip = document.createElement('div');
         tooltip.className = 'tooltip';
-        canvasContainer.appendChild(tooltip);
-        canvasContainer.addEventListener('mousemove', onMouseMove, false);
+        tooltip.style.zIndex = 1;
+        mainElement.appendChild(tooltip);
+        renderer.domElement.addEventListener('pointermove', onMouseMove, false);
     });
 }
 
 function addStats() {
     stats = new Stats();
     stats.domElement.style.position = 'absolute';
-    stats.domElement.style.top = '500px';
-    canvasContainer.appendChild(stats.domElement);
+    stats.domElement.style.top = '3.5rem';
+    mainElement.appendChild(stats.domElement);
 }
 
 function initGuiTweaks() {
@@ -229,6 +227,116 @@ function initGuiTweaks() {
         .onChange(() => {
             groupMap.setSpeed(renderParameters.speedFactor);
         });
+}
+
+function initSettingsMenu() {
+    const settingsMenu = document.querySelector('.settings-menu');
+    const toggleButton = document.querySelector('.menu-toggle');
+    const menuToggle = document.getElementById('arrow_down');
+
+    toggleButton.addEventListener('click', () => {
+        settingsMenu.classList.toggle('hidden');
+        menuToggle.classList.toggle('on');
+    });
+
+    const speedStates = new Map([
+        [1, '1 sec/s'],
+        [30, '30 sec/s'],
+        [60, '1 min/s'],
+        [300, '5 min/s'],
+        [1800, '30 min/s'],
+        [3600, '1 hr/s']
+    ]);
+    
+    const plusButton = document.getElementById('plus');
+    const minusButton = document.getElementById('minus');
+    const speedIndicator = document.getElementById('speed-indicator');
+    const realTimeButton = document.getElementById('real-time');
+    const realTimeIndicator = document.getElementById('real-time-indicator');
+    const projectedIndicator = document.getElementById('projected-indicator');
+
+    const starsButton = document.getElementById('stars');
+    const showAllButton = document.getElementById('show-all');
+
+    function setRealTime(isRealTime) {
+        if (isRealTime) {
+            elapsedTime = renderClock.getDelta();
+            groupMap.setRealTime();
+            realTimeIndicator.classList.add('on');
+            projectedIndicator.classList.remove('on');
+            realTimeButton.classList.add('off');
+            realTimeButton.disabled = true;
+        } else {
+            realTimeIndicator.classList.remove('on');
+            projectedIndicator.classList.add('on');
+            realTimeButton.classList.remove('off');
+            realTimeButton.disabled = false;
+        }
+    }
+
+    function updateSpeed(currentIndex) {
+        groupMap.setSpeed(renderParameters.speedFactor);
+        const speedText = speedStates.get(renderParameters.speedFactor);
+        speedIndicator.innerHTML = speedText;
+
+        if (currentIndex >= speedStates.size - 1) {
+            plusButton.disabled = true;
+            plusButton.classList.add('off');
+        } else {
+            plusButton.disabled = false;
+            plusButton.classList.remove('off');
+        }
+        if (currentIndex <= 0) {
+            minusButton.disabled = true;
+            minusButton.classList.add('off');
+        } else {
+            minusButton.disabled = false;
+            minusButton.classList.remove('off');
+            setRealTime(false);
+        }
+    }
+
+
+    plusButton.addEventListener('click', () => {
+        const keys = Array.from(speedStates.keys());
+        const currentIndex = keys.indexOf(renderParameters.speedFactor);
+        if (currentIndex < keys.length - 1) {
+            renderParameters.speedFactor = keys[currentIndex + 1];
+            updateSpeed(currentIndex + 1);
+        }
+    });
+
+    minusButton.addEventListener('click', () => {
+        const keys = Array.from(speedStates.keys());
+        const currentIndex = keys.indexOf(renderParameters.speedFactor);
+        if (currentIndex > 0) {
+            renderParameters.speedFactor = keys[currentIndex - 1];
+            updateSpeed(currentIndex - 1);
+        }
+    });
+
+    realTimeButton.addEventListener('click', () => {
+        renderParameters.speedFactor = 1;
+        updateSpeed(renderParameters.speedFactor - 1);
+        
+        setRealTime(true);
+    });
+
+    starsButton.addEventListener('click', () => {
+        console.log(skybox);
+        if (skybox !== undefined) {
+            skybox.toggleStars();
+            if (skybox.isStarry()) {
+                starsButton.innerHTML = 'Hide Stars';
+            } else {
+                starsButton.innerHTML = 'Show Stars';
+            }
+        }
+    });
+    showAllButton.addEventListener('click', () => {
+        console.log('not implemented');
+    });
+
 }
 
 function initSunPointingHelper() {
@@ -268,8 +376,10 @@ function onGroupHidden(event) {
 function onMouseMove(event) {
     event.preventDefault();
     // Update the mouse variable
-    mouseMove.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouseMove.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouseMove.x = ((event.clientX - rect.left) / (rect.right - rect.left)) * 2 - 1;
+    mouseMove.y = -((event.clientY - rect.top) / (rect.bottom - rect.top)) * 2 + 1;
+    console.log(`x: ${mouseMove.x}, y: ${mouseMove.y}`);
 
     // Update the raycaster with the camera and mouse position
     raycaster.setFromCamera(mouseMove, camera);
@@ -318,7 +428,9 @@ function animate() {
     earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
     atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
     if (skybox !== undefined) {
-        skybox.material.uniforms.uSunDirection.value.copy(sunDirection);
+        if (skybox.isStarry()) {
+            skybox.material.uniforms.uSunDirection.value.copy(sunDirection);
+        }
     }
 
     updateClock(deltaNow);
@@ -332,5 +444,5 @@ function animate() {
 function updateClock(deltaNow) {
     const utcDate = deltaNow.toUTCString().split(' ').slice(1, 4).join(' ');
     const utcTime = deltaNow.toISOString().split('T')[1].split('.')[0];
-    clockElement.innerHTML = `${utcDate}<br />${utcTime} Z`;
+    clockElement.innerHTML = `${utcDate} ${utcTime} Z`;
 }

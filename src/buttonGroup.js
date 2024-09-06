@@ -15,7 +15,7 @@ export async function populateButtonGroup(defaultGroups) {
 }
 
 function populateButtons(groups, defaultGroups) {
-    const container = document.getElementsByClassName('button-container')[0];
+    const container = document.querySelector('.button-flex');
 
     groups.forEach(group => {
         const button = document.createElement('div');
@@ -41,7 +41,6 @@ function populateButtons(groups, defaultGroups) {
     });
 
     addButtonGroupGrab();
-    addButtonGroupToggle();
 }
 
 async function toggleButtonState(button, entitiesUrl) {
@@ -58,7 +57,9 @@ async function toggleButtonState(button, entitiesUrl) {
 }
 
 function addButtonGroupGrab() {
-    const buttonContainer = document.querySelector('.button-container');
+    const buttonContainer = document.querySelector('.button-flex');
+    const navarrowLeft = document.getElementById('arrow_left');
+    const navarrowRight = document.getElementById('arrow_right');
 
     let isDown = false;
     let startX;
@@ -67,7 +68,7 @@ function addButtonGroupGrab() {
     buttonContainer.addEventListener('mousedown', (e) => {
         isDown = true;
         buttonContainer.classList.add('active');
-        startX = e.pageX - buttonContainer.offsetLeft;
+        startX = e.clientX;
         scrollLeft = buttonContainer.scrollLeft;
     });
 
@@ -82,25 +83,24 @@ function addButtonGroupGrab() {
     });
 
     buttonContainer.addEventListener('mousemove', (e) => {
-        if (!isDown) return;
+        if (!isDown) {
+            return;
+        }
         e.preventDefault();
-        const x = e.pageX - buttonContainer.offsetLeft;
-        const walk = (x - startX) * 3; // scroll-fast
+        const x = e.clientX;
+        // 2x scroll speed
+        const walk = (x - startX) * 2; 
         buttonContainer.scrollLeft = scrollLeft - walk;
     });
-}
 
-function addButtonGroupToggle() {
-    const buttonContainer = document.querySelector('.button-container');
-    const toggleButton = document.querySelector('.toggle-button-container');
-    const chevron = document.querySelector('.chevron');
-
-    toggleButton.addEventListener('click', () => {
-        buttonContainer.classList.toggle('hidden');
-        if (buttonContainer.classList.contains('hidden')) {
-            chevron.innerHTML = '&#9660;'; // Downward facing chevron
-        } else {
-            chevron.innerHTML = '&#9650;'; // Upward facing chevron
+    buttonContainer.addEventListener('scroll', () => {
+        const maxScrollLeft = buttonContainer.scrollWidth - buttonContainer.clientWidth;
+        navarrowLeft.classList.remove('off');
+        navarrowRight.classList.remove('off');
+        if (buttonContainer.scrollLeft === 0) {
+            navarrowLeft.classList.add('off');
+        } else if (buttonContainer.scrollLeft === maxScrollLeft) {
+            navarrowRight.classList.add('off');
         }
     });
 }

@@ -24,6 +24,8 @@ body {
     margin: 0;
     font-family: 'AudioLink Mono', monospace;
     color: var(--slate-50);
+    overflow: hidden;
+    background-color: var(--slate-950);
 }
 
 main {
@@ -35,6 +37,11 @@ header {
     background-color: var(--slate-950);
     border-bottom: var(--border-width) solid var(--slate-850);
     height: calc(50px - var(--border-width));
+}
+
+.webgl {
+    outline: none;
+    z-index: -1;
 }
 
 /**
@@ -276,7 +283,7 @@ header {
 }
 
 .menu-toggle {
-    background-color: var(--slate-950);
+    background-color: var(--slate-850);
     position: relative;
     bottom: 0px;
     left: calc(50% - 1rem);
@@ -340,3 +347,13 @@ header {
     pointer-events: none;
 }
 
+.tooltip {
+    font-family: 'AudioLink Mono', sans-serif;
+    font-weight: 300;
+    background-color: rgba(239, 241, 244, 0.75);
+    color: var(--slate-950);
+    position: absolute;
+    padding: 5px;
+    border-radius: 0px 3px 3px 3px;
+    display: block;
+}

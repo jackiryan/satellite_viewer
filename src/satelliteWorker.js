@@ -38,6 +38,8 @@ self.onmessage = function(e) {
         case 'setSpeed':
             workerSetSpeed(data);
             break;
+        case 'reset':
+            resetTime();
     }
 };
 
@@ -139,4 +141,9 @@ function workerHideGroup(data) {
 
 function workerSetSpeed(data) {
     speedFactor = data.speed;
+}
+
+function resetTime(data) {
+    speedFactor = 1;
+    elapsedTime = Date.now() - startTime;
 }
