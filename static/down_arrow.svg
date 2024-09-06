@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="arrow_down" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 12">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+        stroke: #eff1f4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 5px;
+      }
+    </style>
+  </defs>
+  <g id="arrow_down-stroke" data-name="Layer_1">
+    <path class="cls-1" d="M25.31,2.5l-11.41,7.38L2.5,2.5"/>
+  </g>
+</svg>
