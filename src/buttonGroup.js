@@ -24,6 +24,7 @@ export async function populateButtonGroup(defaultGroups) {
     });
 
     populateButtons(buttonGroups, defaultGroups);
+    checkOverflow();
 }
 
 function populateButtons(groups, defaultGroups) {

@@ -37,6 +37,7 @@ let elapsedTime = 0;
 const renderClock = new THREE.Clock();
 
 const mainElement = document.querySelector('main');
+let previousClockValue = '';
 const clockElement = document.getElementById('clock-time');
 
 /* Animation
@@ -183,7 +184,7 @@ async function init() {
             }
     });
 
-    window.addEventListener('resize', onWindowResize, false);
+    //window.addEventListener('resize', onWindowResize, false);
 }
 
 async function initSatellites() {
@@ -407,14 +408,28 @@ function updateTooltip(text, x, y) {
     const tooltipHeight = tooltip.offsetHeight;
     const spaceRight = window.innerWidth - x - 10;
     const spaceBottom = window.innerHeight - y - 10;
+    let isLeft = false;
     if (spaceRight < tooltipWidth) {
+        // display to the left of the cursor
         tooltip.style.left = `${x - tooltipWidth - 10}px`;
+        tooltip.style.borderRadius = '3px 0px 3px 3px';
+        isLeft = true;
     } else {
+        // display to the right of the cursor (default)
         tooltip.style.left = `${x + 10}px`;
+        tooltip.style.borderRadius = '0px 3px 3px 3px';
     }
     if (spaceBottom < tooltipHeight) {
+        // display above the cursor, and use a different pointy corner
+        // if also displaying to the left
         tooltip.style.top = `${y - tooltipHeight - 10}px`;
+        if (isLeft) {
+            tooltip.style.borderRadius = '3px 3px 0px 3px';
+        } else {
+            tooltip.style.borderRadius = '3px 3px 3px 0px';
+        }
     } else {
+        // display below the cursor (default)
         tooltip.style.top = `${y + 10}px`;
     }
     tooltip.innerHTML = text;
@@ -467,5 +482,12 @@ function animate() {
 function updateClock(deltaNow) {
     const utcDate = deltaNow.toUTCString().split(' ').slice(1, 4).join(' ');
     const utcTime = deltaNow.toISOString().split('T')[1].split('.')[0];
-    clockElement.innerHTML = `${utcDate} ${utcTime} Z`;
+    const newClockValue = `${utcDate} ${utcTime} Z`;
+
+    if (newClockValue !== previousClockValue) {
+        requestIdleCallback(() => {
+            clockElement.textContent = newClockValue;
+            previousClockValue = newClockValue;
+        });
+    }
 }
