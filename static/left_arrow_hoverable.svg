@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="arrow_left" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 40">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #3d475c;
+      }
+
+      .cls-2 {
+        fill: none;
+        stroke: #eff1f4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 5px;
+      }
+    </style>
+  </defs>
+  <g id="arrow_left-stroke" data-name="Layer_1">
+    <g>
+      <rect class="cls-1" width="22" height="40" rx="3" ry="3"/>
+      <path class="cls-2" d="M14.69,8.59l-7.38,11.41,7.38,11.41"/>
+    </g>
+  </g>
+</svg>

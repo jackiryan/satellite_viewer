@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="minus" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+        stroke: #eff1f4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2px;
+      }
+    </style>
+  </defs>
+  <g id="minus-stroke" data-name="Layer_1">
+    <g>
+      <circle class="cls-1" cx="12" cy="12" r="11"/>
+      <line class="cls-1" x1="6.5" y1="12" x2="17.5" y2="12"/>
+    </g>
+  </g>
+</svg>

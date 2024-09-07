@@ -1,0 +1,390 @@
+@charset "UTF-8";
+:root {
+    --slate-50: #eff1f4;
+    --slate-100: #dfe3eb;
+    --slate-150: #cfd5e2;
+    --slate-200: #bfc7d9;
+    --slate-600: #525f7a;
+    --slate-700: #3d475c;
+    --slate-850: #202632;
+    --slate-950: #0e1118;
+    --blue-250: #aeb5fb;
+    --blue-350: #8999f9;
+    --blue-600: #1d59d0;
+    --blue-800: #0f2d70;
+    --border-width: 0.125rem;
+    --border-thin: 0.0625rem;
+    --spacing: 1rem;
+    --spacing-narrow: 0.5rem;
+    --spacing-xnarrow: 0.25rem;
+}
+
+body {
+    width: 100%;
+    margin: 0;
+    font-family: 'AudioLink Mono', monospace;
+    color: var(--slate-50);
+    overflow: hidden;
+    background-color: var(--slate-950);
+    touch-action: manipulation;
+    -webkit-text-size-adjust: none;
+}
+
+main {
+    display: block;
+}
+
+header {
+    display: flex;
+    background-color: var(--slate-950);
+    border-bottom: var(--border-width) solid var(--slate-850);
+    height: calc(50px - var(--border-width));
+    z-index: 1;
+}
+
+.webgl {
+    outline: none;
+    z-index: -1;
+}
+
+/**
+ * Container
+ */
+.container,
+.container-fluid {
+    width: 100%;
+    margin-right: auto;
+    margin-left: auto;
+    padding-block: var(--spacing-xnarrow);
+    padding-right: var(--spacing-narrow);
+    padding-left: var(--spacing-narrow);
+}
+
+.container-narrow,
+.container-xnarrow {
+    margin-right: 0rem;
+    margin-left: 0rem;
+    flex-shrink: 0;
+    display: inline-block;
+}
+
+.container-narrow {
+    padding-block: var(--spacing-narrow);
+    padding-right: var(--spacing-narrow);
+    padding-left: var(--spacing-narrow);
+}
+
+.container-xnarrow {
+    padding-block: var(--spacing-xnarrow);
+    padding-right: var(--spacing-xnarrow);
+    padding-left: var(--spacing-xnarrow);
+}
+
+.border-right {
+    border-right: var(--border-width) solid var(--slate-850);
+}
+
+.border-right-sep {
+    padding-right: var(--spacing-narrow);
+    border-right: var(--border-thin) solid var(--slate-50);
+}
+
+.width-auto {
+    width: auto;
+}
+
+.button-frame,
+.button-flex {
+    display: flex;
+    flex-grow: 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+
+/* makes group selector disappear on narrow screens. TO DO: create some kind
+ of affordance that opens a drawer for selecting satellite groups on mobile
+ in portrait */
+@media only screen and (max-width: 600px) {
+    #navarrow-left,
+    #navarrow-right {
+        display: none;
+    }
+}
+
+.button-flex {
+    cursor: grab;
+    padding-right: 0rem;
+    align-items: center;
+    justify-content: left;
+    -webkit-overflow-scrolling: touch; 
+}
+
+.button-flex::-webkit-scrollbar {
+    display: none;
+}
+
+.button-flex::-webkit-scrollbar-thumb {
+    display: none;
+}
+
+.button-flex::-webkit-scrollbar-track {
+    display: none;
+}
+
+.button-flex:active {
+    cursor: grabbing;
+}
+
+.clock {
+    text-align: right;
+    user-select: none;
+    padding-left: 0rem;
+}
+
+#clock-time {
+    margin-left: var(--spacing-narrow);
+}
+
+.bold {
+    font-weight: 700;
+    font-size: large;
+}
+
+.time-indicator {
+    padding-block: 0.125rem;
+    font-size: smaller;
+    color: var(--slate-600);
+}
+
+.indicator-text.on {
+    color: var(--blue-250);
+}
+
+.logo {
+    width: 32px;
+    height: auto;
+}
+
+.logo:hover .icon-bg {
+    fill: var(--slate-700);
+}
+
+.logo:active .icon-bg {
+    fill: var(--slate-600);
+}
+
+.navarrow {
+    width: 22px;
+    height: auto;
+}
+
+.navarrow:active .icon-bg {
+    fill: var(--slate-600);
+}
+
+.icon-stroke {
+    stroke: var(--slate-50);
+}
+
+.navarrow.off .icon-stroke {
+    stroke: var(--slate-700);
+}
+.navarrow.off {
+    pointer-events: none;
+}
+
+.icon-stroke {
+    fill: none;
+    stroke: var(--slate-50);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 5px;
+}
+
+.icon-bg {
+    fill: var(--slate-950);
+    transition: fill 0.1s ease;
+}
+
+.menu-button,
+.toggle-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 30px;
+    padding-left: var(--spacing-narrow);
+    padding-right: var(--spacing-narrow);
+    margin-right: var(--spacing-narrow);
+    border: 1px solid var(--slate-200);
+    border-radius: 0.5rem;
+    flex-shrink: 0;
+    cursor: pointer;
+    color: var(--slate-950);
+    font-weight: 700;
+    user-select: none;
+    /* Ensures buttons appear in a row */
+    position: relative;
+    overflow: hidden;
+    transition: background-color 0.1s ease-out;
+    z-index: 1;
+}
+
+@media (hover: hover) {
+    .toggle-button.off:hover {
+        background-color: var(--slate-600);
+    }
+    
+    .toggle-button.on:hover {
+        background-color: white;
+        color: var(--slate-950);
+    }
+
+    .navarrow:hover .icon-bg {
+        fill: var(--slate-700);
+    }
+
+    .button-icon:hover .icon-stroke {
+        stroke: var(--slate-50);
+    }
+
+    .menu-button:hover {
+        background-color: var(--blue-350);
+    }
+}
+
+.toggle-button img {
+    margin-right: var(--spacing-narrow);
+    margin-bottom: 0.125rem;
+    /* Increased space between flag and text */
+}
+
+.toggle-button.on {
+    background-color: var(--slate-50);
+    color: var(--slate-950);
+}
+
+.toggle-button.off {
+    background-color: var(--slate-950);
+    color: var(--slate-50);
+}
+
+.toggle-button span .toggle-button img {
+    position: relative;
+    z-index: 2;
+}
+
+.menu-button {
+    border: none;
+    background-color: var(--blue-600);
+    color: var(--slate-50);
+    margin-right: 0rem;
+}
+
+.menu-button.off {
+    background-color: var(--blue-800);
+    color: var(--slate-600);
+    pointer-events: none;
+}
+
+.settings-menu {
+    position: relative;
+    bottom: 0px;
+    width: calc(100% - var(--spacing-narrow));
+    left: calc(-1 * var(--border-width));
+    background-color: var(--slate-950);
+    display: grid;
+    border-left: var(--border-width) solid var(--slate-850);
+    border-bottom: var(--border-width) solid var(--slate-850);
+    text-align: center;
+    gap: var(--spacing-narrow);
+    transition: 0.3s ease-in-out;
+    -webkit-transition: .3s ease-in-out; 
+    -moz-transition: .3s ease-in-out; 
+    -o-transition: .3s ease-in-out;
+}
+
+.menu-toggle {
+    background-color: var(--slate-850);
+    position: relative;
+    bottom: 0px;
+
+    /* I don't know why this looks correct */
+    left: calc(50% - 1rem);
+    display: flex;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 1.5rem;
+    border-radius: 0 0 1.5rem 1.5rem;
+    -webkit-touch-callout: none; 
+    -webkit-user-select: none; 
+    -khtml-user-select: none; 
+    -moz-user-select: none; 
+    -ms-user-select: none; 
+    user-select: none;
+    transition: 0.3s ease-in-out;
+    -webkit-transition: .3s ease-in-out; 
+    -moz-transition: .3s ease-in-out; 
+    -o-transition: .3s ease-in-out;
+}
+
+.hidden {
+    display: none;
+}
+
+.toggle {
+    width: 28px;
+    height: auto;
+    padding-bottom: var(--spacing-xnarrow);
+    transition: transform 0.3s ease;
+}
+.toggle.on path {
+    transform: rotate(180deg);
+    transform-origin: 50% 50%;
+}
+
+#speed-control {
+    display: flex;
+    padding-bottom: 0rem;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing);
+}
+
+#speed-indicator {
+    width: 50%;
+}
+
+.button-icon {
+    width: 24px;
+    height: auto;
+}
+
+.button-icon .icon-stroke {
+    stroke: var(--slate-100);
+    stroke-width: 2px;
+}
+
+
+
+.button-icon:active .icon-stroke {
+    stroke: white;
+}
+
+.button-icon.off .icon-stroke {
+    stroke: var(--slate-600);
+    pointer-events: none;
+}
+
+.tooltip {
+    font-family: 'AudioLink Mono', sans-serif;
+    font-weight: 300;
+    background-color: rgba(239, 241, 244, 0.75);
+    color: var(--slate-950);
+    position: absolute;
+    padding: 5px;
+    border-radius: 0px 3px 3px 3px;
+    display: block;
+}

@@ -170,4 +170,10 @@ export class SatelliteGroupMap {
             data: { speed: speedFactor }
         });
     }
+
+    setRealTime() {
+        this.worker.postMessage({
+            action: 'reset'
+        });
+    }
 }
