@@ -6,7 +6,6 @@ import { populateButtonGroup } from './buttonGroup.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
 import { initSky } from './skybox.js';
 import getSunPointingAngle from './sunangle.js';
-import GUI from 'lil-gui';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
@@ -71,7 +70,6 @@ async function init() {
     
     mainElement.appendChild(renderer.domElement);
 
-    // gui = new GUI();
     scene = new THREE.Scene();
 
     // Add ambient light
@@ -218,21 +216,10 @@ function addStats() {
     mainElement.appendChild(stats.domElement);
 }
 
-function initGuiTweaks() {
-    // gui debug controls
-    gui
-        .add(renderParameters, 'speedFactor')
-        .min(1)
-        .max(3600)
-        .onChange(() => {
-            groupMap.setSpeed(renderParameters.speedFactor);
-        });
-}
-
 function initSettingsMenu() {
     const settingsMenu = document.querySelector('.settings-menu');
     const toggleButton = document.querySelector('.menu-toggle');
-    const menuToggle = document.getElementById('arrow_down');
+    const menuToggle = document.getElementById('arrowicon-down');
 
     toggleButton.addEventListener('click', () => {
         settingsMenu.classList.toggle('hidden');
@@ -260,7 +247,9 @@ function initSettingsMenu() {
 
     function setRealTime(isRealTime) {
         if (isRealTime) {
-            elapsedTime = renderClock.getDelta();
+            // elapsedTime is in seconds on the main thread due to renderClock,
+            // so remember to divide by 1000 (ms -> s)
+            elapsedTime = (Date.now() - now.getTime()) / 1000.0;
             groupMap.setRealTime();
             realTimeIndicator.classList.add('on');
             projectedIndicator.classList.remove('on');
@@ -318,12 +307,10 @@ function initSettingsMenu() {
     realTimeButton.addEventListener('click', () => {
         renderParameters.speedFactor = 1;
         updateSpeed(renderParameters.speedFactor - 1);
-        
         setRealTime(true);
     });
 
     starsButton.addEventListener('click', () => {
-        console.log(skybox);
         if (skybox !== undefined) {
             skybox.toggleStars();
             if (skybox.isStarry()) {
@@ -379,7 +366,6 @@ function onMouseMove(event) {
     const rect = renderer.domElement.getBoundingClientRect();
     mouseMove.x = ((event.clientX - rect.left) / (rect.right - rect.left)) * 2 - 1;
     mouseMove.y = -((event.clientY - rect.top) / (rect.bottom - rect.top)) * 2 + 1;
-    console.log(`x: ${mouseMove.x}, y: ${mouseMove.y}`);
 
     // Update the raycaster with the camera and mouse position
     raycaster.setFromCamera(mouseMove, camera);
@@ -394,10 +380,7 @@ function onMouseMove(event) {
         if (groupMap.hasGroup(intersectedObject.name)) {
             const groupName = intersectedObject.name;
             const satelliteName = groupMap.map.get(groupName).names[intersects[0].instanceId];
-            tooltip.style.left = `${event.clientX + 10}px`;
-            tooltip.style.top = `${event.clientY + 10}px`;
-            tooltip.style.display = 'block';
-            tooltip.innerHTML = satelliteName;
+            updateTooltip(satelliteName, event.clientX, event.clientY);
         } else {
             tooltip.style.display = 'none';
         }
@@ -405,6 +388,25 @@ function onMouseMove(event) {
         // Hide the tooltip
         tooltip.style.display = 'none';
     }
+}
+
+function updateTooltip(text, x, y) {
+    const tooltipWidth = tooltip.offsetWidth;
+    const tooltipHeight = tooltip.offsetHeight;
+    const spaceRight = window.innerWidth - x - 10;
+    const spaceBottom = window.innerHeight - y - 10;
+    if (spaceRight < tooltipWidth) {
+        tooltip.style.left = `${x - tooltipWidth - 10}px`;
+    } else {
+        tooltip.style.left = `${x + 10}px`;
+    }
+    if (spaceBottom < tooltipHeight) {
+        tooltip.style.top = `${y - tooltipHeight - 10}px`;
+    } else {
+        tooltip.style.top = `${y + 10}px`;
+    }
+    tooltip.innerHTML = text;
+    tooltip.style.display = 'block';
 }
 
 function onWindowResize() {

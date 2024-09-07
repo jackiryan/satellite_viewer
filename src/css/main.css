@@ -26,6 +26,8 @@ body {
     color: var(--slate-50);
     overflow: hidden;
     background-color: var(--slate-950);
+    touch-action: manipulation;
+    -webkit-text-size-adjust: none;
 }
 
 main {
@@ -37,6 +39,7 @@ header {
     background-color: var(--slate-950);
     border-bottom: var(--border-width) solid var(--slate-850);
     height: calc(50px - var(--border-width));
+    z-index: 1;
 }
 
 .webgl {
@@ -99,11 +102,22 @@ header {
     scrollbar-width: none;
 }
 
+/* makes group selector disappear on narrow screens. TO DO: create some kind
+ of affordance that opens a drawer for selecting satellite groups on mobile
+ in portrait */
+@media only screen and (max-width: 600px) {
+    #navarrow-left,
+    #navarrow-right {
+        display: none;
+    }
+}
+
 .button-flex {
     cursor: grab;
     padding-right: 0rem;
     align-items: center;
     justify-content: left;
+    -webkit-overflow-scrolling: touch; 
 }
 
 .button-flex::-webkit-scrollbar {
@@ -165,10 +179,6 @@ header {
     height: auto;
 }
 
-.navarrow:hover .icon-bg {
-    fill: var(--slate-700);
-}
-
 .navarrow:active .icon-bg {
     fill: var(--slate-600);
 }
@@ -220,6 +230,29 @@ header {
     z-index: 1;
 }
 
+@media (hover: hover) {
+    .toggle-button.off:hover {
+        background-color: var(--slate-600);
+    }
+    
+    .toggle-button.on:hover {
+        background-color: white;
+        color: var(--slate-950);
+    }
+
+    .navarrow:hover .icon-bg {
+        fill: var(--slate-700);
+    }
+
+    .button-icon:hover .icon-stroke {
+        stroke: var(--slate-50);
+    }
+
+    .menu-button:hover {
+        background-color: var(--blue-350);
+    }
+}
+
 .toggle-button img {
     margin-right: var(--spacing-narrow);
     margin-bottom: 0.125rem;
@@ -234,15 +267,6 @@ header {
 .toggle-button.off {
     background-color: var(--slate-950);
     color: var(--slate-50);
-}
-
-.toggle-button.off:hover {
-    background-color: var(--slate-600);
-}
-
-.toggle-button.on:hover {
-    background-color: white;
-    color: var(--slate-950);
 }
 
 .toggle-button span .toggle-button img {
@@ -263,10 +287,6 @@ header {
     pointer-events: none;
 }
 
-.menu-button:hover {
-    background-color: var(--blue-350);
-}
-
 .settings-menu {
     position: relative;
     bottom: 0px;
@@ -278,14 +298,18 @@ header {
     border-bottom: var(--border-width) solid var(--slate-850);
     text-align: center;
     gap: var(--spacing-narrow);
-    max-height: 200px;
-    transition: max-height 0.3s ease;
+    transition: 0.3s ease-in-out;
+    -webkit-transition: .3s ease-in-out; 
+    -moz-transition: .3s ease-in-out; 
+    -o-transition: .3s ease-in-out;
 }
 
 .menu-toggle {
     background-color: var(--slate-850);
     position: relative;
     bottom: 0px;
+
+    /* I don't know why this looks correct */
     left: calc(50% - 1rem);
     display: flex;
     cursor: pointer;
@@ -294,10 +318,19 @@ header {
     width: 3rem;
     height: 1.5rem;
     border-radius: 0 0 1.5rem 1.5rem;
+    -webkit-touch-callout: none; 
+    -webkit-user-select: none; 
+    -khtml-user-select: none; 
+    -moz-user-select: none; 
+    -ms-user-select: none; 
+    user-select: none;
+    transition: 0.3s ease-in-out;
+    -webkit-transition: .3s ease-in-out; 
+    -moz-transition: .3s ease-in-out; 
+    -o-transition: .3s ease-in-out;
 }
 
 .hidden {
-    max-height: 0;
     display: none;
 }
 
@@ -334,9 +367,7 @@ header {
     stroke-width: 2px;
 }
 
-.button-icon:hover .icon-stroke {
-    stroke: var(--slate-50);
-}
+
 
 .button-icon:active .icon-stroke {
     stroke: white;
