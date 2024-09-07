@@ -37,11 +37,16 @@ header {
     height: calc(50px - var(--border-width));
 }
 
-.webgl {
+#webgl-canvas {
     position: absolute;
     width: 100%;
     height: 100%;
     display: block;
+    z-index: -1;
+}
+
+#webgl-canvas:focus {
+    outline: none;
 }
 
 /**
@@ -251,9 +256,11 @@ header {
 }
 
 .toggle-button img {
-    margin-right: var(--spacing-narrow);
-    margin-bottom: 0.125rem;
     /* Increased space between flag and text */
+    margin-right: var(--spacing-narrow);
+    /* flags are slightly off center vertically... */
+    margin-bottom: 0.125rem;
+    
 }
 
 .toggle-button.on {

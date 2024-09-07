@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""processes a pre-fetched tle file and sorts it into JSON files"""
 import argparse
 from copy import deepcopy
 import json
@@ -16,10 +17,17 @@ satellite_groups = {
         "count": 0,
         "entities": {}
     },
+    "Galileo": {
+        "gpName": "galileo",
+        "country": "eu",
+        "baseColor": "#a294e5",
+        "count": 0,
+        "entities": {}
+    },
     "GPS": {
         "gpName": "gps-ops",
         "country": "us",
-        "baseColor": "#ffffff",
+        "baseColor": "#d9269d",
         "count": 0,
         "entities": {}
     },
@@ -86,32 +94,14 @@ special_colors = {
     
 }
 
+# A blacklist of active satellites that will get filtered from the "Other" group
+# This helps prevent the many tracked items around space stations from clipping on top of each other
+# The list is built primarily when processing the Space Station gp
 filter_items = [
-    "ISS (NAUKA)",
-    "FREGAT DEB",
-    "CSS (WENTIAN)",
-    "CSS (MENGTIAN)",
-    "TIANZHOU-7",
-    "PROGRESS-MS 26",
-    "PROGRESS-MS 27",
-    "PROGRESS-MS 28",
-    "CREW DRAGON 8",
-    "SOYUZ-MS 25",
-    "MICROORBITER-1",
-    "CURTIS",
-    "KASHIWA",
-    "1998-067WJ",
-    "1998-067WL",
-    "BURSTCUBE",
-    "SNOOPI",
-    "SHENZHOU-18 (SZ-18)",
-    "1998-067WP",
-    "1998-067WQ",
-    "SL-4 R/B",
-    "SZ-17 MODULE",
-    "STARLINER CFT-1",
-    "CYGNUS NG-21"
 ]
+
+# The only two items associated with space stations that should be displayed
+station_whitelist = ["ISS (ZARYA)", "CSS (TIANHE)"]
 
 def remove_blanks(
         lines: list[str]
@@ -206,7 +196,7 @@ def handle_stations():
     gp_data = download_content(gp_url)
     gp_lines = remove_blanks(gp_data.decode("utf-8").splitlines())
     parse_tle_lines(gp_lines, hc_group="Space Stations")
-    filter_items.extend(["ISS (ZARYA)", "CSS (TIANHE)"])
+    filter_items.extend(station_whitelist)
 
 
 def parse_tle_lines(
@@ -227,6 +217,9 @@ def parse_tle_lines(
                     group = hc_group
             case 2:
                 tle_line2 = line.strip()
+                if hc_group == "Space Stations" and sat_name not in station_whitelist:
+                    filter_items.append(sat_name)
+                # Short circuit if an item is on the blacklist (mostly station parts)
                 if sat_name in filter_items:
                     continue
                 add_satellite(

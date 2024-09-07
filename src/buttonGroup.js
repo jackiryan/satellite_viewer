@@ -69,6 +69,16 @@ async function toggleButtonState(button, entitiesUrl) {
     }
 }
 
+export function setButtonState(button, state) {
+    if (state) {
+        button.classList.add('on');
+        button.classList.remove('off');
+    } else {
+        button.classList.remove('on');
+        button.classList.add('off');
+    }
+}
+
 function addButtonGroupGrab() {
     let isDown = false;
     let startX;

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import gstime from './gstime.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { populateButtonGroup } from './buttonGroup.js';
+import { populateButtonGroup, setButtonState } from './buttonGroup.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
 import { initSky } from './skybox.js';
 import getSunPointingAngle from './sunangle.js';
@@ -61,11 +61,11 @@ async function init() {
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.z = -20;
 
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    const canvas = document.querySelector('#webgl-canvas');
+    renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
     renderer.setClearColor(0x000000);
     renderer.toneMapping = THREE.LinearToneMapping;
     renderer.toneMappingExposure = 1.3;
-    renderer.domElement.classList.add('webgl');
     
     mainElement.appendChild(renderer.domElement);
 
@@ -171,7 +171,7 @@ async function init() {
             atmosphere.rotation.y = gmst;
 
             /* Debug plane for checking seasonal variation and other long-term issues */
-            if (now === Date.UTC(2024,2,24,3,6,0,0)) {
+            if (now === Date.UTC(2024, 2, 24, 3, 6, 0, 0)) {
                 // If the start time is the 2024 vernal equinox (which is in the past),
                 // this plane will align with the terminator at be on the prime meridian
                 // on page load
@@ -202,6 +202,7 @@ async function initSatellites() {
         tooltip.className = 'tooltip';
         tooltip.style.zIndex = 1;
         mainElement.appendChild(tooltip);
+        // I saw pointermove in some threejs documentation
         renderer.domElement.addEventListener('pointermove', onMouseMove, false);
     });
 }
@@ -241,6 +242,7 @@ function initSettingsMenu() {
 
     const starsButton = document.getElementById('stars');
     const showAllButton = document.getElementById('show-all');
+    const hideAllButton = document.getElementById('hide-all');
 
     function setRealTime(isRealTime) {
         if (isRealTime) {
@@ -317,8 +319,21 @@ function initSettingsMenu() {
             }
         }
     });
-    showAllButton.addEventListener('click', () => {
-        console.log('not implemented');
+    showAllButton.addEventListener('click', async () => {
+        await groupMap.toggleAllGroups(true);
+        // this is the simplest way I could think of to do this, without creating
+        // a spaghetti of state-transferring events
+        const groupButtons = document.querySelector('.button-flex').children;
+        for (const button of groupButtons) {
+            setButtonState(button, true);
+        }
+    });
+    hideAllButton.addEventListener('click', async () => {
+        await groupMap.toggleAllGroups(false);
+        const groupButtons = document.querySelector('.button-flex').children;
+        for (const button of groupButtons) {
+            setButtonState(button, false);
+        }
     });
 
 }
@@ -412,10 +427,7 @@ function onWindowResize() {
     const width = Math.floor(canvas.clientWidth * pixelRatio);
     const height = Math.floor(canvas.clientHeight * pixelRatio);
     const needsResize = canvas.width !== width || canvas.height !== height;
-    //console.log(`${canvas.width}, ${width}, ${canvas.height}, ${height}`);
     if (needsResize) {
-        console.log('Setting new size!');
-        console.log(`${canvas.width}, ${width}, ${canvas.height}, ${height}`);
         renderer.setSize(width, height, false);
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
