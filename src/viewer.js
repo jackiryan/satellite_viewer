@@ -52,6 +52,7 @@ await init().then( async () => {
         skybox = sky;
     });
     await initSatellites();
+    requestAnimationFrame(animate);
 });
 
 async function init() {
@@ -61,8 +62,6 @@ async function init() {
     camera.position.z = -20;
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0x000000);
     renderer.toneMapping = THREE.LinearToneMapping;
     renderer.toneMappingExposure = 1.3;
@@ -73,7 +72,7 @@ async function init() {
     scene = new THREE.Scene();
 
     // Add ambient light
-    const ambientLight = new THREE.AmbientLight(0xcccccc, 0.6);
+    const ambientLight = new THREE.AmbientLight(0xcccccc, 1);
     scene.add(ambientLight);
 
     /* Controls */
@@ -182,8 +181,6 @@ async function init() {
                 scene.add(plane);
                 initSunPointingHelper();
             }
-            
-            renderer.setAnimationLoop(animate);
     });
 
     window.addEventListener('resize', onWindowResize, false);
@@ -410,25 +407,36 @@ function updateTooltip(text, x, y) {
 }
 
 function onWindowResize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
-    renderer.setSize(width, height);
+    const canvas = renderer.domElement;
+    const pixelRatio = window.devicePixelRatio;
+    const width = Math.floor(canvas.clientWidth * pixelRatio);
+    const height = Math.floor(canvas.clientHeight * pixelRatio);
+    const needsResize = canvas.width !== width || canvas.height !== height;
+    //console.log(`${canvas.width}, ${width}, ${canvas.height}, ${height}`);
+    if (needsResize) {
+        console.log('Setting new size!');
+        console.log(`${canvas.width}, ${width}, ${canvas.height}, ${height}`);
+        renderer.setSize(width, height, false);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+    }
 }
 
 function animate() {
     const delta = renderParameters.speedFactor * renderClock.getDelta();
     elapsedTime += delta;
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-
-    earth.rotation.y = gstime(deltaNow);
-    // Uncomment this line if using the sun pointing helper for debugging
-    // sunHelper.setDirection(getSunPointingAngle(deltaNow));
     const sunDirection = getSunPointingAngle(deltaNow);
-    earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
-    atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
+
+    onWindowResize();
+
+    if (earth !== undefined) {
+        earth.rotation.y = gstime(deltaNow);
+        // Uncomment this line if using the sun pointing helper for debugging
+        // sunHelper.setDirection(getSunPointingAngle(deltaNow));
+        earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
+        atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
+    }
     if (skybox !== undefined) {
         if (skybox.isStarry()) {
             skybox.material.uniforms.uSunDirection.value.copy(sunDirection);
@@ -441,6 +449,7 @@ function animate() {
     stats.update();
 
     renderer.render(scene, camera);
+    requestAnimationFrame(animate);
 }
 
 function updateClock(deltaNow) {

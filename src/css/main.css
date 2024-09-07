@@ -20,7 +20,7 @@
 }
 
 body {
-    width: 100%;
+    height: 100%;
     margin: 0;
     font-family: 'AudioLink Mono', monospace;
     color: var(--slate-50);
@@ -30,21 +30,18 @@ body {
     -webkit-text-size-adjust: none;
 }
 
-main {
-    display: block;
-}
-
 header {
     display: flex;
     background-color: var(--slate-950);
     border-bottom: var(--border-width) solid var(--slate-850);
     height: calc(50px - var(--border-width));
-    z-index: 1;
 }
 
 .webgl {
-    outline: none;
-    z-index: -1;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
 /**
