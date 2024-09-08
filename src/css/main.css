@@ -22,11 +22,12 @@
 body {
     height: 100%;
     margin: 0;
-    font-family: 'AudioLink Mono', monospace;
+    font-family: 'AudioLink Mono', Monospace;
     color: var(--slate-50);
     overflow: hidden;
     background-color: var(--slate-950);
     touch-action: manipulation;
+    overscroll-behavior: none;
     -webkit-text-size-adjust: none;
 }
 
@@ -35,6 +36,15 @@ header {
     background-color: var(--slate-950);
     border-bottom: var(--border-width) solid var(--slate-850);
     height: calc(50px - var(--border-width));
+}
+
+a {
+	color: var(--blue-250);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
 }
 
 #webgl-canvas {
@@ -47,6 +57,41 @@ header {
 
 #webgl-canvas:focus {
     outline: none;
+}
+
+#info {
+	position: absolute;
+	top: 0px;
+	width: 100%;
+	padding: 10px;
+	box-sizing: border-box;
+	text-align: center;
+	-moz-user-select: none;
+	-webkit-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+	pointer-events: none;
+	z-index: 1; /* TODO Solve this in HTML */
+}
+
+a, button, input, select {
+	pointer-events: auto;
+}
+
+/* Used on the nightsky page */
+.lil-gui {
+	z-index: 2 !important; /* TODO Solve this in HTML */
+}
+
+@media all and ( max-width: 640px ) {
+	.lil-gui.root { 
+		right: auto;
+		top: auto;
+		max-height: 50%;
+		max-width: 80%;
+		bottom: 0;
+		left: 0;
+	}
 }
 
 /**

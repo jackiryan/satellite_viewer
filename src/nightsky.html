@@ -4,21 +4,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Night Sky</title>
+    <title>Star Map  |  jackiepi.xyz</title>
+    <style>
+        /* Minimal critical CSS to reduce FOUC */
+        body, html {
+            margin: 0;
+            padding: 0;
+            font-family: 'AudioLink Mono', monospace;
+            background-color: #0e1118;
+        }
+        header {
+            display: flex;
+            background-color: #0e1118;
+            color: #eff1f4;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+    <link rel="stylesheet" href="/css/main.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/css/fonts.css" media="print" onload="this.media='all'">
     <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./skybox/2_Tmap8bit.png" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="fetch" crossorigin="anonymous">
-    <style>
-        body { margin: 0; }
-        canvas { display: block; }
-    </style>
     <script defer type="module" src="./nightsky.js"></script>
 </head>
 
-<body style="background-color:#000011;">
+<body>
+    <main>
+        <div id="info">
+            <a aria-label="Jackiepi homepage" href="/" target="_blank" rel="noopener">jackiepi.xyz</a> - Star Mapping Shader<br/>
+            Credit to Alex Stone-Martinez for original idea
+        </div>
+        <canvas id="webgl-canvas"></canvas>
+    </main>
 </body>
-
 </html>

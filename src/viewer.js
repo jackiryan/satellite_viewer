@@ -12,7 +12,7 @@ import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
 import Stats from 'three/addons/libs/stats.module.js';
 
-let camera, controls, gui, scene, renderer, stats;
+let camera, controls, scene, renderer, stats;
 let earth, earthMaterial, atmosphere, atmosphereMaterial, skybox, groupMap;
 let raycaster, mouseMove, tooltip;
 let sunHelper;
@@ -60,15 +60,12 @@ async function init() {
     /* Boilerplate */
     // The camera will be in a fixed intertial reference, so the Earth will rotate
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = -20;
 
     const canvas = document.querySelector('#webgl-canvas');
     renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
     renderer.setClearColor(0x000000);
     renderer.toneMapping = THREE.LinearToneMapping;
     renderer.toneMappingExposure = 1.3;
-    
-    mainElement.appendChild(renderer.domElement);
 
     scene = new THREE.Scene();
 
@@ -99,6 +96,11 @@ async function init() {
     // Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
     // but were chosen so that snowy regions would approximately line up between day and night.
     const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
+    const tempearth = new THREE.Mesh(earthGeometry, new THREE.MeshBasicMaterial({ color: 0x0e1118 }));
+    scene.add(tempearth);
+    fitCameraToObject(camera, tempearth, 10);
+
+
     // Textures
     const earthImageUrls = [
         './BlueMarble_8192x4096.avif',
@@ -145,6 +147,7 @@ async function init() {
             });
 
             earth = new THREE.Mesh(earthGeometry, earthMaterial);
+            scene.remove(tempearth);
             scene.add(earth);
             earth.name = "earth";
 
@@ -183,8 +186,6 @@ async function init() {
                 initSunPointingHelper();
             }
     });
-
-    //window.addEventListener('resize', onWindowResize, false);
 }
 
 async function initSatellites() {
@@ -434,6 +435,33 @@ function updateTooltip(text, x, y) {
     }
     tooltip.innerHTML = text;
     tooltip.style.display = 'block';
+}
+
+function fitCameraToObject(camera, object, offset) {
+
+    offset = offset || 1.25;
+
+    const boundingBox = new THREE.Box3();
+
+    // get bounding box of object - this will be used to setup controls and camera
+    boundingBox.setFromObject(object);
+
+    const dummy = new THREE.Vector3();
+    const size = boundingBox.getSize(dummy);
+
+    // get the max side of the bounding box (fits to width OR height as needed )
+    const maxDim = Math.max(size.x, size.y, size.z);
+    let cameraZ = Math.abs(maxDim / 4 * Math.tan(camera.fov * 2));
+    cameraZ *= offset;
+
+    // zoom out a little so that objects don't fill the screen
+    camera.position.z = cameraZ;
+
+    const minZ = boundingBox.min.z;
+    const cameraToFarEdge = (minZ < 0) ? -minZ + cameraZ : cameraZ - minZ;
+
+    camera.far = cameraToFarEdge * 3;
+    camera.updateProjectionMatrix();
 }
 
 function onWindowResize() {
