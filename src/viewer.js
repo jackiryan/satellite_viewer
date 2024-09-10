@@ -66,6 +66,7 @@ async function init() {
     renderer.setClearColor(0x000000);
     renderer.toneMapping = THREE.LinearToneMapping;
     renderer.toneMappingExposure = 1.3;
+    
 
     scene = new THREE.Scene();
 
@@ -81,6 +82,8 @@ async function init() {
     controls.dampingFactor = 0.06;
     controls.enablePan = false;
     controls.update();
+
+    
 
     /* Other objects that are updated during animation callback */
     // Paint the clock immediately
@@ -99,6 +102,8 @@ async function init() {
     const tempearth = new THREE.Mesh(earthGeometry, new THREE.MeshBasicMaterial({ color: 0x0e1118 }));
     scene.add(tempearth);
     fitCameraToObject(camera, tempearth, 10);
+
+    
 
     window.mobileAndTabletCheck = function() {
         let check = false;
@@ -120,6 +125,7 @@ async function init() {
             './EarthSpec_2048x1024.avif'
         ];
     }
+    
     
     // has to resolve or page load will essentially fail... shaders depend on it
     Promise.all(earthImageUrls.map( (url) => {
@@ -527,9 +533,7 @@ function updateClock(deltaNow) {
     const newClockValue = `${utcDate} ${utcTime} Z`;
 
     if (newClockValue !== previousClockValue) {
-        requestIdleCallback(() => {
-            clockElement.textContent = newClockValue;
-            previousClockValue = newClockValue;
-        });
+        clockElement.textContent = newClockValue;
+        previousClockValue = newClockValue;
     }
 }

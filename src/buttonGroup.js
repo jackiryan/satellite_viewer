@@ -12,7 +12,11 @@ const arrowIconRight = document.getElementById('arrowicon-right');
 
 export async function populateButtonGroup(defaultGroups) {
     const dbUrl = './groups/index.json';
-    const response = await fetch(dbUrl);
+    const response = await fetch(dbUrl, {
+        method: 'GET',
+        credentials: 'include',
+        mode: 'no-cors',
+    });
     const satDb = await response.json();
 
     const buttonGroups = Object.keys(satDb).map(key => {
