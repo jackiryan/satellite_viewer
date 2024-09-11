@@ -12,7 +12,7 @@ export class SatelliteGroupMap {
         // farther objects are larger (at least up to a maxScale defined in satelliteWorker.js)
         this.instanceGeometry = new THREE.IcosahedronGeometry(0.02);
         // All objects in the Other category have this blue color
-        this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#1b1bf9' });
+        this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#C4A484' });
 
         this.worker = new Worker();
         this.worker.onmessage = (event) => {
@@ -27,6 +27,30 @@ export class SatelliteGroupMap {
         return this.map.has(name);
     }
 
+    async toggleAllGroups(isShow) {
+        // isShow => should all groups be shown? If false, hide all
+        const indexUrl = './groups/index.json';
+        const response = await fetch(indexUrl, {
+            method: 'GET',
+            credentials: 'include',
+            mode: 'no-cors',
+        });
+        const indexDb = await response.json();
+        for (const group of Object.values(indexDb)) {
+            const groupUrl = group.entities;
+            // this means the group has already been init'd
+            if (isShow) {
+                if (this.hasGroup(groupUrl)) {
+                    this.displayGroup(groupUrl);
+                } else {
+                    this.initGroup(groupUrl, group.count, group.baseColor);
+                }
+            } else {
+                this.hideGroup(groupUrl);
+            }
+        }
+    }
+
     groupDisplayed(name) {
         if (this.hasGroup(name)) {
             return this.map.get(name).displayed;
@@ -37,9 +61,14 @@ export class SatelliteGroupMap {
 
     async onInitGroup(groupUrl) {
         // this fetch should be cached by the time this function is called the first time
-        // see buttonGroup.js:populateButtonGroup
+        // see buttonGroup.js:populateButtonGroup, maybe buttonGroup should send the count
+        // and color info in the event?
         const indexUrl = './groups/index.json';
-        const response = await fetch(indexUrl);
+        const response = await fetch(indexUrl, {
+            method: 'GET',
+            credentials: 'include',
+            mode: 'no-cors',
+        });
         const indexDb = await response.json();
         let groupObj;
         for (const group of Object.values(indexDb)) {
@@ -55,7 +84,13 @@ export class SatelliteGroupMap {
         const count = groupObj.count;
         // baseColor may or may not exist for this object
         const baseColor = groupObj.baseColor;
+        this.initGroup(groupUrl, count, baseColor);
+    }
 
+    /* The inner part of onInitGroup that just handles instantiating the mesh
+       and passing a message to the worker. This allows us to avoid additional
+       cache hits to index.json when doing toggleAllGroups */
+    async initGroup(groupUrl, count, baseColor) {
         let material = this.instanceMaterial;
         if (baseColor !== undefined) {
             material = new THREE.MeshBasicMaterial({ color: baseColor });
@@ -73,7 +108,9 @@ export class SatelliteGroupMap {
         groupMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         const dummy = new THREE.Object3D();
         // set initial positions to be random so that bounding sphere is large,
-        // avoids a race condition
+        // avoids a race condition. It sounds weird, but I am doing this because
+        // I don't understand why the bounding sphere used for raycasting (tooltip)
+        // uses only the initial bounding sphere when determining intersections
         for (let i = 0; i < count; i++) {
             dummy.position.set(
                 Math.random() * 100 - 50,
@@ -84,7 +121,10 @@ export class SatelliteGroupMap {
             groupMesh.setMatrixAt(i, dummy.matrix);
         }
         groupMesh.name = groupUrl;
-        groupMesh.frustumCulled = false;
+        // frustum culling was only needed when I was having bounding sphere problems
+        // I have disabled it to improve performance, but want to keep it around if I
+        // need it later.
+        // groupMesh.frustumCulled = false;
 
         const groupDb = await this.fetchEntities(groupUrl);
 
@@ -104,7 +144,11 @@ export class SatelliteGroupMap {
 
     async fetchEntities(entitiesUrl) {
         try {
-            const response = await fetch(entitiesUrl);
+            const response = await fetch(entitiesUrl, {
+                method: 'GET',
+                credentials: 'include',
+                mode: 'no-cors',
+            });
             if (!response.ok) {
                 throw new Error(`Network response was not ok: ${response.statusText}`);
             }

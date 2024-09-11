@@ -20,18 +20,14 @@
 }
 
 body {
-    width: 100%;
+    height: 100%;
     margin: 0;
-    font-family: 'AudioLink Mono', monospace;
+    font-family: 'AudioLink Mono', Monospace;
     color: var(--slate-50);
     overflow: hidden;
     background-color: var(--slate-950);
     touch-action: manipulation;
-    -webkit-text-size-adjust: none;
-}
-
-main {
-    display: block;
+    overscroll-behavior: none;
 }
 
 header {
@@ -39,12 +35,62 @@ header {
     background-color: var(--slate-950);
     border-bottom: var(--border-width) solid var(--slate-850);
     height: calc(50px - var(--border-width));
-    z-index: 1;
 }
 
-.webgl {
-    outline: none;
+a {
+	color: var(--blue-250);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+#webgl-canvas {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: block;
     z-index: -1;
+}
+
+#webgl-canvas:focus {
+    outline: none;
+}
+
+#info {
+	position: absolute;
+	top: 0px;
+	width: 100%;
+	padding: 10px;
+	box-sizing: border-box;
+	text-align: center;
+	-moz-user-select: none;
+	-webkit-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+	pointer-events: none;
+	z-index: 1; /* TODO Solve this in HTML */
+}
+
+a, button, input, select {
+	pointer-events: auto;
+}
+
+/* Used on the nightsky page */
+.lil-gui {
+	z-index: 2 !important; /* TODO Solve this in HTML */
+}
+
+@media all and ( max-width: 640px ) {
+	.lil-gui.root { 
+		right: auto;
+		top: auto;
+		max-height: 50%;
+		max-width: 80%;
+		bottom: 0;
+		left: 0;
+	}
 }
 
 /**
@@ -254,9 +300,11 @@ header {
 }
 
 .toggle-button img {
-    margin-right: var(--spacing-narrow);
-    margin-bottom: 0.125rem;
     /* Increased space between flag and text */
+    margin-right: var(--spacing-narrow);
+    /* flags are slightly off center vertically... */
+    margin-bottom: 0.125rem;
+    
 }
 
 .toggle-button.on {

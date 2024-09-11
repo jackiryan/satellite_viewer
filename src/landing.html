@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Jacqueline Ryan | jackiepi.xyz</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+    <link rel="manifest" href="./site.webmanifest">
+    <link rel="prefetch" href="./fonts/AudioLinkMono-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="prefetch" href="./fonts/AudioLinkMono-Light.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <style>
+        /* Minimal critical CSS to reduce FOUC */
+        body, html {
+            margin: 0;
+            padding: 0;
+            font-family: 'AudioLink Mono', monospace;
+            background-color: #0e1118;
+        }
+        header {
+            display: flex;
+            background-color: #0e1118;
+            color: #eff1f4;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+
+    <link rel="stylesheet" href="/css/fonts.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="/css/main.css" media="print" onload="this.media='all'">
+    <!--images are preloaded as fetch instead of as image to comply with ImageBitmapLoader-->
+    <link rel="preload" href="./BlueMarble_2048x1024.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./BlackMarble_2048x1024.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./EarthSpec_4096x2048.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="fetch" crossorigin="anonymous">
+    <script type="module" src="./landing.js" defer></script>
+</head>
+
+<body>
+    <main>
+        <canvas id="webgl-canvas"></canvas>
+    </main>
+</body>
+
+</html>

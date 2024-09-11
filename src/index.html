@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Satellite Viewer</title>
+    <title>Satellite Viewer  |  jackiepi.xyz</title>
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
@@ -12,7 +12,6 @@
     <link rel="prefetch" href="./fonts/AudioLinkMono-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <link rel="prefetch" href="./fonts/AudioLinkMono-Light.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <style>
-        /* Minimal critical CSS to reduce FOUC */
         body, html {
             margin: 0;
             padding: 0;
@@ -21,26 +20,50 @@
         }
         header {
             display: flex;
-            background-color: #0e1118;
-            color: #eff1f4;
+            border-bottom: 0.125rem solid #202632;
+            height: 50px;
         }
         .hidden {
             display: none;
         }
+        .menu-toggle {
+            background-color: #202632;
+            position: relative;
+            bottom: 0px;
+            left: 50%;
+            display: flex;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            width: 3rem;
+            height: 1.5rem;
+            border-radius: 0 0 1.5rem 1.5rem;
+        }
+        .clock {
+            text-align: right;
+            user-select: none;
+            padding-left: 0rem;
+        }
+        #clock-time {
+            margin-left: 0.5rem;
+        }
+        .bold {
+            font-weight: 700;
+            font-size: large;
+        }
     </style>
-
     <link rel="stylesheet" href="/css/fonts.css" media="print" onload="this.media='all'">
     <link rel="stylesheet" href="/css/main.css" media="print" onload="this.media='all'">
     <!--images are preloaded as fetch instead of as image to comply with ImageBitmapLoader-->
     <link rel="preload" href="./BlueMarble_8192x4096.avif" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./BlackMarble_8192x4096.avif" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./EarthSpec_4096x2048.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./EarthSpec_2048x1024.avif" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="fetch" crossorigin="anonymous">
     <!--link rel="preload" href="./skybox/2_Tmap8bit.png" as="fetch" crossorigin="anonymous"-->
-    <link rel="preload" href="./groups/index.json" as="fetch" type="application/json" crossorigin>
-    <link rel="preload" href="./groups/stations.json" as="fetch" type="application/json" crossorigin>
-    <link rel="preload" href="./groups/oneweb.json" as="fetch" type="application/json" crossorigin>
+    <link rel="preload" href="./groups/index.json" as="fetch" type="application/json">
+    <link rel="preload" href="./groups/stations.json" as="fetch" type="application/json">
+    <link rel="preload" href="./groups/oneweb.json" as="fetch" type="application/json">
     <script type="module" src="./viewer.js" defer></script>
     <script type="module" src="./skybox.js" defer></script>
     <!--link rel="modulepreload" href="./satelliteWorker.js" crossorigin-->
@@ -136,6 +159,7 @@
                 <div id="real-time" class="menu-button off">Real-Time</div>
                 <div id="stars" class="menu-button">Hide Stars</div>
                 <div id="show-all" class="menu-button">Show All</div>
+                <div id="hide-all" class="menu-button">Hide All</div>
             </nav>
             <div class="menu-toggle">
                 <svg id="arrowicon-down" class="toggle" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 12">
@@ -147,6 +171,7 @@
         </div>
     </header>
     <main>
+        <canvas id="webgl-canvas"></canvas>
     </main>
 </body>
 

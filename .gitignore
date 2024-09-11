@@ -4,7 +4,10 @@ dist/
 
 getSatellites_service.log
 # All json files except index.json
+static/groups/active.json
 static/groups/beidou.json
+static/groups/debris.json
+static/groups/galileo.json
 static/groups/glo-ops.json
 static/groups/gps-ops.json
 static/groups/molniya.json
