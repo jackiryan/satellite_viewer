@@ -12,7 +12,6 @@
     <link rel="prefetch" href="./fonts/AudioLinkMono-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <link rel="prefetch" href="./fonts/AudioLinkMono-Light.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <style>
-        /* Minimal critical CSS to reduce FOUC */
         body, html {
             margin: 0;
             padding: 0;
@@ -21,14 +20,38 @@
         }
         header {
             display: flex;
-            background-color: #0e1118;
-            color: #eff1f4;
+            border-bottom: 0.125rem solid #202632;
+            height: 50px;
         }
         .hidden {
             display: none;
         }
+        .menu-toggle {
+            background-color: #202632;
+            position: relative;
+            bottom: 0px;
+            left: 50%;
+            display: flex;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            width: 3rem;
+            height: 1.5rem;
+            border-radius: 0 0 1.5rem 1.5rem;
+        }
+        .clock {
+            text-align: right;
+            user-select: none;
+            padding-left: 0rem;
+        }
+        #clock-time {
+            margin-left: 0.5rem;
+        }
+        .bold {
+            font-weight: 700;
+            font-size: large;
+        }
     </style>
-
     <link rel="stylesheet" href="/css/fonts.css" media="print" onload="this.media='all'">
     <link rel="stylesheet" href="/css/main.css" media="print" onload="this.media='all'">
     <!--images are preloaded as fetch instead of as image to comply with ImageBitmapLoader-->

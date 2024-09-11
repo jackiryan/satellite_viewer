@@ -43,7 +43,7 @@
   "Science": {
     "gpName": "science",
     "baseColor": "#4b5320",
-    "count": 53,
+    "count": 52,
     "entities": "./groups/science.json"
   },
   "OneWeb": {
@@ -63,7 +63,7 @@
     "gpName": "starlink",
     "country": "us",
     "baseColor": "#6b6b6b",
-    "count": 6370,
+    "count": 6383,
     "entities": "./groups/starlink.json"
   },
   "Telesat": {
@@ -73,8 +73,14 @@
     "count": 20,
     "entities": "./groups/telesat.json"
   },
-  "Other": {
-    "count": 2943,
-    "entities": "./groups/other.json"
+  "Active": {
+    "gpName": "active",
+    "count": 2931,
+    "baseColor": "#1b1bf9",
+    "entities": "./groups/active.json"
+  },
+  "Debris": {
+    "count": 16096,
+    "entities": "./groups/debris.json"
   }
 }

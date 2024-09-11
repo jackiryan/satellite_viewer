@@ -28,7 +28,6 @@ body {
     background-color: var(--slate-950);
     touch-action: manipulation;
     overscroll-behavior: none;
-    -webkit-text-size-adjust: none;
 }
 
 header {

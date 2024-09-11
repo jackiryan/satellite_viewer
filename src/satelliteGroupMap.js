@@ -12,7 +12,7 @@ export class SatelliteGroupMap {
         // farther objects are larger (at least up to a maxScale defined in satelliteWorker.js)
         this.instanceGeometry = new THREE.IcosahedronGeometry(0.02);
         // All objects in the Other category have this blue color
-        this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#1b1bf9' });
+        this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#C4A484' });
 
         this.worker = new Worker();
         this.worker.onmessage = (event) => {

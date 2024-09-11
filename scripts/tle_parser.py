@@ -84,10 +84,17 @@ satellite_groups = {
         "count": 0,
         "entities": {}
     },
-    "Other": {
+    "Active": {
+        "gpName": "active",
+        "count": 0,
+        "baseColor": "#1b1bf9",
+        "entities": {}
+    },
+    "Debris": {
         "count": 0,
         "entities": {}
     }
+
 }
 
 special_colors = {
@@ -114,7 +121,7 @@ def find_group(
         group_data: dict[str, list[int]]
 ) -> str:
     """find the satellite group that a satellite belongs to based off its NORAD ID"""
-    return next((k for k, v in group_data.items() if norad_id in v), "Other")
+    return next((k for k, v in group_data.items() if norad_id in v), "Active")
 
 def get_norad_id(
         tle_line: str
@@ -196,7 +203,6 @@ def handle_stations():
     gp_data = download_content(gp_url)
     gp_lines = remove_blanks(gp_data.decode("utf-8").splitlines())
     parse_tle_lines(gp_lines, hc_group="Space Stations")
-    filter_items.extend(station_whitelist)
 
 
 def parse_tle_lines(
@@ -218,9 +224,9 @@ def parse_tle_lines(
             case 2:
                 tle_line2 = line.strip()
                 if hc_group == "Space Stations" and sat_name not in station_whitelist:
-                    filter_items.append(sat_name)
+                    filter_items.append(norad_id)
                 # Short circuit if an item is on the blacklist (mostly station parts)
-                if sat_name in filter_items:
+                if norad_id in filter_items:
                     continue
                 add_satellite(
                     sat_name,
@@ -229,9 +235,39 @@ def parse_tle_lines(
                     norad_id,
                     group
                 )
+                filter_items.append(norad_id)
+
+
+def parse_other_sats(
+        cat_lines: list[str],
+        group_data: dict[str, list[int]] | None = None,
+        hc_group: str | None = None
+) -> None:
+    for line_ndx, line in enumerate(cat_lines):
+        match line_ndx % 3:
+            case 0:
+                sat_name = line.strip()
+            case 1:
+                tle_line1 = line.strip()
+                norad_id = get_norad_id(tle_line1)
+                group = hc_group or "Debris"
+            case 2:
+                tle_line2 = line.strip()
+                if norad_id in filter_items:
+                    logging.debug(f"Skipping {sat_name} as it has already been added")
+                    continue
+                add_satellite(
+                    norad_id,
+                    tle_line1,
+                    tle_line2,
+                    norad_id,
+                    group
+                )
+
 
 def parse_tle(
         infile: pathlib.Path,
+        catalog: pathlib.Path,
         group_data: dict[str, list[int]],
         workdir: pathlib.Path | None,
         one_file: bool,
@@ -241,6 +277,8 @@ def parse_tle(
     workdir = workdir or pathlib.Path.cwd()
     tle_lines = remove_blanks(lines)
     parse_tle_lines(tle_lines, group_data)
+    catalog_lines = catalog.read_text().splitlines()
+    parse_other_sats(catalog_lines, group_data)
     try:
         if one_file:
             write_one_file(infile, workdir)
@@ -260,7 +298,7 @@ def write_group_files(
     index_file = workdir / "index.json"
     group_index = deepcopy(satellite_groups)
     for k, v in satellite_groups.items():
-        gp_name = v.get("gpName", "other")
+        gp_name = v.get("gpName", "debris")
         outfile = workdir / f"{gp_name}.json"
         outfile.write_text(json.dumps(v, indent=2))
         # Replace the entities tag in the group_index with the uri to the group json
@@ -284,6 +322,12 @@ def setup_parser() -> argparse.ArgumentParser:
         type=pathlib.Path,
         metavar="FILE",
         help="input text file containing TLEs from Celestrak"
+    )
+    parser.add_argument(
+        "catalog",
+        type=pathlib.Path,
+        metavar="FILE",
+        help="full catalog file containing TLEs from Celestrak"
     )
     parser.add_argument(
         "-w",
@@ -315,7 +359,7 @@ def main() -> None:
     args = parser.parse_args()
 
     group_data = download_group_files()
-    parse_tle(args.infile, group_data, args.workdir, args.one_file, args.dev)
+    parse_tle(args.infile, args.catalog, group_data, args.workdir, args.one_file, args.dev)
 
 if __name__ == "__main__":
     main()
