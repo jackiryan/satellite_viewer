@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import gstime from './gstime.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { populateButtonGroup, setButtonState } from './buttonGroup.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
 import { initSky } from './skybox.js';
 import getSunPointingAngle from './sunangle.js';
@@ -91,7 +92,16 @@ async function init() {
 
     addStats();
     // satellite data is stored in this data structure, position state is handled in a separate webworker
-    groupMap = new SatelliteGroupMap(scene);
+    const satGeoPromise = new GLTFLoader().loadAsync('./teardrop.gltf', undefined);
+    let satGeo = new THREE.IcosahedronGeometry(0.02);
+    satGeoPromise.then( (gltf) => {
+        satGeo = gltf.scene.children[0].geometry;
+        groupMap = new SatelliteGroupMap(scene, satGeo);
+    }).catch((error) => {
+        console.error(`Failed to load satellite model: ${error}`);
+        groupMap = new SatelliteGroupMap(scene, satGeo);
+    });
+   
 
     const imageLoader = new THREE.ImageBitmapLoader();
     imageLoader.setOptions({ imageOrientation: 'flipY' });

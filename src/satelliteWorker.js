@@ -11,9 +11,10 @@ let speedFactor = 1.0;
 // will have to do for now since passing that state is annoying.
 // radius at which scale is 1.0
 const scaleRadius = 5.3;
+const defaultScale = 0.02;
 const scaleFactor = 5 / 6378;
 // max amount scale is allowed to be
-const maxScale = 4.0;
+const maxScale = 4.0 * defaultScale;
 
 // millis since start of Unix epoch at the time the worker is started, used to
 // compute the elapsedTime
@@ -99,10 +100,11 @@ function updatePositions() {
                 try {
                     const deltaPosVel = satellite.propagate(groupObj.satrecs[i], t);
                     const deltaPosEci = deltaPosVel.position;
+                    const deltaVelEci = deltaPosVel.velocity;
                     const newX = deltaPosEci.x * scaleFactor;
                     const newY = deltaPosEci.z * scaleFactor;
                     const newZ = -deltaPosEci.y * scaleFactor;
-                    const newScale = Math.min(maxScale, mag([newX, newY, newZ]) / scaleRadius);
+                    const newScale = Math.min(maxScale, defaultScale * mag([newX, newY, newZ]) / scaleRadius);
                     groupObj.matrix[instanceNdx +  0] = newScale;
                     groupObj.matrix[instanceNdx +  5] = newScale;
                     groupObj.matrix[instanceNdx + 10] = newScale;

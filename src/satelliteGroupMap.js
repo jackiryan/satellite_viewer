@@ -3,14 +3,16 @@ import * as THREE from 'three';
 import Worker from './satelliteWorker.js?worker';
 
 export class SatelliteGroupMap {
-    constructor(scene) {
+    constructor(scene, geo) {
         this.scene = scene;
 
         this.map = new Map();
 
         // This is a base size, the geometry will be scaled relative to the distance from Earth
         // farther objects are larger (at least up to a maxScale defined in satelliteWorker.js)
-        this.instanceGeometry = new THREE.IcosahedronGeometry(0.02);
+        // this.instanceGeometry = new THREE.IcosahedronGeometry(0.02);
+        this.instanceGeometry = geo;
+
         // All objects in the Other category have this blue color
         this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#C4A484' });
 
