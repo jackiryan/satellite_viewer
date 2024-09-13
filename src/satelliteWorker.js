@@ -11,7 +11,8 @@ let speedFactor = 1.0;
 // will have to do for now since passing that state is annoying.
 // radius at which scale is 1.0
 const scaleRadius = 5.3;
-const defaultScale = 0.02;
+const defaultScale = 0.015;
+//const defaultScale = 0.1;
 const scaleFactor = 5 / 6378;
 // max amount scale is allowed to be
 const maxScale = 4.0 * defaultScale;
@@ -56,6 +57,12 @@ function workerInitGroup(data) {
     
     //const names = Object.keys(groupDb.entities);
     const satRecs = groupAttribs.map((attribs) => initSatrec(attribs));
+    // If any satellites are unable to be instantiated, they will cause the
+    // instance matrix to be too large. Because of the strange random positioning code
+    // on the main thread, we will want to fill the excess area of the matrix with 0s.
+    for (let i = satRecs.length * 16; i < instanceMatrix.length; i++) {
+        instanceMatrix[i] = 0.0;
+    }
     satelliteMap.set(url, {
         displayed: true,
         count: satRecs.length,
@@ -92,22 +99,34 @@ function updatePositions() {
     for (const groupObj of satelliteMap.values()) {
         if (groupObj.displayed) {
             for (let i = 0; i < groupObj.count; i++) {
+                const instanceNdx = i * 16;
                 if (groupObj.satrecs[i] === undefined) {
                     continue;
                 }
-                const instanceNdx = i * 16;
                 
                 try {
                     const deltaPosVel = satellite.propagate(groupObj.satrecs[i], t);
                     const deltaPosEci = deltaPosVel.position;
                     const deltaVelEci = deltaPosVel.velocity;
+                    const velocity =  [-deltaVelEci.x, -deltaVelEci.z, deltaVelEci.y];
+                    const velMag = mag(velocity);
+                    const velDir = [velocity[0] / velMag, velocity[1] / velMag, velocity[2] / velMag];
+                    const xVelMag = Math.sqrt(velDir[2] * velDir[2] + velDir[0] * velDir[0]);
+                    const xVelDir = [-velDir[2] / xVelMag, 0.0, velDir[0] / xVelMag];
+                    const yVelDir = [-xVelDir[2] * velDir[1], xVelDir[2] * velDir[0] - xVelDir[0] * velDir[2], xVelDir[0] * velDir[1]];
                     const newX = deltaPosEci.x * scaleFactor;
                     const newY = deltaPosEci.z * scaleFactor;
                     const newZ = -deltaPosEci.y * scaleFactor;
                     const newScale = Math.min(maxScale, defaultScale * mag([newX, newY, newZ]) / scaleRadius);
-                    groupObj.matrix[instanceNdx +  0] = newScale;
-                    groupObj.matrix[instanceNdx +  5] = newScale;
-                    groupObj.matrix[instanceNdx + 10] = newScale;
+                    groupObj.matrix[instanceNdx +  0] = xVelDir[0] * newScale;
+                    groupObj.matrix[instanceNdx +  1] = xVelDir[1];
+                    groupObj.matrix[instanceNdx +  2] = xVelDir[2] * newScale;
+                    groupObj.matrix[instanceNdx +  4] = yVelDir[0] * newScale;
+                    groupObj.matrix[instanceNdx +  5] = yVelDir[1] * newScale;
+                    groupObj.matrix[instanceNdx +  6] = yVelDir[2] * newScale;
+                    groupObj.matrix[instanceNdx +  8] = velDir[0] * newScale;
+                    groupObj.matrix[instanceNdx +  9] = velDir[1] * newScale;
+                    groupObj.matrix[instanceNdx + 10] = velDir[2] * newScale;
                     groupObj.matrix[instanceNdx + 12] = newX;
                     groupObj.matrix[instanceNdx + 13] = newY;
                     groupObj.matrix[instanceNdx + 14] = newZ;
@@ -116,6 +135,15 @@ function updatePositions() {
                         console.log(`Satellite with NORAD ID ${groupObj.satrecs[i].satnum} has unknown position!`);
                         groupObj.satrecs[i] = undefined;
                     }
+                    groupObj.matrix[instanceNdx +  0] = 0.0;
+                    groupObj.matrix[instanceNdx +  1] = 0.0;
+                    groupObj.matrix[instanceNdx +  2] = 0.0;
+                    groupObj.matrix[instanceNdx +  4] = 0.0;
+                    groupObj.matrix[instanceNdx +  5] = 0.0;
+                    groupObj.matrix[instanceNdx +  6] = 0.0;
+                    groupObj.matrix[instanceNdx +  8] = 0.0;
+                    groupObj.matrix[instanceNdx +  9] = 0.0;
+                    groupObj.matrix[instanceNdx + 10] = 0.0;
                     groupObj.matrix[instanceNdx + 12] = 0.0;
                     groupObj.matrix[instanceNdx + 13] = 0.0;
                     groupObj.matrix[instanceNdx + 14] = 0.0;

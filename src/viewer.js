@@ -53,14 +53,14 @@ await init().then( async () => {
     await initSky({ sceneObj: scene }).then((sky) => {
         skybox = sky;
     });
-    await initSatellites();
+    
     requestAnimationFrame(animate);
 });
 
 async function init() {
     /* Boilerplate */
     // The camera will be in a fixed intertial reference, so the Earth will rotate
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000);
 
     const canvas = document.querySelector('#webgl-canvas');
     renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
@@ -68,7 +68,6 @@ async function init() {
     renderer.toneMapping = THREE.LinearToneMapping;
     renderer.toneMappingExposure = 1.3;
     
-
     scene = new THREE.Scene();
 
     // Add ambient light
@@ -84,24 +83,31 @@ async function init() {
     controls.enablePan = false;
     controls.update();
 
-    
-
     /* Other objects that are updated during animation callback */
     // Paint the clock immediately
     updateClock(now);
 
     addStats();
     // satellite data is stored in this data structure, position state is handled in a separate webworker
-    const satGeoPromise = new GLTFLoader().loadAsync('./teardrop.gltf', undefined);
-    let satGeo = new THREE.IcosahedronGeometry(0.02);
-    satGeoPromise.then( (gltf) => {
-        satGeo = gltf.scene.children[0].geometry;
+    //const modelName = './teardrop.gltf';
+    const modelName = './shootingstar3.gltf';
+    const satGeoPromise = new GLTFLoader().loadAsync(modelName, undefined);
+    let satGeo = new THREE.IcosahedronGeometry(1);
+    //groupMap = new SatelliteGroupMap(scene, satGeo);
+    satGeoPromise.then( async (gltf) => {
+        //satGeo = gltf.scene.children[0].geometry;
+        const model = gltf.scene;
+        model.traverse( (node) => {
+            if (node.name === "ShootingStar") {
+                satGeo = node.geometry;
+            }
+        });
         groupMap = new SatelliteGroupMap(scene, satGeo);
+        await initSatellites();
     }).catch((error) => {
         console.error(`Failed to load satellite model: ${error}`);
         groupMap = new SatelliteGroupMap(scene, satGeo);
     });
-   
 
     const imageLoader = new THREE.ImageBitmapLoader();
     imageLoader.setOptions({ imageOrientation: 'flipY' });
@@ -111,7 +117,7 @@ async function init() {
     const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
     const tempearth = new THREE.Mesh(earthGeometry, new THREE.MeshBasicMaterial({ color: 0x0e1118 }));
     scene.add(tempearth);
-    fitCameraToObject(camera, tempearth, 10);
+    fitCameraToObject(camera, tempearth, 5);
 
     
 

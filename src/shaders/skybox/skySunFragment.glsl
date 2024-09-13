@@ -196,6 +196,7 @@ float ringRayNoise(vec3 sunDirection, vec3 pos, float r, float size) {
     ps = normalize(ps);
     
     float s = max(0.0, (1.0 - size * (c - r)));
+    s = pow(s, 50.0);
 
     // multiple of ps controls the frequency of the noise
     float n = noise4q(vec4(ps * 1.0, c * 2.0));
@@ -204,7 +205,7 @@ float ringRayNoise(vec3 sunDirection, vec3 pos, float r, float size) {
     
     // this power of s controls the amount the noise is pushed in towards
     // the radius
-    return pow(s, 5.0) + s * s * n;
+    return pow(s, 5.0) + n * s * s;
 }
 
 vec4 desaturate(vec4 color, float saturation) {
@@ -234,10 +235,10 @@ void main() {
     }
 
     vec3 sunDistance = normalize(vNormal) - uSunDirection;
-    float sunRays = ringRayNoise(normalize(uSunDirection), normalize(vNormal), 0.00296, 25.0);
+    float sunRays = ringRayNoise(normalize(uSunDirection), normalize(vNormal), 0.00296, 1.5);
     // Sorry, everyone... the sun is white actually. Approximating the spectral irradiance of
-    // the sun as a 5900k blackbody (observed at the top of the atmosphere), the sRGB value
-    // would be (255, 255, 253). This is rather boring to look at, so I've made it a bit more
+    // the sun as a 6500k blackbody (observed at the top of the atmosphere), the sRGB value
+    // would be (255, 255, 255). This is rather boring to look at, so I've made it a bit more
     // yellow than real life (~5100k) to make things interesting.
     vec4 sunColor = vec4(1.0, 0.98, 0.65, 1.0) * sunRays;
 

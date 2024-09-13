@@ -10,11 +10,11 @@ export class SatelliteGroupMap {
 
         // This is a base size, the geometry will be scaled relative to the distance from Earth
         // farther objects are larger (at least up to a maxScale defined in satelliteWorker.js)
-        // this.instanceGeometry = new THREE.IcosahedronGeometry(0.02);
+        //this.instanceGeometry = new THREE.IcosahedronGeometry(0.02);
         this.instanceGeometry = geo;
 
         // All objects in the Other category have this blue color
-        this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#C4A484' });
+        this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#c4a484' });
 
         this.worker = new Worker();
         this.worker.onmessage = (event) => {
@@ -119,6 +119,13 @@ export class SatelliteGroupMap {
                 Math.random() * 100 - 50,
                 Math.random() * 100 - 50
             );
+            /*
+            dummy.position.set(
+                0.0,
+                0.0,
+                0.0
+            );
+            */
             dummy.updateMatrix();
             groupMesh.setMatrixAt(i, dummy.matrix);
         }
@@ -126,7 +133,7 @@ export class SatelliteGroupMap {
         // frustum culling was only needed when I was having bounding sphere problems
         // I have disabled it to improve performance, but want to keep it around if I
         // need it later.
-        // groupMesh.frustumCulled = false;
+        groupMesh.frustumCulled = false;
 
         const groupDb = await this.fetchEntities(groupUrl);
 
