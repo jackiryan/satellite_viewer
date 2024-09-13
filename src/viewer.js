@@ -265,6 +265,7 @@ function initSettingsMenu() {
 
     const speedStates = new Map([
         [1, '1 sec/s'],
+        [10, '10 sec/s'],
         [30, '30 sec/s'],
         [60, '1 min/s'],
         [300, '5 min/s'],

@@ -182,9 +182,12 @@ a, button, input, select {
     cursor: grabbing;
 }
 
+.clock-frame {
+    user-select: none;
+}
+
 .clock {
     text-align: right;
-    user-select: none;
     padding-left: 0rem;
 }
 
