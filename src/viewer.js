@@ -102,6 +102,7 @@ async function init() {
                 satGeo = node.geometry;
             }
         });
+
         groupMap = new SatelliteGroupMap(scene, satGeo);
         await initSatellites();
     }).catch((error) => {
@@ -535,7 +536,9 @@ function animate() {
     }
 
     updateClock(deltaNow);
-    groupMap.update();
+    if (groupMap !== undefined) {
+        groupMap.update();
+    }
     controls.update();
     stats.update();
 
