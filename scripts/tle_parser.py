@@ -243,6 +243,7 @@ def parse_other_sats(
         group_data: dict[str, list[int]] | None = None,
         hc_group: str | None = None
 ) -> None:
+    entityMap: dict[str, str] = satellite_groups["Debris"]["entities"]
     for line_ndx, line in enumerate(cat_lines):
         match line_ndx % 3:
             case 0:
@@ -256,8 +257,10 @@ def parse_other_sats(
                 if norad_id in filter_items:
                     logging.debug(f"Skipping {sat_name} as it has already been added")
                     continue
+                if sat_name in entityMap.keys():
+                    sat_name = f"{sat_name} ({str(norad_id)})"
                 add_satellite(
-                    norad_id,
+                    sat_name,
                     tle_line1,
                     tle_line2,
                     norad_id,

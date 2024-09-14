@@ -89,13 +89,11 @@ async function init() {
 
     addStats();
     // satellite data is stored in this data structure, position state is handled in a separate webworker
-    //const modelName = './teardrop.gltf';
     const modelName = './shootingstar3.gltf';
     const satGeoPromise = new GLTFLoader().loadAsync(modelName, undefined);
     let satGeo = new THREE.IcosahedronGeometry(1);
     //groupMap = new SatelliteGroupMap(scene, satGeo);
     satGeoPromise.then( async (gltf) => {
-        //satGeo = gltf.scene.children[0].geometry;
         const model = gltf.scene;
         model.traverse( (node) => {
             if (node.name === "ShootingStar") {
@@ -498,7 +496,7 @@ function fitCameraToObject(camera, object, offset) {
     const minZ = boundingBox.min.z;
     const cameraToFarEdge = (minZ < 0) ? -minZ + cameraZ : cameraZ - minZ;
 
-    camera.far = cameraToFarEdge * 3;
+    // camera.far = cameraToFarEdge * 1000;
     camera.updateProjectionMatrix();
 }
 

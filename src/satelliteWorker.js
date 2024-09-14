@@ -69,6 +69,10 @@ function workerInitGroup(data) {
         satrecs: satRecs,
         matrix: instanceMatrix
     });
+    // call update positions in a blocking way the first time around. This ensures
+    // that the bounding sphere can be computed correctly on the main thread as soon
+    // as the message is posted
+    updatePositions();
     if (!started) {
         setInterval(() => {
             updatePositions();

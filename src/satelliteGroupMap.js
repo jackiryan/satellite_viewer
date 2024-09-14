@@ -115,24 +115,17 @@ export class SatelliteGroupMap {
         // uses only the initial bounding sphere when determining intersections
         for (let i = 0; i < count; i++) {
             dummy.position.set(
-                Math.random() * 100 - 50,
-                Math.random() * 100 - 50,
-                Math.random() * 100 - 50
-            );
-            /*
-            dummy.position.set(
                 0.0,
                 0.0,
                 0.0
             );
-            */
+            dummy.scale.set(0.1, 0.1, 0.1);
             dummy.updateMatrix();
             groupMesh.setMatrixAt(i, dummy.matrix);
         }
         groupMesh.name = groupUrl;
-        // frustum culling was only needed when I was having bounding sphere problems
-        // I have disabled it to improve performance, but want to keep it around if I
-        // need it later.
+        groupMesh.computeBoundingSphere();
+        // frustum culling should be enabled by default for instanced meshes
         groupMesh.frustumCulled = false;
 
         const groupDb = await this.fetchEntities(groupUrl);
@@ -193,6 +186,7 @@ export class SatelliteGroupMap {
             const groupObj = this.map.get(groupUrl);
             groupObj.displayed = true;
             groupObj.mesh.instanceMatrix.needsUpdate = true;
+            groupObj.mesh.computeBoundingSphere();
             this.scene.add(groupObj.mesh);
         }
     }
