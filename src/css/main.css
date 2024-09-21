@@ -46,6 +46,91 @@ a:hover {
 	text-decoration: underline;
 }
 
+#card-flex {
+    position: absolute;
+    z-index: 1;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    height: 100%;
+    padding-right: 8rem;
+}
+
+.card {
+    background-color: rgb(176, 185, 208, 0.5);
+    padding: 2rem;
+    width: 50%;
+    border-radius: 10px;
+    border: 1px solid var(--slate-200);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.card h1 {
+    font-size: 2.5rem;
+    font-weight: 300;
+    margin-bottom: 0.5rem;
+}
+
+.card h2 {
+    font-size: 1rem;
+    font-weight: 400;
+}
+
+.card h1, .card h2 {
+    text-align: center;
+}
+
+.card-content {
+    display: flex;
+    justify-content: space-between;
+}
+
+#left-column-card {
+    width: 50%;
+}
+
+#left-column-card img {
+    width: 100%;
+    border-radius: 0.5rem;
+    height: auto;
+}
+
+#right-column-card {
+    width: 50%;
+    display: flex;
+    justify-content: center;
+    flex-direction: column;
+    padding-left: 2rem;
+    gap: 1rem;
+}
+
+#right-column-card .main-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: var(--spacing);
+    padding-right: var(--spacing);
+    padding-block: var(--spacing);
+    border: 1px solid var(--slate-200);
+    border-radius: 0.5rem;
+    text-decoration: none;
+    cursor: pointer;
+    background-color: var(--slate-950);
+    color: var(--slate-50);
+    font-family: 'AudioLink Mono', monospace;
+    font-size: 1rem;
+    /* Ensures buttons appear in a row */
+    position: relative;
+    overflow: hidden;
+    transition: background-color 0.1s ease-out;
+}
+
+@media (hover: hover) {
+    #right-column-card .main-button:hover {
+        background-color: var(--slate-600);
+    }
+}
+
 #webgl-canvas {
     position: absolute;
     width: 100%;
@@ -71,6 +156,11 @@ a:hover {
 	user-select: none;
 	pointer-events: none;
 	z-index: 1; /* TODO Solve this in HTML */
+}
+
+p {
+    font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+    font-weight: 300;
 }
 
 a, button, input, select {
