@@ -1,4 +1,14 @@
-
+/* skyboxcolor.js
+ * Implements a class that uses a shader to map 8th Magnitude or brighter stars onto a skybox,
+ * and displays a sun using SDFs. The stars in this shader are colored based on their B magnitudes
+ * minus their V magnitudes, which approximates a blackbody color temperature when no such data is
+ * available. This is currently incorrect in some cases, and I have it on my list to fix it, but I
+ * would need to clean up the pre-processing script used to generate the datapack texture.
+ * 
+ * Almost the exact same code is implemented in skybox.js, except that there is a sun defined using SDFs
+ * and the stars are not colored. I could have used inheritance to avoid "repeating myself", but I felt
+ * it would reduce the readability of the code at no tangible benefit to the functionality of these demos.
+ */
 import * as THREE from 'three';
 import skyVertexShader from './shaders/skybox/skyVertex.glsl';
 import skyFragmentShader from './shaders/skybox/skyFragment.glsl';
@@ -21,9 +31,11 @@ export class Sky extends THREE.Mesh {
         this.starsEnabled = false;
         this.isSky = true;
         // Setting the scale to be huge so that zooming in and out will not affect
-        // the position of the stars. The 
+        // the position of the stars.
         this.scale.setScalar(450000);
         this.loader = new THREE.ImageBitmapLoader();
+        // although the shader flips Y again, the juice was not worth the squeeze on trying
+        // to optimize out the webgl call to flipY
         this.loader.setOptions({ imageOrientation: 'flipY' });
     }
 
@@ -64,9 +76,6 @@ export class Sky extends THREE.Mesh {
                 'uScaleFactor': { type: 'f', value: 0.0 },
                 'uBrightnessScale': { type: 'f', value: 30.0 },
                 'uSkybox': { type: 't', value: textures[2] },
-                // 'uRotX': { type: 'f', value: 0.0 },
-                // 'uRotY': { type: 'f', value: 0.0 },
-                // 'uRotZ': { type: 'f', value: 0.0 },
                 'uMwBright': { type: 'f', value: 0.10 },
             };
             this.starMaterial = new THREE.ShaderMaterial({
@@ -79,6 +88,7 @@ export class Sky extends THREE.Mesh {
             });
 
             this.material = this.starMaterial;
+            // This is effectively "private" and should be accessed with this.isStarry()
             this.starsEnabled = true;
         } catch (error) {
             console.error('Failed to initialize starmap material:', error);
@@ -133,9 +143,16 @@ export class Sky extends THREE.Mesh {
             this.material = this.blankMaterial;
         }
     }
+
+    isStarry() {
+        return this.starsEnabled;
+    }
 }
 
 export async function initSky({ sceneObj, stars = true, guiObj = undefined } = {}) {
+    // This function is needed because asynchronous texture loading should generally occur
+    // outside of the constructor for an object. In previous iterations, it was also sometimes
+    // desired to compare between using a cubemap and equirectangular map for testing.
     const textureUrls = [
         './skybox/StarData_1024x1024_16bit.png',
         './skybox/2_Tmap8bit.png',
@@ -158,31 +175,20 @@ function initTweaks(gui, skybox) {
         sigma: uniforms['uSigma'].value,
         scaleFactor: uniforms['uScaleFactor'].value,
         brightnessScale: uniforms['uBrightnessScale'].value,
-        mwBright: uniforms['uMwBright'].value,
-        // rotX: uniforms[ 'uRotX' ].value,
-        // rotY: uniforms[ 'uRotY' ].value,
-        // rotZ: uniforms[ 'uRotZ' ].value 
+        mwBright: uniforms['uMwBright'].value
     };
 
     gui.add(effectController, 'sigma', 0.0, 500.0, 0.1).onChange(guiChanged);
     gui.add(effectController, 'scaleFactor', 0.0, 10.0, 0.01).onChange(guiChanged);
     gui.add(effectController, 'brightnessScale', 0.0, 100.0, 0.1).onChange(guiChanged);
     gui.add(effectController, 'mwBright', 0.0, 1.0, 0.01).onChange(guiChanged);
-    // gui.add( effectController, 'rotX', -90, 90, 1 ).onChange( guiChanged );
-    // gui.add( effectController, 'rotY', -180, 180, 1 ).onChange( guiChanged );
-    // gui.add( effectController, 'rotZ', -180, 180, 1 ).onChange( guiChanged );
 
     function guiChanged() {
-
         const uniforms = skybox.material.uniforms;
         uniforms['uSigma'].value = effectController.sigma;
         uniforms['uScaleFactor'].value = effectController.scaleFactor;
         uniforms['uBrightnessScale'].value = effectController.brightnessScale;
         uniforms['uMwBright'].value = effectController.mwBright;
-        // uniforms[ 'uRotX' ].value = effectController.rotX;
-        // uniforms[ 'uRotY' ].value = effectController.rotY;
-        // uniforms[ 'uRotZ' ].value = effectController.rotZ;
-
     }
 
     // run the initialization function once to set uniforms to their starting values

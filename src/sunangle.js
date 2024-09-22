@@ -1,3 +1,4 @@
+/* sunangle.js - utility functions for calculating the sun position */
 import { Vector3 } from 'three';
 import gstime from './gstime.js';
 

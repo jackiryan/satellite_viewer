@@ -1,0 +1,207 @@
+:root {
+    --slate-50: #eff1f4;
+    --slate-100: #dfe3eb;
+    --slate-150: #cfd5e2;
+    --slate-200: #bfc7d9;
+    --slate-600: #525f7a;
+    --slate-700: #3d475c;
+    --slate-850: #202632;
+    --slate-950: #0e1118;
+    --blue-250: #aeb5fb;
+    --blue-350: #8999f9;
+    --blue-600: #1d59d0;
+    --blue-800: #0f2d70;
+    --border-width: 0.125rem;
+    --border-thin: 0.0625rem;
+    --spacing: 1rem;
+    --spacing-narrow: 0.5rem;
+    --spacing-xnarrow: 0.25rem;
+}
+
+html, body {
+    height: 100%;
+    margin: 0;
+    font-family: 'AudioLink Mono', Monospace;
+    color: var(--slate-50);
+    background-color: var(--slate-950);
+    touch-action: manipulation;
+}
+
+a {
+    color: var(--blue-250);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+p {
+    font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+    font-weight: 300;
+}
+
+#webgl-canvas {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: block;
+    z-index: 0;
+    margin: auto;
+    overflow-y: auto;
+    min-height: calc(100vw / 3);
+}
+
+#webgl-canvas:focus {
+    outline: none;
+}
+
+#card-flex {
+    position: absolute;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow-y: auto;
+    min-height: calc(100vw / 3);
+    z-index: 1;
+}
+
+.card {
+    /* Slate 600 */
+    background-color: rgb(82, 95, 122, 0.5);
+    padding: 2rem;
+    width: 50%;
+    max-width: 1150px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    font-size: 1.25rem;
+    border: 1px solid var(--slate-200);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-top: 4rem;
+    margin-bottom: 4rem;
+    /* little hack to smooth out resize behavior */
+    margin-left: 16rem;
+}
+
+.card h1 {
+    font-size: 3.5rem;
+    font-weight: 300;
+    margin-top: 0rem;
+    margin-bottom: 0.5rem;
+}
+
+.card h2 {
+    font-size: 1.25rem;
+    font-weight: 400;
+    margin-top: 0rem;
+    margin-bottom: 2rem;
+}
+
+.card h1, .card h2 {
+    text-align: center;
+}
+
+.card-content {
+    display: flex;
+    justify-content: space-between;
+}
+
+#left-column-card {
+    width: 50%;
+    margin: 0 auto;
+}
+
+#left-column-card img {
+    width: 100%;
+    border-radius: 0.5rem;
+    max-width: 512px;
+    height: auto;
+}
+
+#right-column-card {
+    width: 50%;
+    display: flex;
+    justify-content: center;
+    flex-direction: column;
+    max-width: 550px;
+    padding-left: 2rem;
+    gap: 1rem;
+}
+
+#right-column-card .main-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: var(--spacing);
+    padding-right: var(--spacing);
+    padding-block: var(--spacing);
+    border: 1px solid var(--slate-200);
+    border-radius: 0.5rem;
+    text-decoration: none;
+    cursor: pointer;
+    background-color: var(--slate-950);
+    color: var(--slate-50);
+    font-family: 'AudioLink Mono', monospace;
+    position: relative;
+    overflow: hidden;
+    transition: background-color 0.1s ease-out;
+}
+
+@media (hover: hover) {
+    #right-column-card .main-button:hover {
+        background-color: var(--slate-600);
+    }
+}
+
+@media (max-width: 1280px) {
+    .card {
+        width: 100%;
+        padding-block: 1rem;
+        margin-top: 1rem;
+        margin-left: 1rem;
+        margin-right: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .card h1 {
+        font-size: 2.25rem;
+    }
+
+    .card h2 {
+        font-size: 1rem;
+    }
+
+    .card-content {
+        flex-direction: column;
+        align-items: center;
+        font-size: 1rem;
+    }
+
+    #left-column-card {
+        display: flex;
+        width: 100%;
+        justify-content: center;
+    }
+
+    #left-column-card img {
+        width: 256px;
+        margin-bottom: 1rem;
+    }
+
+    #right-column-card {
+        width: 100%;
+        padding-left: 0rem;
+    }
+
+    #right-column-card button {
+        width: 100%;
+    }
+}
+
+@media (max-width: 768px) {
+    #card-flex {
+        align-items: baseline;
+    }
+}

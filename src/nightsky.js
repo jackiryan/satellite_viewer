@@ -1,19 +1,10 @@
+/* nightsky.js - main source for Star Map Demo (previously called Night Sky Demo) */
 import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { initSky } from './skyboxcolor.js';
-//import getSunPointingAngle from './sunangle.js';
 
 let scene, renderer, camera, controls, clock, skybox;
-// let elapsedTime = 0;
-
-/*
-const renderParameters = {
-    speedFactor: 1
-}
-
-const now = new Date();
-*/
 
 await init();
 
@@ -35,32 +26,11 @@ async function init() {
     scene.add(ambientLight);
 
     const gui = new GUI();
-    /*
-    gui
-        .add(renderParameters, 'speedFactor')
-        .min(1)
-        .max(7200);
-    */
     await initSky({ sceneObj: scene, guiObj: gui }).then((sky) => {
         skybox = sky;
         clock = new THREE.Clock();
         requestAnimationFrame(animate);
     });
-}
-
-function animate() {
-    /* 
-    const delta = renderParameters.speedFactor * clock.getDelta();
-    elapsedTime += delta;
-    const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-
-    skybox.material.uniforms.uSunDirection.value.copy(getSunPointingAngle(deltaNow));
-    */
-
-    onWindowResize();
-    controls.update();
-    renderer.render(scene, camera);
-    requestAnimationFrame(animate);
 }
 
 function onWindowResize() {
@@ -74,4 +44,11 @@ function onWindowResize() {
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
     }
+}
+
+function animate() {
+    onWindowResize();
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
 }
