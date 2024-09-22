@@ -37,15 +37,6 @@ header {
     height: calc(50px - var(--border-width));
 }
 
-a {
-	color: var(--blue-250);
-	text-decoration: none;
-}
-
-a:hover {
-	text-decoration: underline;
-}
-
 #webgl-canvas {
     position: absolute;
     width: 100%;
@@ -73,8 +64,13 @@ a:hover {
 	z-index: 1; /* TODO Solve this in HTML */
 }
 
+p {
+    font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+    font-weight: 300;
+}
+
 a, button, input, select {
-	pointer-events: auto;
+    pointer-events: auto;
 }
 
 /* Used on the nightsky page */
@@ -417,8 +413,6 @@ a, button, input, select {
     stroke: var(--slate-100);
     stroke-width: 2px;
 }
-
-
 
 .button-icon:active .icon-stroke {
     stroke: white;

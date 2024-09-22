@@ -1,3 +1,4 @@
+/* gstime.js - vendored satellite.js functions to reduce JS bundle sizes (tree-shaking was not working for me) */
 /* -----------------------------------------------------------------------------
 *
 *                           function gstime

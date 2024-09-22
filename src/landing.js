@@ -1,3 +1,4 @@
+/* landing.js - main JavaScript source for the index.html of my personal website */
 import * as THREE from 'three';
 import gstime from './gstime.js';
 import { initSky } from './skybox.js';
@@ -40,7 +41,6 @@ const sceneBoundingBox = new THREE.Box3(
     new THREE.Vector3(100 + 0.5 * earthParameters.radius, 10, 5)
 );
 
-
 await init().then( async () => {
     await initSky({ sceneObj: scene }).then((sky) => {
         skybox = sky;
@@ -50,11 +50,9 @@ await init().then( async () => {
 
 async function init() {
     /* Boilerplate */
-    // The camera will be in a fixed intertial reference, so the Earth will rotate
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    //camera.lookAt(new THREE.Vector3(25, 0, 0));
     camera.position.x = -25;
-    fitCameraToObject(camera, sceneBoundingBox, 1.8/camera.aspect);
+    fitCameraToBbox(camera, sceneBoundingBox, 1.8 / camera.aspect);
     camera.rotation.y = -Math.PI;
     
     const canvas = document.querySelector('#webgl-canvas');
@@ -75,13 +73,16 @@ async function init() {
     // Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
     // but were chosen so that snowy regions would approximately line up between day and night.
     const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
-    // Textures
+    const tempearth = new THREE.Mesh(earthGeometry, new THREE.MeshBasicMaterial({ color: 0x0e1118 }));
+    scene.add(tempearth);
+
+    // Textures - these are probably oversized for the context, but can be optimized later if needed
     const earthImageUrls = [
         './BlueMarble_2048x1024.avif',
         './BlackMarble_2048x1024.avif',
-        './EarthSpec_4096x2048.avif'
+        './EarthSpec_2048x1024.avif'
     ];
-    // has to resolve or page load will essentially fail... shaders depend on it
+    // the textured globe will fail to load if the imageLoader fails to resolve
     Promise.all(earthImageUrls.map( (url) => {
             return new Promise((resolve, reject) => {
                 imageLoader.load(
@@ -121,8 +122,8 @@ async function init() {
             });
 
             earth = new THREE.Mesh(earthGeometry, earthMaterial);
+            scene.remove(tempearth);
             scene.add(earth);
-            earth.name = "earth";
 
             /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
             const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
@@ -141,7 +142,6 @@ async function init() {
             });
             atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
             scene.add(atmosphere);
-            atmosphere.name = "atm";
 
             // Refer back to definition of gmst if you are confused
             earth.rotation.y = gmst;
@@ -154,45 +154,51 @@ function onWindowResize() {
     const pixelRatio = window.devicePixelRatio;
     const width = Math.floor(canvas.clientWidth * pixelRatio);
     const height = Math.floor(canvas.clientHeight * pixelRatio);
+
     const needsResize = canvas.width !== width || canvas.height !== height;
     if (needsResize) {
         renderer.setSize(width, height, false);
         camera.aspect = width / height;
-        fitCameraToObject(camera, sceneBoundingBox, 1.8/camera.aspect);
+        // setting the offset argument to 1.8 / camera.aspect causes relative positioning
+        // to stay constant
+        fitCameraToBbox(camera, sceneBoundingBox, 1.8 / camera.aspect);
     }
 }
 
-function fitCameraToObject(camera, object, offset) {
-
+function fitCameraToBbox(camera, bbox, offset) {
+    /* 
+    * This is a modified version of the code from this forum thread:
+    * https://discourse.threejs.org/t/camera-zoom-to-fit-object/936
+    * Here we are using 1 / camera.aspect as the offset factor to cause
+    * the relative positioning of objects in the scene to appear the
+    * same regardless of window size.
+    */
     offset = offset || 1.25;
 
-    let boundingBox = new THREE.Box3();
-    if (object instanceof THREE.Box3) {
-        boundingBox = object;
-
-    } else {
-        boundingBox = new THREE.Box3();
-        boundingBox.setFromObject(object);
-    }
     const dummy = new THREE.Vector3();
-    const size = boundingBox.getSize(dummy);
-
+    const size = bbox.getSize(dummy);
 
     // get the max side of the bounding box (fits to width OR height as needed )
     const maxDim = Math.max(size.x, size.y, size.z);
     let cameraZ = Math.abs(maxDim / 4 * Math.tan(camera.fov * 2));
     cameraZ *= offset;
 
+    // importantly, we only adjust the camera Z position here, we don't want to do camera.lookAt(earth)
+    // because the camera is *supposed* to keep the Earth on the left side of the page.
     camera.position.z = -cameraZ;
 
-    const minZ = boundingBox.min.z;
+    const minZ = bbox.min.z;
     const cameraToFarEdge = (minZ < 0) ? -minZ + cameraZ : cameraZ - minZ;
 
-    camera.far = cameraToFarEdge * 3;
+    // Setting camera.far is probably unimportant in this context, but it doesn't hurt
+    camera.far = cameraToFarEdge;
     camera.updateProjectionMatrix();
 }
 
 function animate() {
+    // the speedFactor should be enough that the earth will move while the user is on the page,
+    // but not so much that it will be obvious at a glance. It's a tricky little detail for
+    // people who are paying attention :)
     const delta = renderParameters.speedFactor * renderClock.getDelta();
     elapsedTime += delta;
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);

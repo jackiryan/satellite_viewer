@@ -11,7 +11,7 @@ let speedFactor = 1.0;
 // will have to do for now since passing that state is annoying.
 // radius at which scale is 1.0
 const scaleRadius = 5.3;
-const defaultScale = 0.015;
+const defaultScale = 0.02;
 //const defaultScale = 0.1;
 const scaleFactor = 5 / 6378;
 // max amount scale is allowed to be
