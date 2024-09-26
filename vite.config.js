@@ -32,6 +32,7 @@ export default defineConfig ({
         rollupOptions: {
             input: {
                 main: resolve(__dirname, 'src/index.html'),
+                satellites: resolve(__dirname, 'src/satellites.html'),
                 nightSky: resolve(__dirname, 'src/nightsky.html'),
                 notFound: resolve(__dirname, 'src/custom_404.html'),
             },
