@@ -10,7 +10,7 @@
     "gpName": "galileo",
     "country": "eu",
     "baseColor": "#a294e5",
-    "count": 28,
+    "count": 31,
     "entities": "./groups/galileo.json"
   },
   "GPS": {
@@ -31,8 +31,15 @@
     "gpName": "molniya",
     "country": "ru",
     "baseColor": "#ed333f",
-    "count": 32,
+    "count": 33,
     "entities": "./groups/molniya.json"
+  },
+  "Planet Labs": {
+    "gpName": "planet",
+    "country": "planet",
+    "baseColor": "#029da4",
+    "count": 120,
+    "entities": "./groups/planet.json"
   },
   "Space Stations": {
     "gpName": "stations",
@@ -63,7 +70,7 @@
     "gpName": "starlink",
     "country": "us",
     "baseColor": "#6b6b6b",
-    "count": 6380,
+    "count": 6416,
     "entities": "./groups/starlink.json"
   },
   "Telesat": {
@@ -75,12 +82,12 @@
   },
   "Active": {
     "gpName": "active",
-    "count": 2954,
+    "count": 2794,
     "baseColor": "#1b1bf9",
     "entities": "./groups/active.json"
   },
   "Debris": {
-    "count": 16071,
+    "count": 16331,
     "entities": "./groups/debris.json"
   }
 }

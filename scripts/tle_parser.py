@@ -45,6 +45,13 @@ satellite_groups = {
         "count": 0,
         "entities": {}
     },
+    "Planet Labs": {
+        "gpName": "planet",
+        "country": "planet",
+        "baseColor": "#029da4",
+        "count": 0,
+        "entities": {}
+    },
     "Space Stations": {
         "gpName": "stations",
         "baseColor": "#f72091",
