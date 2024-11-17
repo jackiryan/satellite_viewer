@@ -198,10 +198,12 @@ function getPosVel(data) {
             deltaPosVel.position.z * scaleFactor,
             -deltaPosVel.position.y * scaleFactor
         ];
+        // scene radius follows a square root relationship with km/s -> u/s conversion
+        const velScale = Math.sqrt(5) * 7.91;
         const velEci = [
-            -deltaPosVel.velocity.x,
-            -deltaPosVel.velocity.z,
-            deltaPosVel.velocity.y
+            -deltaPosVel.velocity.x / velScale,
+            -deltaPosVel.velocity.z / velScale,
+            deltaPosVel.velocity.y / velScale
         ];
         posVel.position = posEci;
         posVel.velocity = velEci;

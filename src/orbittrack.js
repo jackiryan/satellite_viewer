@@ -3,13 +3,10 @@ import * as THREE from 'three';
 
 export class OrbitTrack {
     constructor(position, velocity, options = {}) {
-        // Constants -- scale factor is also used in satelliteWorker.js and the 5 comes from the radius
-        // of the Earth in viewer.js
-        const scaleFactor = 5 / 6371;
-        // 3.9 looks kinda close but is obviously totally arbitrary. Is this really a cube-power
-        // relationship?
-        const earthMu = 3.986004418e14 * Math.pow(scaleFactor, 3);
-        this.mu = options.mu || earthMu; // Gravitational parameter
+        // Constants
+        // units going into the computeOrbit function are scaled such that
+        // the gravitational constant can be 1
+        this.mu = options.mu || 1; // Gravitational parameter
         this.numPoints = options.numPoints || 360; // Number of points along the orbit
         this.color = options.color || 0xffffff; // Line color
 
