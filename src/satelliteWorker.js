@@ -13,7 +13,7 @@ let speedFactor = 1.0;
 const scaleRadius = 5.3;
 const defaultScale = 0.02;
 //const defaultScale = 0.1;
-const scaleFactor = 5 / 6378;
+const scaleFactor = 5 / 6371;
 // max amount scale is allowed to be
 const maxScale = 4.0 * defaultScale;
 
@@ -40,6 +40,8 @@ self.onmessage = function(e) {
         case 'setSpeed':
             workerSetSpeed(data);
             break;
+        case 'getPosVel':
+            getPosVel(data);
         case 'reset':
             resetTime();
     }
@@ -79,7 +81,10 @@ function workerInitGroup(data) {
         }, 1000 / refreshRate);
         started = true;
     }
-    postMessage(url);
+    postMessage({
+        type: 'eventLoopStarted',
+        payload: url
+    });
 }
 
 function initSatrec(satAttribs) {
@@ -175,6 +180,38 @@ function workerHideGroup(data) {
 
 function workerSetSpeed(data) {
     speedFactor = data.speed;
+}
+
+function getPosVel(data) {
+    const posVel = {
+        group: data.group,
+        iid: data.iid,
+        position: [0, 0, 0],
+        velocity: [0, 0, 0]
+    };
+    try {
+        const satrec = satelliteMap.get(data.group).satrecs[data.iid];
+        const t = new Date(startTime + elapsedTime);
+        const deltaPosVel = satellite.propagate(satrec, t);
+        const posEci = [
+            deltaPosVel.position.x * scaleFactor,
+            deltaPosVel.position.z * scaleFactor,
+            -deltaPosVel.position.y * scaleFactor
+        ];
+        const velEci = [
+            -deltaPosVel.velocity.x,
+            -deltaPosVel.velocity.z,
+            deltaPosVel.velocity.y
+        ];
+        posVel.position = posEci;
+        posVel.velocity = velEci;
+    } catch (error) {
+        console.error(`Attempting to get satellite position and velocity failed: ${error}!`);
+    }
+    postMessage({
+        type: 'posVel',
+        payload: posVel
+    });
 }
 
 function resetTime(data) {

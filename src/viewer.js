@@ -437,6 +437,7 @@ function onMouseMove(event) {
             const groupName = intersectedObject.name;
             const satelliteName = groupMap.map.get(groupName).names[intersects[0].instanceId];
             updateTooltip(satelliteName, event.clientX, event.clientY);
+            groupMap.getSatellitePosVel(groupName, intersects[0].instanceId);
         } else {
             tooltip.style.display = 'none';
         }

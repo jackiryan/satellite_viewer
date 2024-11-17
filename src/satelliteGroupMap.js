@@ -1,5 +1,6 @@
 
 import * as THREE from 'three';
+import { OrbitTrack } from './orbittrack';
 import Worker from './satelliteWorker.js?worker';
 
 export class SatelliteGroupMap {
@@ -7,6 +8,7 @@ export class SatelliteGroupMap {
         this.scene = scene;
 
         this.map = new Map();
+        this.trails = new Map();
 
         // This is a base size, the geometry will be scaled relative to the distance from Earth
         // farther objects are larger (at least up to a maxScale defined in satelliteWorker.js)
@@ -18,10 +20,17 @@ export class SatelliteGroupMap {
 
         this.worker = new Worker();
         this.worker.onmessage = (event) => {
-            // The worker only ever posts a message when it starts the callback loop,
-            // so we can assume that event.data is always the group that was added
-            const url = event.data;
-            this.displayGroup(url);
+            // The worker posts a message when it starts the callback loop or when a
+            // specific satellite's current position and velocity are requested
+            if (event.data.type === 'eventLoopStarted') {
+                const url = event.data.payload;
+                this.displayGroup(url);
+            } else {
+                const posVel = event.data.payload;
+                const satelliteName = this.map.get(event.data.payload.group).names[posVel.iid];
+                this.trails.set(satelliteName, new OrbitTrack(posVel.position, posVel.velocity));
+                this.scene.add(this.trails.get(satelliteName).getObject3D());
+            }
         }
     }
 
@@ -221,6 +230,18 @@ export class SatelliteGroupMap {
     setRealTime() {
         this.worker.postMessage({
             action: 'reset'
+        });
+    }
+
+    getSatellitePosVel(etGroup, etIid) {
+        // etGroup/etIid = event group / event instance id, used to diambiguate the arguments
+        // coming from the event with the keys in the message data object
+        this.worker.postMessage({
+            action: 'getPosVel',
+            data: {
+                group: etGroup,
+                iid: etIid
+            }
         });
     }
 }
