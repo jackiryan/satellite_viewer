@@ -15,7 +15,7 @@ import Stats from 'three/addons/libs/stats.module.js';
 
 let camera, controls, scene, renderer, stats;
 let earth, earthMaterial, atmosphere, atmosphereMaterial, skybox, groupMap;
-let raycaster, mouseMove, tooltip;
+let raycaster, mouseMove, mouseClick, tooltip;
 let sunHelper; // unused except when debugging
 
 const earthParameters = {
@@ -242,6 +242,7 @@ async function initSatellites() {
         raycaster.params.Points.threshold = 5; // Increases hit area for Points
         raycaster.params.Line.threshold = 5;   // Increases hit area for Lines
         mouseMove = new THREE.Vector2();
+        mouseClick = new THREE.Vector2();
         // Create an HTML element to display the name of a satellite on mouse hover
         tooltip = document.createElement('div');
         tooltip.className = 'tooltip';
@@ -249,6 +250,7 @@ async function initSatellites() {
         mainElement.appendChild(tooltip);
         // I saw pointermove in some threejs documentation, mousemove is equivalent
         renderer.domElement.addEventListener('pointermove', onMouseMove, false);
+        renderer.domElement.addEventListener('click', onClick);
     });
 }
 
@@ -485,6 +487,26 @@ function onMouseMove(event) {
         // Hide the tooltip & clear hover state
         tooltip.style.display = 'none';
         groupMap.removeOrbits();
+    }
+}
+
+function onClick(event) {
+    event.preventDefault();
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouseClick.x = ((event.clientX - rect.left) / (rect.right - rect.left)) * 2 - 1;
+    mouseClick.y = -((event.clientY - rect.top) / (rect.bottom - rect.top)) * 2 + 1;
+
+    // Update the raycaster with the camera and mouse position
+    raycaster.setFromCamera(mouseClick, camera);
+
+    // Calculate objects intersecting the raycaster
+    var intersects = raycaster.intersectObjects(scene.children, true);
+    if (intersects.length > 0 && intersects[0].object.name !== 'earth') {
+        const intersectedObject = intersects[0].object;
+        const groupName = intersectedObject.name;
+        const satId = intersects[0].instanceId;
+        groupMap.toggleOrbit(groupName, satId);
     }
 }
 

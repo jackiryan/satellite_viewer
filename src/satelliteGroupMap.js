@@ -218,6 +218,15 @@ export class SatelliteGroupMap {
         for (const group of this.map.values()) {
             if (group.displayed) {
                 group.mesh.instanceMatrix.needsUpdate = true;
+                const satIds = group.orbitManager.orbits.keys();
+                const instanceMat = new THREE.Matrix4();
+                for (const satId of satIds) {
+                    const instanceNdx = satId;
+                    group.mesh.getMatrixAt(instanceNdx, instanceMat);
+                    const position = new THREE.Vector3();
+                    instanceMat.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
+                    group.orbitManager.orbits.get(satId).updateLite(position);
+                }
             }
         }
     }
@@ -241,6 +250,11 @@ export class SatelliteGroupMap {
         const options = { color: group.mesh.material.color };
         group.orbitManager.addOrbitTrack(etIid, options);
         this.getSatellitePosVel(etGroup, etIid);
+    }
+
+    toggleOrbit(etGroup, etIid) {
+        const group = this.map.get(etGroup);
+        group.orbitManager.toggleOrbit(etIid);
     }
 
     getSatellitePosVel(etGroup, etIid) {

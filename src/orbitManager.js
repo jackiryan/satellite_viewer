@@ -40,9 +40,17 @@ export class OrbitManager {
         }
     }
 
+    toggleOrbit(satId) {
+        if (this.orbits.has(satId)) {
+            const persistState = this.orbits.get(satId).persist;
+            this.orbits.get(satId).persist = !persistState;
+            this.currentHover = satId;
+        }
+    }
+
     updateHover(satId) {
         // Remove previous hover orbit if exists and different
-        if (this.currentHover && this.currentHover !== satId) {
+        if (this.currentHover && this.currentHover !== satId && this.orbits.get(this.currentHover).persist === false) {
             this.removeOrbitTrack(this.currentHover);
         }
 

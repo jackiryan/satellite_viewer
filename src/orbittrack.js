@@ -52,6 +52,7 @@ export class OrbitTrack {
         // Create the LineLoop
         this.orbitLine = new THREE.LineLoop(this.geometry, this.material);
         this.displayed = false;
+        this.persist = false;
     }
 
     computeOrbit(position, velocity) {
@@ -157,15 +158,26 @@ export class OrbitTrack {
         this.material.uniforms.startOffset.value = closestIndex / this.numPoints;
     }
 
+    updateLite(position) {
+        let closestIndex = this.findClosestVertexIndex(position);
+
+        // Update the shader's start offset
+        this.material.uniforms.startOffset.value = closestIndex / this.numPoints;
+    }
+
     findClosestVertexIndex(position) {
+        const pos = Array.isArray(position)
+            ? position
+            : [position.x, position.y, position.z];
+
         let closestIndex = 0;
         let closestDistSq = Infinity;
 
         for (let i = 0; i < this.numPoints; i++) {
             const idx = i * 3;
-            const dx = this.positions[idx] - position[0];
-            const dy = this.positions[idx + 1] - position[1];
-            const dz = this.positions[idx + 2] - position[2];
+            const dx = this.positions[idx] - pos[0];
+            const dy = this.positions[idx + 1] - pos[1];
+            const dz = this.positions[idx + 2] - pos[2];
             const distSq = dx * dx + dy * dy + dz * dz;
 
             if (distSq < closestDistSq) {
