@@ -10,7 +10,6 @@ export class OrbitTrack {
         this.numPoints = options.numPoints || 720; // Number of points along the orbit
         this.color = options.color || 0xffffff; // Line color
 
-        // this.material = new THREE.LineBasicMaterial({ color: this.color });
         this.material = new THREE.ShaderMaterial({
             vertexShader: `
                 varying float vDistance;
@@ -144,7 +143,7 @@ export class OrbitTrack {
 
         // Update the geometry
         this.geometry.attributes.position.needsUpdate = true;
-        //this.geometry.computeBoundingSphere();
+        this.geometry.computeBoundingSphere();
     }
 
     update(position, velocity) {

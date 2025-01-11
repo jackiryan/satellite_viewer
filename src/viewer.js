@@ -186,7 +186,10 @@ async function init() {
         earth = new THREE.Mesh(earthGeometry, earthMaterial);
         scene.remove(tempearth);
         scene.add(earth);
-        earth.name = "earth";
+        earth.name = 'earth';
+        // enable raycaster collisions with this object to prevent selecting satellites on the
+        // backside of the earth
+        earth.layers.enable(interactiveLayer);
 
         /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
         const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
@@ -205,7 +208,7 @@ async function init() {
         });
         atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
         scene.add(atmosphere);
-        atmosphere.name = "atm";
+        atmosphere.name = 'atm';
 
         // Refer back to definition of gmst if you are confused
         earth.rotation.y = gmst;
@@ -236,6 +239,8 @@ async function initSatellites() {
         initSettingsMenu();
         raycaster = new THREE.Raycaster();
         raycaster.layers.set(interactiveLayer);
+        raycaster.params.Points.threshold = 5; // Increases hit area for Points
+        raycaster.params.Line.threshold = 5;   // Increases hit area for Lines
         mouseMove = new THREE.Vector2();
         // Create an HTML element to display the name of a satellite on mouse hover
         tooltip = document.createElement('div');
@@ -418,6 +423,38 @@ function onGroupHidden(event) {
     groupMap.hideGroup(groupUrl);
 }
 
+function checkIntersectionWithGrid(mouseX, mouseY, radius) {
+    const intersections = new Set();
+
+    const offsets = [-1, 0, 1]
+
+    // Cast rays in a small circle around the mouse point
+    for (let ndx = 0; ndx < 9; ndx++) {
+        const offsetX = radius * offsets[(ndx % 3)];
+        const offsetY = radius * offsets[Math.floor(ndx / 3)];
+
+        raycaster.setFromCamera(
+            {
+                x: mouseX + offsetX,
+                y: mouseY + offsetY
+            },
+            camera
+        );
+
+        const hits = raycaster.intersectObjects(scene.children, true);
+        const earthIntersect = hits.find(hit => hit.object.name === 'earth');
+        const earthDistance = earthIntersect ? earthIntersect.distance + 10 : Infinity;
+        hits.forEach(hit => {
+            if (hit.distance < earthDistance && hit.object.name !== 'earth') {
+                intersections.add(hit);
+            }
+        });
+    }
+
+    return Array.from(intersections);
+}
+
+
 /* Other event handlers */
 function onMouseMove(event) {
     event.preventDefault();
@@ -432,22 +469,13 @@ function onMouseMove(event) {
     // Calculate objects intersecting the raycaster
     var intersects = raycaster.intersectObjects(scene.children, true);
 
-    if (intersects.length > 0) {
-        // Show tooltip with the name
+    //const mouseRadius = 0.005;
+    //var intersects = checkIntersectionWithGrid(mouseMove.x, mouseMove.y, mouseRadius);
+
+    if (intersects.length > 0 && intersects[0].object.name !== 'earth') {
+        //if (intersects.length > 0) {
         const intersectedObject = intersects[0].object;
-        /*
-        // only display tooltip for instancedMesh objects
-        if (groupMap.hasGroup(intersectedObject.name)) {
-            const groupName = intersectedObject.name;
-            const satelliteName = groupMap.map.get(groupName).names[intersects[0].instanceId];
-            updateTooltip(satelliteName, event.clientX, event.clientY);
-            groupMap.addOrbit(groupName, intersects[0].instanceId);
-        } else {
-            // Hide the tooltip & clear hover state
-            tooltip.style.display = 'none';
-            groupMap.removeOrbits();
-        }
-        */
+        // Show tooltip with the name
         const groupName = intersectedObject.name;
         const satId = intersects[0].instanceId;
         const satelliteName = groupMap.map.get(groupName).names[satId];

@@ -28,8 +28,8 @@ export class SatelliteGroupMap {
                 this.displayGroup(url);
             } else {
                 const posVel = event.data.payload;
-                const selectedGroup = this.map.get(event.data.payload.group);
-                selectedGroup.orbitManager.updateOrbit(event.data.payload.iid, event.data.payload.position, event.data.payload.velocity);
+                const selectedGroup = this.map.get(posVel.group);
+                selectedGroup.orbitManager.updateOrbit(posVel.iid, posVel.position, posVel.velocity);
             }
         }
     }

@@ -31,10 +31,10 @@ let oldTime = startTime;
 let elapsedTime = 0.0;
 const refreshRate = 60;
 
-self.onmessage = function(e) {
+self.onmessage = function (e) {
     const { action, data } = e.data;
 
-    switch(action) {
+    switch (action) {
         case 'init':
             workerInitGroup(data);
             break;
@@ -49,8 +49,10 @@ self.onmessage = function(e) {
             break;
         case 'getPosVel':
             getPosVel(data);
+            break;
         case 'reset':
-            resetTime();
+            resetTime(data);
+            break;
     }
 };
 
@@ -63,7 +65,7 @@ function workerInitGroup(data) {
     const instanceMatrix = new Float32Array(buffer);
     //const groupDb = await fetchEntities(url);
     const groupAttribs = Object.values(groupDb.entities);
-    
+
     //const names = Object.keys(groupDb.entities);
     const satRecs = groupAttribs.map((attribs) => initSatrec(attribs));
     // If any satellites are unable to be instantiated, they will cause the
@@ -119,12 +121,12 @@ function updatePositions() {
                 if (groupObj.satrecs[i] === undefined) {
                     continue;
                 }
-                
+
                 try {
                     const deltaPosVel = satellite.propagate(groupObj.satrecs[i], t);
                     const deltaPosEci = deltaPosVel.position;
                     const deltaVelEci = deltaPosVel.velocity;
-                    const velocity =  [-deltaVelEci.x, -deltaVelEci.z, deltaVelEci.y];
+                    const velocity = [-deltaVelEci.x, -deltaVelEci.z, deltaVelEci.y];
                     const velMag = mag(velocity);
                     const velDir = [velocity[0] / velMag, velocity[1] / velMag, velocity[2] / velMag];
                     const xVelMag = Math.sqrt(velDir[2] * velDir[2] + velDir[0] * velDir[0]);
@@ -134,14 +136,14 @@ function updatePositions() {
                     const newY = deltaPosEci.z * scaleFactor;
                     const newZ = -deltaPosEci.y * scaleFactor;
                     const newScale = Math.min(maxScale, defaultScale * mag([newX, newY, newZ]) / scaleRadius);
-                    groupObj.matrix[instanceNdx +  0] = xVelDir[0] * newScale;
-                    groupObj.matrix[instanceNdx +  1] = xVelDir[1];
-                    groupObj.matrix[instanceNdx +  2] = xVelDir[2] * newScale;
-                    groupObj.matrix[instanceNdx +  4] = yVelDir[0] * newScale;
-                    groupObj.matrix[instanceNdx +  5] = yVelDir[1] * newScale;
-                    groupObj.matrix[instanceNdx +  6] = yVelDir[2] * newScale;
-                    groupObj.matrix[instanceNdx +  8] = velDir[0] * newScale;
-                    groupObj.matrix[instanceNdx +  9] = velDir[1] * newScale;
+                    groupObj.matrix[instanceNdx + 0] = xVelDir[0] * newScale;
+                    groupObj.matrix[instanceNdx + 1] = xVelDir[1];
+                    groupObj.matrix[instanceNdx + 2] = xVelDir[2] * newScale;
+                    groupObj.matrix[instanceNdx + 4] = yVelDir[0] * newScale;
+                    groupObj.matrix[instanceNdx + 5] = yVelDir[1] * newScale;
+                    groupObj.matrix[instanceNdx + 6] = yVelDir[2] * newScale;
+                    groupObj.matrix[instanceNdx + 8] = velDir[0] * newScale;
+                    groupObj.matrix[instanceNdx + 9] = velDir[1] * newScale;
                     groupObj.matrix[instanceNdx + 10] = velDir[2] * newScale;
                     groupObj.matrix[instanceNdx + 12] = newX;
                     groupObj.matrix[instanceNdx + 13] = newY;
@@ -151,14 +153,14 @@ function updatePositions() {
                         console.log(`Satellite with NORAD ID ${groupObj.satrecs[i].satnum} has unknown position!`);
                         groupObj.satrecs[i] = undefined;
                     }
-                    groupObj.matrix[instanceNdx +  0] = 0.0;
-                    groupObj.matrix[instanceNdx +  1] = 0.0;
-                    groupObj.matrix[instanceNdx +  2] = 0.0;
-                    groupObj.matrix[instanceNdx +  4] = 0.0;
-                    groupObj.matrix[instanceNdx +  5] = 0.0;
-                    groupObj.matrix[instanceNdx +  6] = 0.0;
-                    groupObj.matrix[instanceNdx +  8] = 0.0;
-                    groupObj.matrix[instanceNdx +  9] = 0.0;
+                    groupObj.matrix[instanceNdx + 0] = 0.0;
+                    groupObj.matrix[instanceNdx + 1] = 0.0;
+                    groupObj.matrix[instanceNdx + 2] = 0.0;
+                    groupObj.matrix[instanceNdx + 4] = 0.0;
+                    groupObj.matrix[instanceNdx + 5] = 0.0;
+                    groupObj.matrix[instanceNdx + 6] = 0.0;
+                    groupObj.matrix[instanceNdx + 8] = 0.0;
+                    groupObj.matrix[instanceNdx + 9] = 0.0;
                     groupObj.matrix[instanceNdx + 10] = 0.0;
                     groupObj.matrix[instanceNdx + 12] = 0.0;
                     groupObj.matrix[instanceNdx + 13] = 0.0;
@@ -171,8 +173,8 @@ function updatePositions() {
 
 function mag(v) {
     return Math.sqrt(
-        v[0] * v[0] + 
-        v[1] * v[1] + 
+        v[0] * v[0] +
+        v[1] * v[1] +
         v[2] * v[2]
     );
 }

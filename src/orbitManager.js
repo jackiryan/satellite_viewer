@@ -1,4 +1,4 @@
-import { OrbitTrack } from "./orbitTrack";
+import { OrbitTrack } from './orbitTrack';
 
 
 export class OrbitManager {
@@ -35,7 +35,7 @@ export class OrbitManager {
             if (!orbit.displayed) {
                 this.scene.add(orbit.getObject3D());
                 orbit.displayed = true;
-                this.currentHover = satId;
+                this.updateHover(satId);
             }
         }
     }
