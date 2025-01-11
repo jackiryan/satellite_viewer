@@ -2,16 +2,48 @@
 import * as THREE from 'three';
 
 export class OrbitTrack {
-    constructor(position, velocity, options = {}) {
+    constructor(options = {}) {
         // Constants
         // units going into the computeOrbit function are scaled such that
         // the gravitational constant can be 1
         this.mu = options.mu || 1; // Gravitational parameter
-        this.numPoints = options.numPoints || 360; // Number of points along the orbit
+        this.numPoints = options.numPoints || 720; // Number of points along the orbit
         this.color = options.color || 0xffffff; // Line color
 
-        // TO DO: Animated alpha blending material
-        this.material = new THREE.LineBasicMaterial({ color: this.color });
+        // this.material = new THREE.LineBasicMaterial({ color: this.color });
+        this.material = new THREE.ShaderMaterial({
+            vertexShader: `
+                varying float vDistance;
+                uniform float startOffset;  // Ranges from 0 to 1, represents position of the object
+                
+                void main() {
+                    float rawDistance = float(gl_VertexID) / float(${this.numPoints});
+                    // Adjust distance relative to the moving object's position
+                    vDistance = mod(rawDistance - startOffset + 1.0, 1.0);
+                    
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                varying float vDistance;
+                uniform vec3 color;
+                
+                void main() {
+                    // Calculate opacity based on distance
+                    // Fully opaque at start (0.0), transparent at halfway point (0.5)
+                    float opacity = 1.0 - smoothstep(0.0, 0.5, vDistance);
+                    
+                    gl_FragColor = vec4(color, opacity);
+                }
+            `,
+            uniforms: {
+                color: { value: new THREE.Color(this.color) },
+                startOffset: { value: 0.0 }
+            },
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
 
         // Initialize geometry and line
         this.geometry = new THREE.BufferGeometry();
@@ -20,9 +52,7 @@ export class OrbitTrack {
 
         // Create the LineLoop
         this.orbitLine = new THREE.LineLoop(this.geometry, this.material);
-
-        // Compute initial orbit
-        this.computeOrbit(position, velocity);
+        this.displayed = false;
     }
 
     computeOrbit(position, velocity) {
@@ -114,16 +144,47 @@ export class OrbitTrack {
 
         // Update the geometry
         this.geometry.attributes.position.needsUpdate = true;
-        this.geometry.computeBoundingSphere();
+        //this.geometry.computeBoundingSphere();
     }
 
     update(position, velocity) {
         // Recompute the orbit with new position and velocity
         this.computeOrbit(position, velocity);
+
+        // Find closest index in the current line loop
+        let closestIndex = this.findClosestVertexIndex(position);
+
+        // Update the shader's start offset
+        this.material.uniforms.startOffset.value = closestIndex / this.numPoints;
+    }
+
+    findClosestVertexIndex(position) {
+        let closestIndex = 0;
+        let closestDistSq = Infinity;
+
+        for (let i = 0; i < this.numPoints; i++) {
+            const idx = i * 3;
+            const dx = this.positions[idx] - position[0];
+            const dy = this.positions[idx + 1] - position[1];
+            const dz = this.positions[idx + 2] - position[2];
+            const distSq = dx * dx + dy * dy + dz * dz;
+
+            if (distSq < closestDistSq) {
+                closestDistSq = distSq;
+                closestIndex = i;
+            }
+        }
+
+        return closestIndex;
     }
 
     getObject3D() {
         // Return the THREE.LineLoop object for adding to the scene
         return this.orbitLine;
+    }
+
+    setColor(color) {
+        this.color = color;
+        this.material.uniforms.color.value.set(color);
     }
 }

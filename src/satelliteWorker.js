@@ -9,13 +9,20 @@ let speedFactor = 1.0;
 
 // scaleRadius and scaleFactor must be updated if the radius of the earth object ever changes,
 // will have to do for now since passing that state is annoying.
-// radius at which scale is 1.0
+// radius at which satellite scale is 1.0
 const scaleRadius = 5.3;
+// default scaling to apply to the glb model to have it look correct in the scene
 const defaultScale = 0.02;
+// deprecated default scaling used when iso spheres were used for satellite geo
 //const defaultScale = 0.1;
-const scaleFactor = 5 / 6371;
-// max amount scale is allowed to be
+// max size the satellite is allowed to be
 const maxScale = 4.0 * defaultScale;
+
+// this is a different scale, used to convert positions from km -> scene units
+const scaleFactor = 5 / 6371;
+// scene radius follows a square root relationship with km/s -> u/s conversion
+const velScale = Math.sqrt(5) * 7.91;
+
 
 // millis since start of Unix epoch at the time the worker is started, used to
 // compute the elapsedTime
@@ -198,8 +205,6 @@ function getPosVel(data) {
             deltaPosVel.position.z * scaleFactor,
             -deltaPosVel.position.y * scaleFactor
         ];
-        // scene radius follows a square root relationship with km/s -> u/s conversion
-        const velScale = Math.sqrt(5) * 7.91;
         const velEci = [
             -deltaPosVel.velocity.x / velScale,
             -deltaPosVel.velocity.z / velScale,
