@@ -15,6 +15,11 @@ export class OrbitManager {
         if (!this.orbits.has(satId)) {
             const orbit = new OrbitTrack(options);
             this.orbits.set(satId, orbit);
+        } else {
+            const orbit = this.orbits.get(satId);
+            this.scene.add(orbit.getObject3D());
+            orbit.displayed = true;
+            this.updateHover(satId);
         }
     }
 
@@ -22,10 +27,11 @@ export class OrbitManager {
         // If already processed, remove orbit and clean up
         if (this.orbits.has(satId)) {
             const orbit = this.orbits.get(satId);
-            orbit.geometry.dispose();
-            orbit.material.dispose();
+            //orbit.geometry.dispose();
+            //orbit.material.dispose();
             this.scene.remove(orbit.getObject3D());
-            this.orbits.delete(satId);
+            orbit.displayed = false;
+            //this.orbits.delete(satId);
         }
     }
 

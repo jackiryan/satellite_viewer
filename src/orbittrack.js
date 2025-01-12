@@ -34,7 +34,7 @@ export class OrbitTrack {
                 void main() {
                     // Calculate opacity based on distance
                     // Fully opaque at start (0.0), transparent at halfway point (0.5)
-                    float opacity = 1.0 - smoothstep(0.0, 0.5, vDistance);
+                    float opacity = 1.0 - smoothstep(0.0, 0.75, vDistance);
                     
                     gl_FragColor = vec4(color, opacity);
                     #include <tonemapping_fragment>
