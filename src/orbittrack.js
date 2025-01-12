@@ -1,8 +1,12 @@
 
 import * as THREE from 'three';
 
+const defaultEps = 0.002;
+const scaleRadius = 5.3 ** 2;
+
 export class OrbitTrack {
     constructor(options = {}) {
+
         // Constants
         // units going into the computeOrbit function are scaled such that
         // the gravitational constant can be 1
@@ -33,6 +37,8 @@ export class OrbitTrack {
                     float opacity = 1.0 - smoothstep(0.0, 0.5, vDistance);
                     
                     gl_FragColor = vec4(color, opacity);
+                    #include <tonemapping_fragment>
+                    #include <colorspace_fragment>
                 }
             `,
             uniforms: {
@@ -51,8 +57,11 @@ export class OrbitTrack {
 
         // Create the LineLoop
         this.orbitLine = new THREE.LineLoop(this.geometry, this.material);
+        this.lastClosestIndex = 0;
+        this.epsilon = 1;
         this.displayed = false;
         this.persist = false;
+
     }
 
     computeOrbit(position, velocity) {
@@ -145,6 +154,7 @@ export class OrbitTrack {
         // Update the geometry
         this.geometry.attributes.position.needsUpdate = true;
         this.geometry.computeBoundingSphere();
+        this.epsilon = defaultEps * mag([positions[0], positions[1], positions[2]]) / scaleRadius;
     }
 
     updateOrbit(position, velocity) {
@@ -155,34 +165,71 @@ export class OrbitTrack {
     }
 
     updateIndex(position) {
-        let closestIndex = this.findClosestVertexIndex(position);
+        const indexResult = this.findClosestVertexIndex(position);
 
         // Update the shader's start offset
-        this.material.uniforms.startOffset.value = closestIndex / this.numPoints;
+        this.material.uniforms.startOffset.value = indexResult.index / this.numPoints;
+
+        return indexResult.needsUpdate;
     }
 
     findClosestVertexIndex(position) {
-        const pos = Array.isArray(position)
-            ? position
-            : [position.x, position.y, position.z];
+        // First check the last known index and the next few indices
+        const searchWindow = 3;
+        let closestIndex = this.lastClosestIndex;
+        let closestDistSq = this.getDistanceSquared(position, this.lastClosestIndex);
+        let foundMin = false;
 
+        // Check the next few indices (with wraparound)
+        for (let offset = 1; offset <= searchWindow; offset++) {
+            const i = (this.lastClosestIndex + offset) % this.numPoints;
+            const distSq = this.getDistanceSquared(position, i);
+
+            if (distSq < closestDistSq) {
+                closestDistSq = distSq;
+                closestIndex = i;
+            } else if (distSq > closestDistSq && closestDistSq < this.epsilon) {
+                // If distance starts increasing, we've passed the closest point
+                foundMin = true;
+                break;
+            }
+        }
+
+
+        // If we didn't find a closer point in our window, fall back to full search
+        if (!foundMin) {
+            const fullSearchResult = this.fullSearch(position);
+            closestIndex = fullSearchResult.index;
+            closestDistSq = fullSearchResult.distSq;
+        }
+
+        this.lastClosestIndex = closestIndex;
+        const needsUpdate = closestDistSq > this.epsilon;
+        return { index: closestIndex, needsUpdate: needsUpdate };
+    }
+
+    getDistanceSquared(pos, index) {
+        const idx = index * 3;
+        const dx = this.positions[idx] - pos[0];
+        const dy = this.positions[idx + 1] - pos[1];
+        const dz = this.positions[idx + 2] - pos[2];
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+
+    fullSearch(pos) {
         let closestIndex = 0;
         let closestDistSq = Infinity;
 
         for (let i = 0; i < this.numPoints; i++) {
-            const idx = i * 3;
-            const dx = this.positions[idx] - pos[0];
-            const dy = this.positions[idx + 1] - pos[1];
-            const dz = this.positions[idx + 2] - pos[2];
-            const distSq = dx * dx + dy * dy + dz * dz;
-
+            const distSq = this.getDistanceSquared(pos, i);
             if (distSq < closestDistSq) {
                 closestDistSq = distSq;
                 closestIndex = i;
             }
         }
 
-        return closestIndex;
+        return { index: closestIndex, distSq: closestDistSq };
     }
 
     getObject3D() {
@@ -194,4 +241,12 @@ export class OrbitTrack {
         this.color = color;
         this.material.uniforms.color.value.set(color);
     }
+}
+
+function mag(v) {
+    return (
+        v[0] * v[0] +
+        v[1] * v[1] +
+        v[2] * v[2]
+    );
 }

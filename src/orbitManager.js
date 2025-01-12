@@ -1,8 +1,9 @@
+import { MessageBroker } from './messageBroker';
 import { OrbitTrack } from './orbitTrack';
 
-
 export class OrbitManager {
-    constructor(scene) {
+    constructor(group, scene) {
+        this.group = group;
         this.scene = scene;
 
         this.orbits = new Map(); // Store active orbits by satellite name
@@ -40,11 +41,21 @@ export class OrbitManager {
         }
     }
 
+    updateOrbitIndex(satId, position) {
+        const orbit = this.orbits.get(satId);
+        const needsUpdate = orbit.updateIndex(position);
+
+        if (needsUpdate) {
+            // console.log(`Recomputing orbit ${satId}`);
+            MessageBroker.getInstance().getPosVel(this.group, satId);
+        }
+    }
+
     toggleOrbit(satId) {
         if (this.orbits.has(satId)) {
             const persistState = this.orbits.get(satId).persist;
             this.orbits.get(satId).persist = !persistState;
-            this.currentHover = satId;
+            this.updateHover(satId);
         }
     }
 
@@ -66,7 +77,7 @@ export class OrbitManager {
 
     updateHover(satId) {
         // Remove previous hover orbit if exists and different
-        if (this.currentHover && this.currentHover !== satId && this.orbits.get(this.currentHover).persist === false) {
+        if (this.currentHover !== null && this.currentHover !== satId && this.orbits.get(this.currentHover).persist === false) {
             this.removeOrbitTrack(this.currentHover);
         }
 

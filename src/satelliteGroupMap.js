@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitTrack } from './orbitTrack';
 import Worker from './satelliteWorker.js?worker';
 import { OrbitManager } from './orbitManager';
+import { MessageBroker } from './messageBroker';
 
 export class SatelliteGroupMap {
     constructor(scene, geo, layer) {
@@ -20,6 +21,7 @@ export class SatelliteGroupMap {
         this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#c4a484' });
 
         this.worker = new Worker();
+        MessageBroker.getInstance().setWorker(this.worker);
         this.worker.onmessage = (event) => {
             // The worker posts a message when it starts the callback loop or when a
             // specific satellite's current position and velocity are requested
@@ -146,7 +148,7 @@ export class SatelliteGroupMap {
             displayed: false,
             names: Object.keys(groupDb.entities),
             mesh: groupMesh,
-            orbitManager: new OrbitManager(this.scene)
+            orbitManager: new OrbitManager(groupUrl, this.scene)
         });
 
         this.worker.postMessage({
@@ -220,6 +222,9 @@ export class SatelliteGroupMap {
         for (const group of this.map.values()) {
             if (group.displayed) {
                 group.mesh.instanceMatrix.needsUpdate = true;
+
+                // Update the nearest displayed segment in all currently displayed orbits
+                // this code should be in the OrbitManager, but I'm not sure how to do that cleanly
                 const satIds = group.orbitManager.orbits.keys();
                 const instanceMat = new THREE.Matrix4();
                 for (const satId of satIds) {
@@ -227,7 +232,7 @@ export class SatelliteGroupMap {
                     group.mesh.getMatrixAt(instanceNdx, instanceMat);
                     const position = new THREE.Vector3();
                     instanceMat.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
-                    group.orbitManager.orbits.get(satId).updateIndex(position);
+                    group.orbitManager.updateOrbitIndex(satId, [position.x, position.y, position.z]);
                 }
             }
         }
@@ -251,7 +256,6 @@ export class SatelliteGroupMap {
         const group = this.map.get(etGroup);
         const options = { color: group.mesh.material.color };
         group.orbitManager.addOrbitTrack(etIid, options);
-        this.getSatellitePosVel(etGroup, etIid);
     }
 
     toggleOrbit(etGroup, etIid) {
