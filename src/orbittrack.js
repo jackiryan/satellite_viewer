@@ -147,18 +147,14 @@ export class OrbitTrack {
         this.geometry.computeBoundingSphere();
     }
 
-    update(position, velocity) {
+    updateOrbit(position, velocity) {
         // Recompute the orbit with new position and velocity
         this.computeOrbit(position, velocity);
 
-        // Find closest index in the current line loop
-        let closestIndex = this.findClosestVertexIndex(position);
-
-        // Update the shader's start offset
-        this.material.uniforms.startOffset.value = closestIndex / this.numPoints;
+        this.updateIndex(position);
     }
 
-    updateLite(position) {
+    updateIndex(position) {
         let closestIndex = this.findClosestVertexIndex(position);
 
         // Update the shader's start offset

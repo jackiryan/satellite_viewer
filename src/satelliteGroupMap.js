@@ -199,6 +199,7 @@ export class SatelliteGroupMap {
             groupObj.mesh.instanceMatrix.needsUpdate = true;
             groupObj.mesh.computeBoundingSphere();
             this.scene.add(groupObj.mesh);
+            groupObj.orbitManager.showOrbits();
         }
     }
 
@@ -211,6 +212,7 @@ export class SatelliteGroupMap {
             const groupObj = this.map.get(groupUrl);
             groupObj.displayed = false;
             this.scene.remove(groupObj.mesh);
+            groupObj.orbitManager.hideOrbits();
         }
     }
 
@@ -225,7 +227,7 @@ export class SatelliteGroupMap {
                     group.mesh.getMatrixAt(instanceNdx, instanceMat);
                     const position = new THREE.Vector3();
                     instanceMat.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
-                    group.orbitManager.orbits.get(satId).updateLite(position);
+                    group.orbitManager.orbits.get(satId).updateIndex(position);
                 }
             }
         }

@@ -31,7 +31,7 @@ export class OrbitManager {
     updateOrbit(satId, position, velocity) {
         if (this.orbits.has(satId)) {
             const orbit = this.orbits.get(satId);
-            orbit.update(position, velocity);
+            orbit.updateOrbit(position, velocity);
             if (!orbit.displayed) {
                 this.scene.add(orbit.getObject3D());
                 orbit.displayed = true;
@@ -45,6 +45,22 @@ export class OrbitManager {
             const persistState = this.orbits.get(satId).persist;
             this.orbits.get(satId).persist = !persistState;
             this.currentHover = satId;
+        }
+    }
+
+    hideOrbits() {
+        // dispose of currently hovered orbit, hide all others
+        this.updateHover(null);
+        for (const orbit of this.orbits.values()) {
+            orbit.displayed = false;
+            this.scene.remove(orbit.getObject3D());
+        }
+    }
+
+    showOrbits() {
+        for (const orbit of this.orbits.values()) {
+            orbit.displayed = true;
+            this.scene.add(orbit.getObject3D());
         }
     }
 
