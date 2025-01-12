@@ -249,7 +249,9 @@ async function initSatellites() {
         tooltip.style.zIndex = 1;
         mainElement.appendChild(tooltip);
         // I saw pointermove in some threejs documentation, mousemove is equivalent
-        renderer.domElement.addEventListener('pointermove', onMouseMove, false);
+        renderer.domElement.addEventListener('pointermove', async (e) => {
+            await onMouseMove(e);
+        }, false);
         renderer.domElement.addEventListener('click', onClick);
     });
 }
@@ -458,7 +460,7 @@ function checkIntersectionWithGrid(mouseX, mouseY, radius) {
 
 
 /* Other event handlers */
-function onMouseMove(event) {
+async function onMouseMove(event) {
     event.preventDefault();
     // Update the mouse variable
     const rect = renderer.domElement.getBoundingClientRect();
@@ -486,7 +488,7 @@ function onMouseMove(event) {
     } else {
         // Hide the tooltip & clear hover state
         tooltip.style.display = 'none';
-        groupMap.removeOrbits();
+        await groupMap.onMouseOff();
     }
 }
 

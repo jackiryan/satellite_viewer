@@ -66,6 +66,23 @@ export class OrbitTrack {
 
     }
 
+    showOrbit() {
+        this.displayed = true;
+        this.material.uniforms.upperBound.value = 0;
+        this.animate(false);
+        return this.getObject3D();
+    }
+
+    async hideOrbit(animate = false) {
+        this.displayed = false;
+        if (animate) {
+            await this.animate(true);
+            return this.getObject3D();
+        } else {
+            return this.getObject3D();
+        }
+    }
+
     computeOrbit(position, velocity) {
         // Helper functions
         const cross = (a, b) => {
@@ -248,32 +265,51 @@ export class OrbitTrack {
     }
 
     async animate(reverse = false) {
-        if (this.isAnimating) {
-            return; // Prevent multiple animations running simultaneously
+        const testState = reverse ? 1 : 2;
+        if (this.isAnimating > 0 && this.isAnimating !== testState) {
+            // animation state changed
+            this.forceAnimationStop = true;
+            await new Promise(resolve => setTimeout(resolve, 0));
+        } else if (this.isAnimating === testState) {
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
 
-        this.isAnimating = true;
+        // use a ternary -> 0 = not animating, 1 = reverse, 2 = forward
+        this.isAnimating = reverse ? 1 : 2;
+        this.forceAnimationStop = false;
         const startTime = performance.now();
-        const duration = 1000; // milliseconds
-        const startValue = reverse ? 0.75 : 0.0;
-        const endValue = reverse ? 0.0 : 0.75;
+        const fullDistance = 0.75;
+        const startValue = this.material.uniforms.upperBound.value;
+        const endValue = reverse ? 0.0 : fullDistance;
+
+        // overly complicated duration scaling to handle transient mouse hovers
+        const fullDuration = reverse ? 500 : 1000; // milliseconds
+        const duration = fullDuration * Math.abs(endValue - startValue) / fullDistance;
 
         return new Promise((resolve) => {
             const updateAnimation = () => {
+                if (this.forceAnimationStop) {
+                    this.isAnimating = 0;
+                    resolve();
+                    return;
+                }
                 const currentTime = performance.now();
                 const elapsed = currentTime - startTime;
 
                 if (elapsed >= duration) {
                     // Animation complete
                     this.material.uniforms.upperBound.value = endValue;
-                    this.isAnimating = false;
+                    this.isAnimating = 0;
                     resolve();
                     return;
                 }
 
                 // Calculate current value using easing function
                 const progress = elapsed / duration;
-                const easedProgress = this.easeInOutCubic(progress);
+                //const easedProgress = this.easeInOutCubic(progress);
+                const easedProgress = reverse ?
+                    1 - this.easeInOutCubic(1 - progress) :
+                    this.easeInOutCubic(progress);
                 this.material.uniforms.upperBound.value =
                     startValue + (endValue - startValue) * easedProgress;
 

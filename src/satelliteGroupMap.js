@@ -255,12 +255,18 @@ export class SatelliteGroupMap {
         // etGroup/etIid = event group / event instance id, used to diambiguate the arguments
         const group = this.map.get(etGroup);
         const options = { color: group.mesh.material.color };
-        group.orbitManager.addOrbitTrack(etIid, options);
+        group.orbitManager.showOrbit(etIid, options);
     }
 
     toggleOrbit(etGroup, etIid) {
         const group = this.map.get(etGroup);
         group.orbitManager.toggleOrbit(etIid);
+    }
+
+    async onMouseOff() {
+        for (const group of this.map.values()) {
+            await group.orbitManager.updateHover(null);
+        }
     }
 
     getSatellitePosVel(etGroup, etIid) {
@@ -278,9 +284,5 @@ export class SatelliteGroupMap {
         });
     }
 
-    async removeOrbits() {
-        for (const group of this.map.values()) {
-            await group.orbitManager.updateHover(null);
-        }
-    }
+
 }
