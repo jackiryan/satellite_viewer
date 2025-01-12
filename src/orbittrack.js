@@ -30,11 +30,12 @@ export class OrbitTrack {
             fragmentShader: `
                 varying float vDistance;
                 uniform vec3 color;
+                uniform float upperBound;  // Animated value
                 
                 void main() {
                     // Calculate opacity based on distance
                     // Fully opaque at start (0.0), transparent at halfway point (0.5)
-                    float opacity = 1.0 - smoothstep(0.0, 0.75, vDistance);
+                    float opacity = 1.0 - smoothstep(0.0, upperBound, vDistance);
                     
                     gl_FragColor = vec4(color, opacity);
                     #include <tonemapping_fragment>
@@ -43,7 +44,8 @@ export class OrbitTrack {
             `,
             uniforms: {
                 color: { value: new THREE.Color(this.color) },
-                startOffset: { value: 0.0 }
+                startOffset: { value: 0.0 },
+                upperBound: { value: 0.0 }
             },
             transparent: true,
             blending: THREE.AdditiveBlending,
@@ -165,6 +167,9 @@ export class OrbitTrack {
     }
 
     updateIndex(position) {
+        if (!this.displayed) {
+            return false;
+        }
         const indexResult = this.findClosestVertexIndex(position);
 
         // Update the shader's start offset
@@ -240,6 +245,50 @@ export class OrbitTrack {
     setColor(color) {
         this.color = color;
         this.material.uniforms.color.value.set(color);
+    }
+
+    async animate(reverse = false) {
+        if (this.isAnimating) {
+            return; // Prevent multiple animations running simultaneously
+        }
+
+        this.isAnimating = true;
+        const startTime = performance.now();
+        const duration = 1000; // milliseconds
+        const startValue = reverse ? 0.75 : 0.0;
+        const endValue = reverse ? 0.0 : 0.75;
+
+        return new Promise((resolve) => {
+            const updateAnimation = () => {
+                const currentTime = performance.now();
+                const elapsed = currentTime - startTime;
+
+                if (elapsed >= duration) {
+                    // Animation complete
+                    this.material.uniforms.upperBound.value = endValue;
+                    this.isAnimating = false;
+                    resolve();
+                    return;
+                }
+
+                // Calculate current value using easing function
+                const progress = elapsed / duration;
+                const easedProgress = this.easeInOutCubic(progress);
+                this.material.uniforms.upperBound.value =
+                    startValue + (endValue - startValue) * easedProgress;
+
+                // Request next frame
+                requestAnimationFrame(updateAnimation);
+            };
+
+            // Start animation loop
+            requestAnimationFrame(updateAnimation);
+        });
+    }
+
+    // Cubic easing function for smooth animation
+    easeInOutCubic(x) {
+        return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
     }
 }
 

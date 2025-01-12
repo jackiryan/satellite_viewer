@@ -278,9 +278,9 @@ export class SatelliteGroupMap {
         });
     }
 
-    removeOrbits() {
+    async removeOrbits() {
         for (const group of this.map.values()) {
-            group.orbitManager.updateHover(null);
+            await group.orbitManager.updateHover(null);
         }
     }
 }

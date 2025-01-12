@@ -17,9 +17,13 @@ export class OrbitManager {
             this.orbits.set(satId, orbit);
         } else {
             const orbit = this.orbits.get(satId);
-            this.scene.add(orbit.getObject3D());
-            orbit.displayed = true;
-            this.updateHover(satId);
+            if (!orbit.displayed) {
+                orbit.material.uniforms.upperBound.value = 0;
+                this.scene.add(orbit.getObject3D());
+                orbit.animate(false);
+                orbit.displayed = true;
+                this.updateHover(satId);
+            }
         }
     }
 
@@ -70,6 +74,7 @@ export class OrbitManager {
         this.updateHover(null);
         for (const orbit of this.orbits.values()) {
             orbit.displayed = false;
+            console.log(`hide ${satId}`);
             this.scene.remove(orbit.getObject3D());
         }
     }
