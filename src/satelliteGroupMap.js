@@ -1,10 +1,14 @@
 
 import * as THREE from 'three';
+import { OrbitTrack } from './orbitTrack';
 import Worker from './satelliteWorker.js?worker';
+import { OrbitManager } from './orbitManager';
+import { MessageBroker } from './messageBroker';
 
 export class SatelliteGroupMap {
-    constructor(scene, geo) {
+    constructor(scene, geo, layer) {
         this.scene = scene;
+        this.layer = layer;
 
         this.map = new Map();
 
@@ -17,11 +21,18 @@ export class SatelliteGroupMap {
         this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#c4a484' });
 
         this.worker = new Worker();
+        MessageBroker.getInstance().setWorker(this.worker);
         this.worker.onmessage = (event) => {
-            // The worker only ever posts a message when it starts the callback loop,
-            // so we can assume that event.data is always the group that was added
-            const url = event.data;
-            this.displayGroup(url);
+            // The worker posts a message when it starts the callback loop or when a
+            // specific satellite's current position and velocity are requested
+            if (event.data.type === 'eventLoopStarted') {
+                const url = event.data.payload;
+                this.displayGroup(url);
+            } else {
+                const posVel = event.data.payload;
+                const selectedGroup = this.map.get(posVel.group);
+                selectedGroup.orbitManager.updateOrbit(posVel.iid, posVel.position, posVel.velocity);
+            }
         }
     }
 
@@ -125,6 +136,7 @@ export class SatelliteGroupMap {
         }
         groupMesh.name = groupUrl;
         groupMesh.computeBoundingSphere();
+        groupMesh.layers.enable(this.layer);
         // frustum culling should be enabled by default for instanced meshes
         groupMesh.frustumCulled = false;
 
@@ -135,7 +147,8 @@ export class SatelliteGroupMap {
         this.map.set(groupUrl, {
             displayed: false,
             names: Object.keys(groupDb.entities),
-            mesh: groupMesh
+            mesh: groupMesh,
+            orbitManager: new OrbitManager(groupUrl, this.scene)
         });
 
         this.worker.postMessage({
@@ -178,7 +191,7 @@ export class SatelliteGroupMap {
     }
 
     displayGroup(groupUrl) {
-        if (!this.groupDisplayed(groupUrl)) { 
+        if (!this.groupDisplayed(groupUrl)) {
             this.worker.postMessage({
                 action: 'display',
                 data: { url: groupUrl }
@@ -188,6 +201,7 @@ export class SatelliteGroupMap {
             groupObj.mesh.instanceMatrix.needsUpdate = true;
             groupObj.mesh.computeBoundingSphere();
             this.scene.add(groupObj.mesh);
+            groupObj.orbitManager.showOrbits();
         }
     }
 
@@ -200,6 +214,7 @@ export class SatelliteGroupMap {
             const groupObj = this.map.get(groupUrl);
             groupObj.displayed = false;
             this.scene.remove(groupObj.mesh);
+            groupObj.orbitManager.hideOrbits();
         }
     }
 
@@ -207,6 +222,18 @@ export class SatelliteGroupMap {
         for (const group of this.map.values()) {
             if (group.displayed) {
                 group.mesh.instanceMatrix.needsUpdate = true;
+
+                // Update the nearest displayed segment in all currently displayed orbits
+                // this code should be in the OrbitManager, but I'm not sure how to do that cleanly
+                const satIds = group.orbitManager.orbits.keys();
+                const instanceMat = new THREE.Matrix4();
+                for (const satId of satIds) {
+                    const instanceNdx = satId;
+                    group.mesh.getMatrixAt(instanceNdx, instanceMat);
+                    const position = new THREE.Vector3();
+                    instanceMat.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
+                    group.orbitManager.updateOrbitIndex(satId, [position.x, position.y, position.z]);
+                }
             }
         }
     }
@@ -223,4 +250,39 @@ export class SatelliteGroupMap {
             action: 'reset'
         });
     }
+
+    addOrbit(etGroup, etIid) {
+        // etGroup/etIid = event group / event instance id, used to diambiguate the arguments
+        const group = this.map.get(etGroup);
+        const options = { color: group.mesh.material.color };
+        group.orbitManager.showOrbit(etIid, options);
+    }
+
+    toggleOrbit(etGroup, etIid) {
+        const group = this.map.get(etGroup);
+        group.orbitManager.toggleOrbit(etIid);
+    }
+
+    async onMouseOff() {
+        for (const group of this.map.values()) {
+            await group.orbitManager.updateHover(null);
+        }
+    }
+
+    getSatellitePosVel(etGroup, etIid) {
+        // etGroup/etIid = event group / event instance id, used to diambiguate the arguments
+        // coming from the event with the keys in the message data object
+        // We use this convoluted method of getting the position/velocity of a satellite because
+        // we don't want to desync timing, satellite transformations are all calculated in
+        // one class (and in the worker)
+        this.worker.postMessage({
+            action: 'getPosVel',
+            data: {
+                group: etGroup,
+                iid: etIid
+            }
+        });
+    }
+
+
 }
