@@ -12,6 +12,7 @@ import earthFragmentShader from './shaders/earth/earthFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
 import Stats from 'three/addons/libs/stats.module.js';
+import { HoverIntentHandler } from './hoverIntentHandler.js';
 
 let camera, controls, scene, renderer, stats;
 let earth, earthMaterial, atmosphere, atmosphereMaterial, skybox, groupMap;
@@ -237,22 +238,8 @@ async function initSatellites() {
     const defaultGroups = new Set(["Space Stations", "OneWeb"]);
     await populateButtonGroup(defaultGroups).then(() => {
         initSettingsMenu();
-        raycaster = new THREE.Raycaster();
-        raycaster.layers.set(interactiveLayer);
-        raycaster.params.Points.threshold = 5; // Increases hit area for Points
-        raycaster.params.Line.threshold = 5;   // Increases hit area for Lines
-        mouseMove = new THREE.Vector2();
-        mouseClick = new THREE.Vector2();
-        // Create an HTML element to display the name of a satellite on mouse hover
-        tooltip = document.createElement('div');
-        tooltip.className = 'tooltip';
-        tooltip.style.zIndex = 1;
-        mainElement.appendChild(tooltip);
-        // I saw pointermove in some threejs documentation, mousemove is equivalent
-        renderer.domElement.addEventListener('pointermove', async (e) => {
-            await onMouseMove(e);
-        }, false);
-        renderer.domElement.addEventListener('click', onClick);
+
+        const hoverHandler = new HoverIntentHandler(renderer, scene, camera, groupMap);
     });
 }
 
@@ -425,124 +412,6 @@ function onGroupDisplayed(event) {
 function onGroupHidden(event) {
     const groupUrl = event.detail;
     groupMap.hideGroup(groupUrl);
-}
-
-function checkIntersectionWithGrid(mouseX, mouseY, radius) {
-    const intersections = new Set();
-
-    const offsets = [-1, 0, 1]
-
-    // Cast rays in a small circle around the mouse point
-    for (let ndx = 0; ndx < 9; ndx++) {
-        const offsetX = radius * offsets[(ndx % 3)];
-        const offsetY = radius * offsets[Math.floor(ndx / 3)];
-
-        raycaster.setFromCamera(
-            {
-                x: mouseX + offsetX,
-                y: mouseY + offsetY
-            },
-            camera
-        );
-
-        const hits = raycaster.intersectObjects(scene.children, true);
-        const earthIntersect = hits.find(hit => hit.object.name === 'earth');
-        const earthDistance = earthIntersect ? earthIntersect.distance + 10 : Infinity;
-        hits.forEach(hit => {
-            if (hit.distance < earthDistance && hit.object.name !== 'earth') {
-                intersections.add(hit);
-            }
-        });
-    }
-
-    return Array.from(intersections);
-}
-
-
-/* Other event handlers */
-async function onMouseMove(event) {
-    event.preventDefault();
-    // Update the mouse variable
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouseMove.x = ((event.clientX - rect.left) / (rect.right - rect.left)) * 2 - 1;
-    mouseMove.y = -((event.clientY - rect.top) / (rect.bottom - rect.top)) * 2 + 1;
-
-    // Update the raycaster with the camera and mouse position
-    raycaster.setFromCamera(mouseMove, camera);
-
-    // Calculate objects intersecting the raycaster
-    var intersects = raycaster.intersectObjects(scene.children, true);
-
-    //const mouseRadius = 0.005;
-    //var intersects = checkIntersectionWithGrid(mouseMove.x, mouseMove.y, mouseRadius);
-
-    if (intersects.length > 0 && intersects[0].object.name !== 'earth') {
-        //if (intersects.length > 0) {
-        const intersectedObject = intersects[0].object;
-        // Show tooltip with the name
-        const groupName = intersectedObject.name;
-        const satId = intersects[0].instanceId;
-        const satelliteName = groupMap.map.get(groupName).names[satId];
-        updateTooltip(satelliteName, event.clientX, event.clientY);
-        groupMap.addOrbit(groupName, satId);
-    } else {
-        // Hide the tooltip & clear hover state
-        tooltip.style.display = 'none';
-        await groupMap.onMouseOff();
-    }
-}
-
-function onClick(event) {
-    event.preventDefault();
-
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouseClick.x = ((event.clientX - rect.left) / (rect.right - rect.left)) * 2 - 1;
-    mouseClick.y = -((event.clientY - rect.top) / (rect.bottom - rect.top)) * 2 + 1;
-
-    // Update the raycaster with the camera and mouse position
-    raycaster.setFromCamera(mouseClick, camera);
-
-    // Calculate objects intersecting the raycaster
-    var intersects = raycaster.intersectObjects(scene.children, true);
-    if (intersects.length > 0 && intersects[0].object.name !== 'earth') {
-        const intersectedObject = intersects[0].object;
-        const groupName = intersectedObject.name;
-        const satId = intersects[0].instanceId;
-        groupMap.toggleOrbit(groupName, satId);
-    }
-}
-
-function updateTooltip(text, x, y) {
-    const tooltipWidth = tooltip.offsetWidth;
-    const tooltipHeight = tooltip.offsetHeight;
-    const spaceRight = window.innerWidth - x - 10;
-    const spaceBottom = window.innerHeight - y - 10;
-    let isLeft = false;
-    if (spaceRight < tooltipWidth) {
-        // display to the left of the cursor
-        tooltip.style.left = `${x - tooltipWidth - 10}px`;
-        tooltip.style.borderRadius = '3px 0px 3px 3px';
-        isLeft = true;
-    } else {
-        // display to the right of the cursor (default)
-        tooltip.style.left = `${x + 10}px`;
-        tooltip.style.borderRadius = '0px 3px 3px 3px';
-    }
-    if (spaceBottom < tooltipHeight) {
-        // display above the cursor, and use a different pointy corner
-        // if also displaying to the left
-        tooltip.style.top = `${y - tooltipHeight - 10}px`;
-        if (isLeft) {
-            tooltip.style.borderRadius = '3px 3px 0px 3px';
-        } else {
-            tooltip.style.borderRadius = '3px 3px 3px 0px';
-        }
-    } else {
-        // display below the cursor (default)
-        tooltip.style.top = `${y + 10}px`;
-    }
-    tooltip.innerHTML = text;
-    tooltip.style.display = 'block';
 }
 
 function fitCameraToObject(camera, object, offset) {

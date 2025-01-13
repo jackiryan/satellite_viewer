@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "lil-gui": "^0.19.2",
+    "lodash": "^4.17.21",
     "satellite.js": "^5.0.0",
     "three": "^0.167.1",
     "vite-plugin-glsl": "^1.3.0",

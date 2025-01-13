@@ -1,5 +1,6 @@
 import { MessageBroker } from './messageBroker';
 import { OrbitTrack } from './orbitTrack';
+import _ from 'lodash';
 
 export class OrbitManager {
     constructor(group, scene) {
@@ -9,6 +10,7 @@ export class OrbitManager {
         this.orbits = new Map(); // Store active orbits by satellite name
         this.currentHover = null; // Track currently hovered satellite
         this.displayed = false;
+        this.updateOrbit
     }
 
     showOrbit(satId, options = {}) {
@@ -16,13 +18,13 @@ export class OrbitManager {
             // If the orbit has never been shown before, initialize it
             const orbit = new OrbitTrack(options);
             this.orbits.set(satId, orbit);
+            this.scene.add(orbit.showOrbit());
+            this.updateHover(satId);
         } else if (!this.orbits.get(satId).displayed) {
             // Otherwise, add the orbit to the scene and play its animation
             const orbit = this.orbits.get(satId);
             this.scene.add(orbit.showOrbit());
             // update the currently hovered satellite
-            this.updateHover(satId);
-        } else {
             this.updateHover(satId);
         }
     }
@@ -53,12 +55,6 @@ export class OrbitManager {
         if (this.orbits.has(satId)) {
             const orbit = this.orbits.get(satId);
             orbit.updateOrbit(position, velocity);
-            // rough proxy for checking that the orbit is being
-            // displayed for the first time.
-            if (!orbit.displayed && this.displayed) {
-                this.scene.add(orbit.showOrbit());
-                //this.updateHover(satId);
-            }
         }
     }
 
@@ -77,7 +73,6 @@ export class OrbitManager {
         // needsUpdate flips to true when distance squared error goes
         // above a distance-scaled epsilon value
         if (needsUpdate) {
-            // console.log(`Recomputing orbit ${satId}`);
             MessageBroker.getInstance().getPosVel(this.group, satId);
         }
     }
@@ -86,7 +81,7 @@ export class OrbitManager {
         if (this.orbits.has(satId)) {
             const persistState = this.orbits.get(satId).persist;
             this.orbits.get(satId).persist = !persistState;
-            //this.updateHover(satId);
+            this.updateHover(satId);
         }
     }
 
@@ -116,5 +111,9 @@ export class OrbitManager {
 
         // Update current hover
         this.currentHover = satId;
+    }
+
+    satDisplayed(satId) {
+        return this.orbits.get(satId).displayed;
     }
 }

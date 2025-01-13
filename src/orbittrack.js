@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 
 const defaultEps = 0.002;
-const scaleRadius = 5.3 ** 2;
+const scaleRadius = Math.pow(5.3, 2);
 
 export class OrbitTrack {
     constructor(options = {}) {
@@ -135,6 +135,7 @@ export class OrbitTrack {
         // Step 9: Generate points along the orbit
         let positions = this.positions;
         let index = 0;
+        let maxDistance = 0;
         for (let j = 0; j <= this.numPoints; j++) {
             let theta = (j / this.numPoints) * 2 * Math.PI;
 
@@ -168,12 +169,15 @@ export class OrbitTrack {
             positions[index++] = positionOrbitPlane.x;
             positions[index++] = positionOrbitPlane.y;
             positions[index++] = positionOrbitPlane.z;
+            if (positionOrbitPlane.length() > maxDistance) {
+                maxDistance = positionOrbitPlane.length();
+            }
         }
 
         // Update the geometry
         this.geometry.attributes.position.needsUpdate = true;
         this.geometry.computeBoundingSphere();
-        this.epsilon = defaultEps * mag([positions[0], positions[1], positions[2]]) / scaleRadius;
+        this.epsilon = defaultEps * Math.pow(maxDistance, 2) / scaleRadius;
     }
 
     updateOrbit(position, velocity) {
@@ -271,7 +275,7 @@ export class OrbitTrack {
             this.forceAnimationStop = true;
             await new Promise(resolve => setTimeout(resolve, 0));
         } else if (this.isAnimating === testState) {
-            await new Promise(resolve => setTimeout(resolve, 0));
+            return;
         }
 
         // use a ternary -> 0 = not animating, 1 = reverse, 2 = forward

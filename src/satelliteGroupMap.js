@@ -1,6 +1,6 @@
 
 import * as THREE from 'three';
-import { OrbitTrack } from './orbitTrack';
+//import { OrbitTrack } from './orbitTrack';
 import Worker from './satelliteWorker.js?worker';
 import { OrbitManager } from './orbitManager';
 import { MessageBroker } from './messageBroker';
@@ -228,11 +228,16 @@ export class SatelliteGroupMap {
                 const satIds = group.orbitManager.orbits.keys();
                 const instanceMat = new THREE.Matrix4();
                 for (const satId of satIds) {
-                    const instanceNdx = satId;
-                    group.mesh.getMatrixAt(instanceNdx, instanceMat);
-                    const position = new THREE.Vector3();
-                    instanceMat.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
-                    group.orbitManager.updateOrbitIndex(satId, [position.x, position.y, position.z]);
+                    if (group.orbitManager.satDisplayed(satId)) {
+                        const instanceNdx = satId;
+                        group.mesh.getMatrixAt(instanceNdx, instanceMat);
+                        const position = new THREE.Vector3();
+                        instanceMat.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
+                        group.orbitManager.updateOrbitIndex(satId, [position.x, position.y, position.z]);
+                    } else {
+                        continue;
+                    }
+
                 }
             }
         }
@@ -254,6 +259,9 @@ export class SatelliteGroupMap {
     addOrbit(etGroup, etIid) {
         // etGroup/etIid = event group / event instance id, used to diambiguate the arguments
         const group = this.map.get(etGroup);
+        if (group.orbitManager.currentHover !== etIid) {
+            group.orbitManager.updateHover(etIid);
+        }
         const options = { color: group.mesh.material.color };
         group.orbitManager.showOrbit(etIid, options);
     }
