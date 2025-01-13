@@ -23,6 +23,11 @@ const scaleFactor = 5 / 6371;
 // scene radius follows a square root relationship with km/s -> u/s conversion
 const velScale = Math.sqrt(5) * 7.91;
 
+// maximum allowed instantaneous velocity from satellite.js
+// sometimes TLEs are invalid and describe non-physical orbits,
+// this heuristic is intended to catch that.
+const velMax = 11.2; // km/s
+
 
 // millis since start of Unix epoch at the time the worker is started, used to
 // compute the elapsedTime
@@ -128,6 +133,13 @@ function updatePositions() {
                     const deltaVelEci = deltaPosVel.velocity;
                     const velocity = [-deltaVelEci.x, -deltaVelEci.z, deltaVelEci.y];
                     const velMag = mag(velocity);
+
+                    // check that velocity is physically possible for an earth-orbiting satellite
+                    if (velMag > velMax) {
+                        // won't actually go to console.error, but it's still nice to include a message
+                        throw new Error('Velocity magnitude exceeds limits!');
+                    }
+
                     const velDir = [velocity[0] / velMag, velocity[1] / velMag, velocity[2] / velMag];
                     const xVelMag = Math.sqrt(velDir[2] * velDir[2] + velDir[0] * velDir[0]);
                     const xVelDir = [-velDir[2] / xVelMag, 0.0, velDir[0] / xVelMag];

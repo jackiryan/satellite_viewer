@@ -38,7 +38,7 @@
     "gpName": "planet",
     "country": "planet",
     "baseColor": "#029da4",
-    "count": 120,
+    "count": 113,
     "entities": "./groups/planet.json"
   },
   "Space Stations": {
@@ -57,37 +57,37 @@
     "gpName": "oneweb",
     "country": "gb",
     "baseColor": "#fa1b1b",
-    "count": 631,
+    "count": 651,
     "entities": "./groups/oneweb.json"
   },
   "Weather": {
     "gpName": "weather",
     "baseColor": "#1bf91b",
-    "count": 73,
+    "count": 71,
     "entities": "./groups/weather.json"
   },
   "Starlink": {
     "gpName": "starlink",
     "country": "us",
     "baseColor": "#6b6b6b",
-    "count": 6416,
+    "count": 6849,
     "entities": "./groups/starlink.json"
   },
   "Telesat": {
     "gpName": "telesat",
     "country": "ca",
     "baseColor": "#ffe203",
-    "count": 20,
+    "count": 19,
     "entities": "./groups/telesat.json"
   },
   "Active": {
     "gpName": "active",
-    "count": 2794,
+    "count": 2854,
     "baseColor": "#1b1bf9",
     "entities": "./groups/active.json"
   },
   "Debris": {
-    "count": 16331,
+    "count": 16336,
     "entities": "./groups/debris.json"
   }
 }

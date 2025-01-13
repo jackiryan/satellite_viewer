@@ -1,5 +1,5 @@
 import { MessageBroker } from './messageBroker';
-import { OrbitTrack } from './orbitTrack';
+import { OrbitTrack } from './orbittrack';
 import _ from 'lodash';
 
 export class OrbitManager {
