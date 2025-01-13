@@ -287,7 +287,7 @@ export class OrbitTrack {
         const endValue = reverse ? 0.0 : fullDistance;
 
         // overly complicated duration scaling to handle transient mouse hovers
-        const fullDuration = reverse ? 500 : 1000; // milliseconds
+        const fullDuration = reverse ? 100 : 250; // milliseconds
         const duration = fullDuration * Math.abs(endValue - startValue) / fullDistance;
 
         return new Promise((resolve) => {
