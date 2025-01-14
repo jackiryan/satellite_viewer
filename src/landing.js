@@ -41,7 +41,7 @@ const sceneBoundingBox = new THREE.Box3(
     new THREE.Vector3(100 + 0.5 * earthParameters.radius, 10, 5)
 );
 
-await init().then( async () => {
+await init().then(async () => {
     await initSky({ sceneObj: scene }).then((sky) => {
         skybox = sky;
     });
@@ -54,7 +54,7 @@ async function init() {
     camera.position.x = -25;
     fitCameraToBbox(camera, sceneBoundingBox, 1.8 / camera.aspect);
     camera.rotation.y = -Math.PI;
-    
+
     const canvas = document.querySelector('#webgl-canvas');
     renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
     renderer.setClearColor(0x000000);
@@ -68,6 +68,7 @@ async function init() {
     scene.add(ambientLight);
 
     const imageLoader = new THREE.ImageBitmapLoader();
+    imageLoader.setCrossOrigin('anonymous'); // required due to the COEP
     imageLoader.setOptions({ imageOrientation: 'flipY' });
     /* Earth */
     // Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
@@ -83,69 +84,69 @@ async function init() {
         './EarthSpec_2048x1024.avif'
     ];
     // the textured globe will fail to load if the imageLoader fails to resolve
-    Promise.all(earthImageUrls.map( (url) => {
-            return new Promise((resolve, reject) => {
-                imageLoader.load(
-                    url,
-                    image => {
-                        resolve(new THREE.CanvasTexture(image));
-                    },
-                    undefined,
-                    error => {
-                        reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
-                    }
-                );
-            });
-        })).then((textures) => {
-            for (let i = 0; i < textures.length - 1; i++) {
-                textures[i].colorSpace = THREE.SRGBColorSpace;
-                textures[i].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-            }
-
-            // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
-            // I am only using the first two for this value since Astronomical Twilight is essentially night
-            const twilightAngle = 12.0 * Math.PI / 180.0;
-
-            // Shader material can only be created after all three textures have loaded
-            earthMaterial = new THREE.ShaderMaterial({
-                uniforms: {
-                    dayTexture: new THREE.Uniform(textures[0]),
-                    nightTexture: new THREE.Uniform(textures[1]),
-                    specularMapTexture: new THREE.Uniform(textures[2]),
-                    sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                    twilightAngle: new THREE.Uniform(twilightAngle),
-                    dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
-                    twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor))
+    Promise.all(earthImageUrls.map((url) => {
+        return new Promise((resolve, reject) => {
+            imageLoader.load(
+                url,
+                image => {
+                    resolve(new THREE.CanvasTexture(image));
                 },
-                vertexShader: earthVertexShader,
-                fragmentShader: earthFragmentShader
-            });
+                undefined,
+                error => {
+                    reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
+                }
+            );
+        });
+    })).then((textures) => {
+        for (let i = 0; i < textures.length - 1; i++) {
+            textures[i].colorSpace = THREE.SRGBColorSpace;
+            textures[i].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+        }
 
-            earth = new THREE.Mesh(earthGeometry, earthMaterial);
-            scene.remove(tempearth);
-            scene.add(earth);
+        // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
+        // I am only using the first two for this value since Astronomical Twilight is essentially night
+        const twilightAngle = 12.0 * Math.PI / 180.0;
 
-            /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
-            const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
-            atmosphereMaterial = new THREE.ShaderMaterial({
-                vertexShader: atmosphereVertexShader,
-                fragmentShader: atmosphereFragmentShader,
-                uniforms:
-                {
-                    sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                    dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
-                    twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor)),
-                    twilightAngle: new THREE.Uniform(twilightAngle),
-                },
-                side: THREE.BackSide,
-                transparent: true
-            });
-            atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-            scene.add(atmosphere);
+        // Shader material can only be created after all three textures have loaded
+        earthMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                dayTexture: new THREE.Uniform(textures[0]),
+                nightTexture: new THREE.Uniform(textures[1]),
+                specularMapTexture: new THREE.Uniform(textures[2]),
+                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
+                twilightAngle: new THREE.Uniform(twilightAngle),
+                dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
+                twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor))
+            },
+            vertexShader: earthVertexShader,
+            fragmentShader: earthFragmentShader
+        });
 
-            // Refer back to definition of gmst if you are confused
-            earth.rotation.y = gmst;
-            atmosphere.rotation.y = gmst;
+        earth = new THREE.Mesh(earthGeometry, earthMaterial);
+        scene.remove(tempearth);
+        scene.add(earth);
+
+        /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
+        const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
+        atmosphereMaterial = new THREE.ShaderMaterial({
+            vertexShader: atmosphereVertexShader,
+            fragmentShader: atmosphereFragmentShader,
+            uniforms:
+            {
+                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
+                dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
+                twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor)),
+                twilightAngle: new THREE.Uniform(twilightAngle),
+            },
+            side: THREE.BackSide,
+            transparent: true
+        });
+        atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+        scene.add(atmosphere);
+
+        // Refer back to definition of gmst if you are confused
+        earth.rotation.y = gmst;
+        atmosphere.rotation.y = gmst;
     });
 }
 

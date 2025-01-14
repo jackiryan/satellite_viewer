@@ -31,6 +31,7 @@ export class Sky extends THREE.Mesh {
         // the position of the stars.
         this.scale.setScalar(450000);
         this.loader = new THREE.ImageBitmapLoader();
+        this.loader.setCrossOrigin('anonymous'); // required due to the COEP
         // although the shader flips Y again, the juice was not worth the squeeze on trying
         // to optimize out the webgl call to flipY
         this.loader.setOptions({ imageOrientation: 'flipY' });

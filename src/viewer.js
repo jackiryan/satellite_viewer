@@ -120,6 +120,7 @@ async function init() {
     });
 
     const imageLoader = new THREE.ImageBitmapLoader();
+    imageLoader.setCrossOrigin('anonymous'); // required due to the COEP
     imageLoader.setOptions({ imageOrientation: 'flipY' });
     /* Earth */
     // Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
