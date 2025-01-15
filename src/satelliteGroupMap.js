@@ -46,7 +46,6 @@ export class SatelliteGroupMap {
         const response = await fetch(indexUrl, {
             method: 'GET',
             credentials: 'include',
-            mode: 'no-cors',
         });
         const indexDb = await response.json();
         for (const group of Object.values(indexDb)) {
@@ -80,7 +79,6 @@ export class SatelliteGroupMap {
         const response = await fetch(indexUrl, {
             method: 'GET',
             credentials: 'include',
-            mode: 'no-cors',
         });
         const indexDb = await response.json();
         let groupObj;
@@ -162,7 +160,6 @@ export class SatelliteGroupMap {
             const response = await fetch(entitiesUrl, {
                 method: 'GET',
                 credentials: 'include',
-                mode: 'no-cors',
             });
             if (!response.ok) {
                 throw new Error(`Network response was not ok: ${response.statusText}`);

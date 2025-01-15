@@ -15,7 +15,6 @@ export async function populateButtonGroup(defaultGroups) {
     const response = await fetch(dbUrl, {
         method: 'GET',
         credentials: 'include',
-        mode: 'no-cors',
     });
     const satDb = await response.json();
 
