@@ -78,10 +78,11 @@ async function init() {
     scene.add(tempearth);
 
     // Textures - these are probably oversized for the context, but can be optimized later if needed
+    const baseUrl = window.location.origin;
     const earthImageUrls = [
-        './BlueMarble_2048x1024.avif',
-        './BlackMarble_2048x1024.avif',
-        './EarthSpec_2048x1024.avif'
+        `${baseUrl}/BlueMarble_2048x1024.avif`,
+        `${baseUrl}/BlackMarble_2048x1024.avif`,
+        `${baseUrl}/EarthSpec_2048x1024.avif`
     ];
     // the textured globe will fail to load if the imageLoader fails to resolve
     Promise.all(earthImageUrls.map((url) => {

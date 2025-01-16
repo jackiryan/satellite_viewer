@@ -147,9 +147,10 @@ export async function initSky({ sceneObj, stars = true, guiObj = undefined } = {
     // This function is needed because asynchronous texture loading should generally occur
     // outside of the constructor for an object. In previous iterations, it was also sometimes
     // desired to compare between using a cubemap and equirectangular map for testing.
+    const baseUrl = window.location.origin;
     const textureUrls = [
-        './skybox/StarData_1024x1024_16bit.png',
-        './skybox/milkyway_2020_1024x512.avif'
+        `${baseUrl}/skybox/StarData_1024x1024_16bit.png`,
+        `${baseUrl}/skybox/milkyway_2020_1024x512.avif`
     ];
     const skybox = new Sky();
     sceneObj.add(skybox);

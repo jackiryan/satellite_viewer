@@ -5,10 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="description" content="Satellite Viewer">
-    <meta name="keywords" content="Three.js, WebGL, satellite visualization, 3D orbit viewer, immersive 3D, data visualization, NASA JPL, data scientist, data visualization developer, satellite tracking, space visualization, interactive space simulation, satellite orbits, WebGL shaders, 3D rendering, JavaScript, NASA developer, data science, satellite data, real-time 3D visualization, space technology">
+    <meta name="keywords"
+        content="Three.js, WebGL, satellite visualization, 3D orbit viewer, immersive 3D, data visualization, NASA JPL, data scientist, data visualization developer, satellite tracking, space visualization, interactive space simulation, satellite orbits, WebGL shaders, 3D rendering, JavaScript, NASA developer, data science, satellite data, real-time 3D visualization, space technology">
     <meta name="author" content="Jacqueline Ryan">
     <meta name="robots" content="index, follow">
-    <title>Satellite Viewer  |  jackiepi.xyz</title>
+    <title>Satellite Viewer | jackiepi.xyz</title>
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
@@ -16,20 +17,24 @@
     <link rel="prefetch" href="./fonts/AudioLinkMono-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <link rel="prefetch" href="./fonts/AudioLinkMono-Light.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <style>
-        body, html {
+        body,
+        html {
             margin: 0;
             padding: 0;
             font-family: 'AudioLink Mono', monospace;
             background-color: #0e1118;
         }
+
         header {
             display: flex;
             border-bottom: 0.125rem solid #202632;
             height: 50px;
         }
+
         .hidden {
             display: none;
         }
+
         .menu-toggle {
             background-color: #202632;
             position: relative;
@@ -43,14 +48,17 @@
             height: 1.5rem;
             border-radius: 0 0 1.5rem 1.5rem;
         }
+
         .clock {
             text-align: right;
             user-select: none;
             padding-left: 0rem;
         }
+
         #clock-time {
             margin-left: 0.5rem;
         }
+
         .bold {
             font-weight: 700;
             font-size: large;
@@ -64,9 +72,9 @@
     <link rel="preload" href="./EarthSpec_2048x1024.avif" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./groups/index.json" as="fetch" type="application/json">
-    <link rel="preload" href="./groups/stations.json" as="fetch" type="application/json">
-    <link rel="preload" href="./groups/oneweb.json" as="fetch" type="application/json">
+    <link rel="preload" href="./groups/index.json" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./groups/stations.json" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./groups/oneweb.json" as="fetch" crossorigin="anonymous">
     <script type="module" src="./viewer.js" defer></script>
     <script type="module" src="./skybox.js" defer></script>
     <meta property="og:title" content="Satellite Viewer">

@@ -34,6 +34,7 @@ export class Sky extends THREE.Mesh {
         // the position of the stars.
         this.scale.setScalar(450000);
         this.loader = new THREE.ImageBitmapLoader();
+        this.loader.setCrossOrigin('anonymous'); // required due to the COEP
         // although the shader flips Y again, the juice was not worth the squeeze on trying
         // to optimize out the webgl call to flipY
         this.loader.setOptions({ imageOrientation: 'flipY' });
@@ -153,10 +154,11 @@ export async function initSky({ sceneObj, stars = true, guiObj = undefined } = {
     // This function is needed because asynchronous texture loading should generally occur
     // outside of the constructor for an object. In previous iterations, it was also sometimes
     // desired to compare between using a cubemap and equirectangular map for testing.
+    const baseUrl = window.location.origin;
     const textureUrls = [
-        './skybox/StarData_1024x1024_16bit.png',
-        './skybox/2_Tmap8bit.png',
-        './skybox/milkyway_2020_1024x512.avif'
+        `${baseUrl}/skybox/StarData_1024x1024_16bit.png`,
+        `${baseUrl}/skybox/2_Tmap8bit.png`,
+        `${baseUrl}/skybox/milkyway_2020_1024x512.avif`
     ];
     const skybox = new Sky();
     sceneObj.add(skybox);

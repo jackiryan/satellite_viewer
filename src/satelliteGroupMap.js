@@ -43,10 +43,7 @@ export class SatelliteGroupMap {
     async toggleAllGroups(isShow) {
         // isShow => should all groups be shown? If false, hide all
         const indexUrl = './groups/index.json';
-        const response = await fetch(indexUrl, {
-            method: 'GET',
-            credentials: 'include',
-        });
+        const response = await fetch(indexUrl);
         const indexDb = await response.json();
         for (const group of Object.values(indexDb)) {
             const groupUrl = group.entities;
@@ -76,10 +73,7 @@ export class SatelliteGroupMap {
         // see buttonGroup.js:populateButtonGroup, maybe buttonGroup should send the count
         // and color info in the event?
         const indexUrl = './groups/index.json';
-        const response = await fetch(indexUrl, {
-            method: 'GET',
-            credentials: 'include',
-        });
+        const response = await fetch(indexUrl);
         const indexDb = await response.json();
         let groupObj;
         for (const group of Object.values(indexDb)) {
@@ -157,10 +151,7 @@ export class SatelliteGroupMap {
 
     async fetchEntities(entitiesUrl) {
         try {
-            const response = await fetch(entitiesUrl, {
-                method: 'GET',
-                credentials: 'include',
-            });
+            const response = await fetch(entitiesUrl);
             if (!response.ok) {
                 throw new Error(`Network response was not ok: ${response.statusText}`);
             }

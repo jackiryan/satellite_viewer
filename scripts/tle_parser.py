@@ -261,7 +261,6 @@ def parse_tle(
     group_data: dict[str, list[int]],
     workdir: pathlib.Path | None,
     one_file: bool,
-    is_dev: bool,
 ) -> None:
     lines = infile.read_text().splitlines()
     workdir = workdir or pathlib.Path.cwd()
@@ -277,7 +276,7 @@ def parse_tle(
         if one_file:
             write_one_file(infile, workdir)
         else:
-            write_group_files(workdir, is_dev)
+            write_group_files(workdir)
     except Exception as e:
         logging.error(f"Error writing satellite database: {e}")
         logging.debug("Satellite database is as follows:")
@@ -285,7 +284,7 @@ def parse_tle(
         raise e
 
 
-def write_group_files(workdir: pathlib.Path, is_dev: bool) -> None:
+def write_group_files(workdir: pathlib.Path) -> None:
     # Write index.json which will be used to find uris to other group json files
     index_file = workdir / "index.json"
     group_index = deepcopy(satellite_groups)
@@ -294,10 +293,7 @@ def write_group_files(workdir: pathlib.Path, is_dev: bool) -> None:
         outfile = workdir / f"{gp_name}.json"
         outfile.write_text(json.dumps(v, indent=2))
         # Replace the entities tag in the group_index with the uri to the group json
-        if is_dev:
-            group_index[k]["entities"] = f"./groups/{gp_name}.json"
-        else:
-            group_index[k]["entities"] = f"https://jackiepi.xyz/groups/{gp_name}.json"
+        group_index[k]["entities"] = f"/groups/{gp_name}.json"
     index_file.write_text(json.dumps(group_index, indent=2))
 
 
@@ -328,11 +324,6 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Store output to a single file instead of one group",
     )
-    parser.add_argument(
-        "--dev",
-        action="store_true",
-        help="Use relative urls for groups in index.json (for dev)",
-    )
     return parser
 
 
@@ -348,9 +339,7 @@ def main() -> None:
     args = parser.parse_args()
 
     group_data = download_group_files()
-    parse_tle(
-        args.infile, args.catalog, group_data, args.workdir, args.one_file, args.dev
-    )
+    parse_tle(args.infile, args.catalog, group_data, args.workdir, args.one_file)
 
 
 if __name__ == "__main__":

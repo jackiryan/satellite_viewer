@@ -133,16 +133,17 @@ async function init() {
     // Textures - Use a low resolution version on mobile devices. Other than the obvious benefit
     // of improving performance, it can sometimes happen that the creation of a webgl context fails
     // on lower-end mobile devices when decompressing 8k textures. 
+    const baseUrl = window.location.origin;
     let earthImageUrls = [
-        './BlueMarble_2048x1024.avif',
-        './BlackMarble_2048x1024.avif',
-        './EarthSpec_2048x1024.avif'
+        `${baseUrl}/BlueMarble_2048x1024.avif`,
+        `${baseUrl}/BlackMarble_2048x1024.avif`,
+        `${baseUrl}/EarthSpec_2048x1024.avif`
     ];
     if (!window.mobileAndTabletCheck()) {
         earthImageUrls = [
-            './BlueMarble_8192x4096.avif',
-            './BlackMarble_8192x4096.avif',
-            './EarthSpec_2048x1024.avif'
+            `${baseUrl}/BlueMarble_8192x4096.avif`,
+            `${baseUrl}/BlackMarble_8192x4096.avif`,
+            `${baseUrl}/EarthSpec_2048x1024.avif`
         ];
     }
 
@@ -156,6 +157,12 @@ async function init() {
                 },
                 undefined,
                 error => {
+                    console.error('Detailed error info:', {
+                        url: url,
+                        error: error,
+                        message: error.message,
+                        type: error.type
+                    });
                     reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
                 }
             );
