@@ -5,7 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="description" content="Personal website of Jacqueline Ryan, a data visualization developer at NASA JPL.">
-    <meta name="keywords" content="Three.js, WebGL, satellite visualization, 3D orbit viewer, immersive 3D, data visualization, NASA JPL, data scientist, data visualization developer, satellite tracking, space visualization, interactive space simulation, satellite orbits, WebGL shaders, 3D rendering, JavaScript, NASA developer, data science, satellite data, real-time 3D visualization, space technology">
+    <meta name="keywords"
+        content="Three.js, WebGL, satellite visualization, 3D orbit viewer, immersive 3D, data visualization, NASA JPL, data scientist, data visualization developer, satellite tracking, space visualization, interactive space simulation, satellite orbits, WebGL shaders, 3D rendering, JavaScript, NASA developer, data science, satellite data, real-time 3D visualization, space technology">
     <meta name="author" content="Jacqueline Ryan">
     <meta name="robots" content="index, follow">
     <title>Jacqueline Ryan | jackiepi.xyz</title>
@@ -18,14 +19,20 @@
     <link rel="stylesheet" href="/css/fonts.css">
     <link rel="stylesheet" href="/css/landing.css">
     <!--images are preloaded as fetch instead of as image to comply with ImageBitmapLoader-->
-    <link rel="preload" href="./BlueMarble_2048x1024.avif" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./BlackMarble_2048x1024.avif" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./EarthSpec_2048x1024.avif" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./BlueMarble_8192x4096.avif" as="image" type="image/avif" crossorigin="anonymous">
+    <link rel="preload" href="./BlackMarble_8192x4096.avif" as="image" type="image/avif" crossorigin="anonymous">
+    <link rel="preload" href="./EarthSpec_2048x1024.avif" as="image" type="image/avif" crossorigin="anonymous">
+    <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="image" type="image/avif"
+        crossorigin="anonymous">
+    <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="image" type="image/png"
+        crossorigin="anonymous">
+    <link rel="preload" href="./groups/index.json" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./groups/stations.json" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./groups/oneweb.json" as="fetch" crossorigin="anonymous">
     <script type="module" src="./landing.js" defer></script>
     <meta property="og:title" content="Jacqueline Ryan">
-    <meta property="og:description" content="Personal website of Jacqueline Ryan, a data visualization developer at NASA JPL.">
+    <meta property="og:description"
+        content="Personal website of Jacqueline Ryan, a data visualization developer at NASA JPL.">
     <meta property="og:image" content="https://jackiepi.xyz/preview_image.jpg">
     <meta property="og:url" content="https://jackiepi.xyz">
     <meta property="og:type" content="website">
@@ -43,12 +50,19 @@
                         <img src="./jackiepi_portrait.jpg" alt="Jacqueline Ryan">
                     </div>
                     <div id="right-column-card">
-                        <a aria-label="Satellite Demo" href="/satellites.html" class="main-button">View Satellite Demo</a>
+                        <a aria-label="Satellite Demo" href="/satellites.html" class="main-button">View Satellite
+                            Demo</a>
                         <a aria-label="Star Map" href="/nightsky.html" class="main-button">View Star Map Demo</a>
-                        <a aria-label="Resume" href="/JacquelineRyan_Resume.pdf" target="_blank" class="main-button">Download Resume</a>
+                        <a aria-label="Resume" href="/JacquelineRyan_Resume.pdf" target="_blank"
+                            class="main-button">Download Resume</a>
                     </div>
                 </div>
-                <p>Hi! I’m Jacqueline Ryan, a Data Visualization Developer at NASA’s Jet Propulsion Laboratory in Los Angeles, California. My work blends software engineering, data science, and spacecraft operations to create interactive visualizations of science data. Over the years, I’ve worked on a number of NASA missions, including the Mars Perseverance and Curiosity Rovers, Cassini Orbiter, and various Earth-observing spectroscopy experiments. If you’d like to get in touch, please email me at: <a href="mailto:jacquiepi@protonmail.com">jacquiepi@protonmail.com</a></p>
+                <p>Hi! I’m Jacqueline Ryan, a Data Visualization Developer at NASA’s Jet Propulsion Laboratory in Los
+                    Angeles, California. My work blends software engineering, data science, and spacecraft operations to
+                    create interactive visualizations of science data. Over the years, I’ve worked on a number of NASA
+                    missions, including the Mars Perseverance and Curiosity Rovers, Cassini Orbiter, and various
+                    Earth-observing spectroscopy experiments. If you’d like to get in touch, please email me at: <a
+                        href="mailto:jacquiepi@protonmail.com">jacquiepi@protonmail.com</a></p>
             </div>
         </div>
         <canvas id="webgl-canvas"></canvas>

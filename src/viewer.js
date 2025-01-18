@@ -54,10 +54,14 @@ const interactiveLayer = 1;
 
 // Taken from this very popular stackoverflow thread: https://stackoverflow.com/questions/11381673/detecting-a-mobile-browser
 // no I do not intend to support iemobile or blackberry, but it doesn't hurt anything to have them in there.
-window.mobileAndTabletCheck = function () {
-    let check = false;
-    (function (a) { if (/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino|android|ipad|playbook|silk/i.test(a) || /1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(a.substr(0, 4))) check = true; })(navigator.userAgent || navigator.vendor || window.opera);
-    return check;
+window.mobileAndSafariCheck = function () {
+    // Detect Safari
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+    // Detect mobile devices (including tablets)
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    return isSafari || isMobile;
 };
 
 await init().then(async () => {
@@ -67,6 +71,96 @@ await init().then(async () => {
 
     requestAnimationFrame(animate);
 });
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// Enhanced texture loading function with retry capability
+async function loadTexture(url, options = {}, retryCount = 3, retryDelay = 100) {
+    const attemptLoad = async (remainingAttempts) => {
+        try {
+            if (!window.mobileAndSafariCheck() && 'createImageBitmap' in window) {
+                // Try ImageBitmapLoader first
+                return await loadWithImageBitmap(url, options);
+            } else {
+                // Use TextureLoader for Safari and mobile devices
+                return await loadWithTextureLoader(url);
+            }
+        } catch (error) {
+            if (remainingAttempts > 0) {
+                console.warn(`Attempt failed for ${url}, retrying in ${retryDelay}ms. Attempts remaining: ${remainingAttempts}`);
+                await delay(retryDelay);
+                return attemptLoad(remainingAttempts - 1);
+            }
+            throw error;
+        }
+    };
+
+    return attemptLoad(retryCount);
+}
+
+
+// Helper function for ImageBitmapLoader logic
+function loadWithImageBitmap(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        const imageLoader = new THREE.ImageBitmapLoader();
+        imageLoader.setCrossOrigin('anonymous');
+        imageLoader.setOptions({ imageOrientation: 'flipY', ...options });
+
+        imageLoader.load(
+            url,
+            imageBitmap => {
+                const texture = new THREE.CanvasTexture(imageBitmap);
+                resolve(texture);
+            },
+            undefined,
+            error => {
+                reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
+            }
+        );
+    });
+}
+
+// Helper function for TextureLoader logic
+function loadWithTextureLoader(url) {
+    return new Promise((resolve, reject) => {
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.setCrossOrigin('anonymous');
+
+        textureLoader.load(
+            url,
+            texture => {
+                resolve(texture);
+            },
+            undefined,
+            error => {
+                reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
+            }
+        );
+    });
+}
+
+function getTextureUrls() {
+    const isMobileOrSafari = window.mobileAndSafariCheck();
+
+    // Textures - Use a low resolution version on mobile devices, also Safari because it chokes on
+    // preloading images as bitmaps. Other than the obvious benefit of improving performance, it 
+    // can sometimes happen that the creation of a webgl context fails on lower-end mobile devices
+    // when decompressing 8k textures. 
+    if (isMobileOrSafari) {
+        return [
+            './BlueMarble_2048x1024.avif',
+            './BlackMarble_2048x1024.avif',
+            './EarthSpec_2048x1024.avif'
+        ];
+    }
+
+    // Use high resolution for desktop browsers with good support
+    return [
+        './BlueMarble_8192x4096.avif',
+        './BlackMarble_8192x4096.avif',
+        './EarthSpec_2048x1024.avif'
+    ];
+}
 
 async function init() {
     /* Boilerplate */
@@ -130,48 +224,18 @@ async function init() {
     scene.add(tempearth);
     fitCameraToObject(camera, tempearth, 5);
 
-    // Textures - Use a low resolution version on mobile devices. Other than the obvious benefit
-    // of improving performance, it can sometimes happen that the creation of a webgl context fails
-    // on lower-end mobile devices when decompressing 8k textures. 
-    const baseUrl = window.location.origin;
-    let earthImageUrls = [
-        `${baseUrl}/BlueMarble_2048x1024.avif`,
-        `${baseUrl}/BlackMarble_2048x1024.avif`,
-        `${baseUrl}/EarthSpec_2048x1024.avif`
-    ];
-    if (!window.mobileAndTabletCheck()) {
-        earthImageUrls = [
-            `${baseUrl}/BlueMarble_8192x4096.avif`,
-            `${baseUrl}/BlackMarble_8192x4096.avif`,
-            `${baseUrl}/EarthSpec_2048x1024.avif`
-        ];
-    }
+    const earthImageUrls = getTextureUrls();
 
     // has to resolve or page load will essentially fail... shaders depend on it
-    Promise.all(earthImageUrls.map((url) => {
-        return new Promise((resolve, reject) => {
-            imageLoader.load(
-                url,
-                image => {
-                    resolve(new THREE.CanvasTexture(image));
-                },
-                undefined,
-                error => {
-                    console.error('Detailed error info:', {
-                        url: url,
-                        error: error,
-                        message: error.message,
-                        type: error.type
-                    });
-                    reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
-                }
-            );
-        });
-    })).then((textures) => {
+    // For this reason, texture loading retries thrice with 100 ms intervals before giving up.
+    Promise.all(earthImageUrls.map(url =>
+        loadTexture(url, {}, 3, 100)
+    )).then((textures) => {
         for (let i = 0; i < textures.length - 1; i++) {
             textures[i].colorSpace = THREE.SRGBColorSpace;
             textures[i].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
         }
+        const [blueMarble, blackMarble, earthSpec] = textures;
 
         // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
         // I am only using the first two for this value since Astronomical Twilight is essentially night
@@ -180,9 +244,9 @@ async function init() {
         // Shader material can only be created after all three textures have loaded
         earthMaterial = new THREE.ShaderMaterial({
             uniforms: {
-                dayTexture: new THREE.Uniform(textures[0]),
-                nightTexture: new THREE.Uniform(textures[1]),
-                specularMapTexture: new THREE.Uniform(textures[2]),
+                dayTexture: new THREE.Uniform(blueMarble),
+                nightTexture: new THREE.Uniform(blackMarble),
+                specularMapTexture: new THREE.Uniform(earthSpec),
                 sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
                 twilightAngle: new THREE.Uniform(twilightAngle),
                 dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
@@ -200,7 +264,7 @@ async function init() {
         // backside of the earth
         earth.layers.enable(interactiveLayer);
 
-        /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
+        // Atmosphere  -- don't load this until the Earth has been added or it will look weird
         const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
         atmosphereMaterial = new THREE.ShaderMaterial({
             vertexShader: atmosphereVertexShader,
@@ -223,7 +287,7 @@ async function init() {
         earth.rotation.y = gmst;
         atmosphere.rotation.y = gmst;
 
-        /* Debug plane for checking seasonal variation and other long-term issues */
+        // Debug plane for checking seasonal variation and other long-term issues
         if (now === Date.UTC(2024, 2, 24, 3, 6, 0, 0)) {
             // If the start time is the 2024 vernal equinox (which is in the past),
             // this plane will align with the terminator at be on the prime meridian
@@ -234,7 +298,10 @@ async function init() {
             scene.add(plane);
             initSunPointingHelper();
         }
-    });
+    })
+        .catch(error => {
+            console.error('Failed to load textures:', error);
+        });
 }
 
 async function initSatellites() {
@@ -247,6 +314,9 @@ async function initSatellites() {
     await populateButtonGroup(defaultGroups).then(() => {
         initSettingsMenu();
 
+        // the mouse hover behavior doesn't work well on mobile, but is ok on tablets,
+        // at least when a touchpad peripheral is used, so I will leave this behavior in
+        // unconditionally
         const hoverHandler = new HoverIntentHandler(renderer, scene, camera, groupMap);
     });
 }

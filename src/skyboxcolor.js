@@ -38,6 +38,9 @@ export class Sky extends THREE.Mesh {
         // although the shader flips Y again, the juice was not worth the squeeze on trying
         // to optimize out the webgl call to flipY
         this.loader.setOptions({ imageOrientation: 'flipY' });
+        this.attempt = 0;
+        this.maxAttempts = 3;
+        this.delayMs = 100;
     }
 
     async initMaterial(textureUrls) {
@@ -105,7 +108,20 @@ export class Sky extends THREE.Mesh {
                 },
                 undefined,
                 error => {
-                    reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
+                    console.error('Loading failed:', {
+                        url: url,
+                        error: error,
+                        attempt: this.attempt + 1
+                    });
+                    this.attempt++;
+                    if (this.attempt < this.maxAttempts) {
+                        console.log(`Retrying in ${this.delayMs}ms (attempt ${this.attempt + 1}/${this.maxAttempts})`);
+                        setTimeout(() => {
+                            this.loadTexture(url).then(resolve).catch(reject);
+                        }, this.delayMs);
+                    } else {
+                        reject(error);
+                    }
                 }
             );
         });
