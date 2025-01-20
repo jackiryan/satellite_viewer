@@ -1,8 +1,6 @@
+// messageBroker.js
 export class MessageBroker {
-    static instance;
-    worker;
-
-    constructor() { }
+    static instance = null;
 
     static getInstance() {
         if (!MessageBroker.instance) {
@@ -11,21 +9,45 @@ export class MessageBroker {
         return MessageBroker.instance;
     }
 
-    setWorker(worker) {
-        this.worker = worker;
+    constructor() {
+        this.workerPool = null;
+        this.subscribers = new Map();
     }
 
-    getPosVel(group, iid) {
-        if (!this.worker) {
-            throw new Error('Worker not initialized');
-        }
+    setWorkerPool(workerPool) {
+        this.workerPool = workerPool;
+    }
 
-        this.worker.postMessage({
-            action: 'getPosVel',
-            data: {
-                group,
-                iid
-            }
-        });
+    subscribe(messageType, callback) {
+        if (!this.subscribers.has(messageType)) {
+            this.subscribers.set(messageType, new Set());
+        }
+        this.subscribers.get(messageType).add(callback);
+    }
+
+    unsubscribe(messageType, callback) {
+        if (this.subscribers.has(messageType)) {
+            this.subscribers.get(messageType).delete(callback);
+        }
+    }
+
+    publish(messageType, data) {
+        if (this.subscribers.has(messageType)) {
+            this.subscribers.get(messageType).forEach(callback => {
+                callback(data);
+            });
+        }
+    }
+
+    getPosVel(group, satId) {
+        if (this.workerPool) {
+            this.workerPool.postMessage(group, {
+                action: 'getPosVel',
+                data: {
+                    group: group,
+                    iid: satId
+                }
+            });
+        }
     }
 }
