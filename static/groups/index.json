@@ -38,7 +38,7 @@
     "gpName": "planet",
     "country": "planet",
     "baseColor": "#029da4",
-    "count": 113,
+    "count": 112,
     "entities": "/groups/planet.json"
   },
   "Space Stations": {
@@ -70,7 +70,7 @@
     "gpName": "starlink",
     "country": "us",
     "baseColor": "#6b6b6b",
-    "count": 6844,
+    "count": 6834,
     "entities": "/groups/starlink.json"
   },
   "Telesat": {
@@ -82,12 +82,12 @@
   },
   "Active": {
     "gpName": "active",
-    "count": 2866,
+    "count": 2877,
     "baseColor": "#1b1bf9",
     "entities": "/groups/active.json"
   },
   "Debris": {
-    "count": 50315,
+    "count": 16220,
     "entities": "/groups/debris.json"
   }
 }

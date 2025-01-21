@@ -1,9 +1,9 @@
 
 import * as THREE from 'three';
-//import { OrbitTrack } from './orbitTrack';
-import Worker from './satelliteWorker.js?worker';
+//import Worker from './satelliteWorker.js?worker';
 import { OrbitManager } from './orbitManager';
 import { MessageBroker } from './messageBroker';
+import { WorkerPool } from './workerPool';
 
 export class SatelliteGroupMap {
     constructor(scene, geo, layer) {
@@ -20,20 +20,8 @@ export class SatelliteGroupMap {
         // All objects in the Other category have this blue color
         this.instanceMaterial = new THREE.MeshBasicMaterial({ color: '#c4a484' });
 
-        this.worker = new Worker();
-        MessageBroker.getInstance().setWorker(this.worker);
-        this.worker.onmessage = (event) => {
-            // The worker posts a message when it starts the callback loop or when a
-            // specific satellite's current position and velocity are requested
-            if (event.data.type === 'eventLoopStarted') {
-                const url = event.data.payload;
-                this.displayGroup(url);
-            } else {
-                const posVel = event.data.payload;
-                const selectedGroup = this.map.get(posVel.group);
-                selectedGroup.orbitManager.updateOrbit(posVel.iid, posVel.position, posVel.velocity);
-            }
-        }
+        this.workerPool = new WorkerPool();
+        MessageBroker.getInstance().setWorkerPool(this.workerPool);
     }
 
     hasGroup(name) {
@@ -101,8 +89,12 @@ export class SatelliteGroupMap {
             material = new THREE.MeshBasicMaterial({ color: baseColor });
         }
 
+        let geo = this.instanceGeometry;
+        if (groupUrl === '/groups/debris.json') {
+            geo = new THREE.IcosahedronGeometry(1);
+        }
         const groupMesh = new THREE.InstancedMesh(
-            this.instanceGeometry,
+            geo,
             material,
             count
         );
@@ -143,9 +135,24 @@ export class SatelliteGroupMap {
             orbitManager: new OrbitManager(groupUrl, this.scene)
         });
 
-        this.worker.postMessage({
+        // Register callback for this group
+        this.workerPool.registerCallback(groupUrl, (event) => {
+            if (event.type === 'eventLoopStarted') {
+                this.displayGroup(event.payload);
+            } else {
+                const posVel = event.payload;
+                const selectedGroup = this.map.get(posVel.group);
+                selectedGroup.orbitManager.updateOrbit(posVel.iid, posVel.position, posVel.velocity);
+            }
+        });
+
+        this.workerPool.postMessage(groupUrl, {
             action: 'init',
-            data: { url: groupUrl, groupData: this.JSONtoArrayBuffer(groupDb), buffer: sharedTransformBuffer }
+            data: {
+                url: groupUrl,
+                groupData: this.JSONtoArrayBuffer(groupDb),
+                buffer: sharedTransformBuffer
+            }
         });
     }
 
@@ -180,7 +187,7 @@ export class SatelliteGroupMap {
 
     displayGroup(groupUrl) {
         if (!this.groupDisplayed(groupUrl)) {
-            this.worker.postMessage({
+            this.workerPool.postMessage(groupUrl, {
                 action: 'display',
                 data: { url: groupUrl }
             });
@@ -195,7 +202,7 @@ export class SatelliteGroupMap {
 
     hideGroup(groupUrl) {
         if (this.groupDisplayed(groupUrl)) {
-            this.worker.postMessage({
+            this.workerPool.postMessage(groupUrl, {
                 action: 'hide',
                 data: { url: groupUrl }
             });
@@ -232,16 +239,22 @@ export class SatelliteGroupMap {
     }
 
     setSpeed(speedFactor) {
-        this.worker.postMessage({
-            action: 'setSpeed',
-            data: { speed: speedFactor }
-        });
+        // Broadcast to all groups
+        for (const groupUrl of this.map.keys()) {
+            this.workerPool.postMessage(groupUrl, {
+                action: 'setSpeed',
+                data: { speed: speedFactor }
+            });
+        }
     }
 
     setRealTime() {
-        this.worker.postMessage({
-            action: 'reset'
-        });
+        // Broadcast to all groups
+        for (const groupUrl of this.map.keys()) {
+            this.workerPool.postMessage(groupUrl, {
+                action: 'reset'
+            });
+        }
     }
 
     addOrbit(etGroup, etIid) {
@@ -271,7 +284,7 @@ export class SatelliteGroupMap {
         // We use this convoluted method of getting the position/velocity of a satellite because
         // we don't want to desync timing, satellite transformations are all calculated in
         // one class (and in the worker)
-        this.worker.postMessage({
+        this.workerPool.postMessage(etGroup, {
             action: 'getPosVel',
             data: {
                 group: etGroup,
