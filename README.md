@@ -44,7 +44,7 @@ mv spacetrack-creds.gpg ~/.spacetrack-creds.gpg
 This step is handled nightly by a script (not included in this repository) that gets initiated by a systemd timer on my VPS.
 
 ```bash
-CREDS=$(sudo gpg --quiet --decrypt ~/.spacetrack-creds.gpg)
+CREDS=$(gpg --quiet --decrypt ~/.spacetrack-creds.gpg)
 # USER and PASS variables are retained in scope so best practice is to
 # set the variables to a blank string after running these queries
 USER=$(echo "$CREDS" | head -n1)
