@@ -70,7 +70,7 @@
     "gpName": "starlink",
     "country": "us",
     "baseColor": "#6b6b6b",
-    "count": 6834,
+    "count": 6916,
     "entities": "/groups/starlink.json"
   },
   "Telesat": {
@@ -82,12 +82,12 @@
   },
   "Active": {
     "gpName": "active",
-    "count": 2877,
+    "count": 2865,
     "baseColor": "#1b1bf9",
     "entities": "/groups/active.json"
   },
   "Debris": {
-    "count": 16220,
+    "count": 16126,
     "entities": "/groups/debris.json"
   }
 }

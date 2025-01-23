@@ -22,6 +22,8 @@ export class SatelliteGroupMap {
 
         this.workerPool = new WorkerPool();
         MessageBroker.getInstance().setWorkerPool(this.workerPool);
+
+        this.currentSpeed = 1;
     }
 
     hasGroup(name) {
@@ -154,6 +156,7 @@ export class SatelliteGroupMap {
                 buffer: sharedTransformBuffer
             }
         });
+        this.setSpeed(this.currentSpeed);
     }
 
     async fetchEntities(entitiesUrl) {
@@ -197,6 +200,7 @@ export class SatelliteGroupMap {
             groupObj.mesh.computeBoundingSphere();
             this.scene.add(groupObj.mesh);
             groupObj.orbitManager.showOrbits();
+            this.setSpeed(this.currentSpeed);
         }
     }
 
@@ -246,6 +250,7 @@ export class SatelliteGroupMap {
                 data: { speed: speedFactor }
             });
         }
+        this.currentSpeed = speedFactor;
     }
 
     setRealTime() {
