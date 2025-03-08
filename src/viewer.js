@@ -6,33 +6,18 @@ import { populateButtonGroup, setButtonState } from './buttonGroup.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
 import { initSky } from './skybox.js';
-import getSunPointingAngle from './sunangle.js';
-import earthVertexShader from './shaders/earth/earthVertex.glsl';
-import earthFragmentShader from './shaders/earth/earthFragment.glsl';
-import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
-import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
+import { initEarth } from './earth.js';
 import Stats from 'three/addons/libs/stats.module.js';
 import { HoverIntentHandler } from './hoverIntentHandler.js';
 
 let camera, controls, scene, renderer, stats;
-let earth, earthMaterial, atmosphere, atmosphereMaterial, skybox, groupMap;
-let raycaster, mouseMove, mouseClick, tooltip;
-let sunHelper; // unused except when debugging
+let earth, skybox, groupMap;
 
-const earthParameters = {
-    radius: 5,
-    dayColor: '#d7eaf9',
-    twilightColor: '#fd5e53'
-};
 // Determine the initial rotation of the Earth based on the current sidereal time
 const now = new Date(); // Get current time
 // Vernal Equinox 2024, the terminator will be along prime meridian
 // Uncomment this line if using the debug plane to check solar vs sidereal time drift
 // const now = new Date(Date.UTC(2024,2,24,3,6,0,0));
-
-// Get the sidereal time, which describes the sidereal rotation
-// (relative to fixed stars aka camera) of the Earth.
-const gmst = gstime(now);
 
 // mutable that is used for adjusting simulation speed
 let elapsedTime = 0;
@@ -72,95 +57,6 @@ await init().then(async () => {
     requestAnimationFrame(animate);
 });
 
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-// Enhanced texture loading function with retry capability
-async function loadTexture(url, options = {}, retryCount = 3, retryDelay = 100) {
-    const attemptLoad = async (remainingAttempts) => {
-        try {
-            if (!window.mobileAndSafariCheck() && 'createImageBitmap' in window) {
-                // Try ImageBitmapLoader first
-                return await loadWithImageBitmap(url, options);
-            } else {
-                // Use TextureLoader for Safari and mobile devices
-                return await loadWithTextureLoader(url);
-            }
-        } catch (error) {
-            if (remainingAttempts > 0) {
-                console.warn(`Attempt failed for ${url}, retrying in ${retryDelay}ms. Attempts remaining: ${remainingAttempts}`);
-                await delay(retryDelay);
-                return attemptLoad(remainingAttempts - 1);
-            }
-            throw error;
-        }
-    };
-
-    return attemptLoad(retryCount);
-}
-
-
-// Helper function for ImageBitmapLoader logic
-function loadWithImageBitmap(url, options = {}) {
-    return new Promise((resolve, reject) => {
-        const imageLoader = new THREE.ImageBitmapLoader();
-        imageLoader.setCrossOrigin('anonymous');
-        imageLoader.setOptions({ imageOrientation: 'flipY', ...options });
-
-        imageLoader.load(
-            url,
-            imageBitmap => {
-                const texture = new THREE.CanvasTexture(imageBitmap);
-                resolve(texture);
-            },
-            undefined,
-            error => {
-                reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
-            }
-        );
-    });
-}
-
-// Helper function for TextureLoader logic
-function loadWithTextureLoader(url) {
-    return new Promise((resolve, reject) => {
-        const textureLoader = new THREE.TextureLoader();
-        textureLoader.setCrossOrigin('anonymous');
-
-        textureLoader.load(
-            url,
-            texture => {
-                resolve(texture);
-            },
-            undefined,
-            error => {
-                reject(new Error(`Failed to load texture from ${url}: ${error.message}`));
-            }
-        );
-    });
-}
-
-function getTextureUrls() {
-    const isMobileOrSafari = window.mobileAndSafariCheck();
-
-    // Textures - Use a low resolution version on mobile devices, also Safari because it chokes on
-    // preloading images as bitmaps. Other than the obvious benefit of improving performance, it 
-    // can sometimes happen that the creation of a webgl context fails on lower-end mobile devices
-    // when decompressing 8k textures. 
-    if (isMobileOrSafari) {
-        return [
-            './BlueMarble_2048x1024.avif',
-            './BlackMarble_2048x1024.avif',
-            './EarthSpec_2048x1024.avif'
-        ];
-    }
-
-    // Use high resolution for desktop browsers with good support
-    return [
-        './BlueMarble_8192x4096.avif',
-        './BlackMarble_8192x4096.avif',
-        './EarthSpec_2048x1024.avif'
-    ];
-}
 
 async function init() {
     /* Boilerplate */
@@ -193,6 +89,20 @@ async function init() {
     updateClock(now);
 
     addStats();
+
+    // Initialize the Earth -- first as a blank, then fill in with textures
+    // First create a temporary sphere for camera positioning
+    const tempSphere = new THREE.Mesh(
+        new THREE.SphereGeometry(5, 16, 16),
+        new THREE.MeshBasicMaterial({ color: 0x0e1118 })
+    );
+    scene.add(tempSphere);
+    fitCameraToObject(camera, tempSphere, 5);
+    scene.remove(tempSphere);
+
+    // Create the actual globe
+    earth = await initEarth(scene, now, interactiveLayer);
+
     // satellite data is stored in this data structure, position state is handled in a separate webworker
     const modelName = './shootingstar3.gltf';
     const satGeoPromise = new GLTFLoader().loadAsync(modelName, undefined);
@@ -212,96 +122,6 @@ async function init() {
         console.error(`Failed to load satellite model: ${error}`);
         groupMap = new SatelliteGroupMap(scene, satGeo, interactiveLayer);
     });
-
-    const imageLoader = new THREE.ImageBitmapLoader();
-    imageLoader.setCrossOrigin('anonymous'); // required due to the COEP
-    imageLoader.setOptions({ imageOrientation: 'flipY' });
-    /* Earth */
-    // Create the Earth geometry and material using NASA Blue/Black Marble mosaics. These are from 2004 (Day) and 2012 (Night),
-    // but were chosen so that snowy regions would approximately line up between day and night.
-    const earthGeometry = new THREE.SphereGeometry(earthParameters.radius, 64, 64);
-    const tempearth = new THREE.Mesh(earthGeometry, new THREE.MeshBasicMaterial({ color: 0x0e1118 }));
-    scene.add(tempearth);
-    fitCameraToObject(camera, tempearth, 5);
-
-    const earthImageUrls = getTextureUrls();
-
-    // has to resolve or page load will essentially fail... shaders depend on it
-    // For this reason, texture loading retries thrice with 100 ms intervals before giving up.
-    Promise.all(earthImageUrls.map(url =>
-        loadTexture(url, {}, 3, 100)
-    )).then((textures) => {
-        for (let i = 0; i < textures.length - 1; i++) {
-            textures[i].colorSpace = THREE.SRGBColorSpace;
-            textures[i].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-        }
-        const [blueMarble, blackMarble, earthSpec] = textures;
-
-        // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
-        // I am only using the first two for this value since Astronomical Twilight is essentially night
-        const twilightAngle = 12.0 * Math.PI / 180.0;
-
-        // Shader material can only be created after all three textures have loaded
-        earthMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                dayTexture: new THREE.Uniform(blueMarble),
-                nightTexture: new THREE.Uniform(blackMarble),
-                specularMapTexture: new THREE.Uniform(earthSpec),
-                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                twilightAngle: new THREE.Uniform(twilightAngle),
-                dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
-                twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor))
-            },
-            vertexShader: earthVertexShader,
-            fragmentShader: earthFragmentShader
-        });
-
-        earth = new THREE.Mesh(earthGeometry, earthMaterial);
-        scene.remove(tempearth);
-        scene.add(earth);
-        earth.name = 'earth';
-        // enable raycaster collisions with this object to prevent selecting satellites on the
-        // backside of the earth
-        earth.layers.enable(interactiveLayer);
-
-        // Atmosphere  -- don't load this until the Earth has been added or it will look weird
-        const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
-        atmosphereMaterial = new THREE.ShaderMaterial({
-            vertexShader: atmosphereVertexShader,
-            fragmentShader: atmosphereFragmentShader,
-            uniforms:
-            {
-                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
-                twilightColor: new THREE.Uniform(new THREE.Color(earthParameters.twilightColor)),
-                twilightAngle: new THREE.Uniform(twilightAngle),
-            },
-            side: THREE.BackSide,
-            transparent: true
-        });
-        atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-        scene.add(atmosphere);
-        atmosphere.name = 'atm';
-
-        // Refer back to definition of gmst if you are confused
-        earth.rotation.y = gmst;
-        atmosphere.rotation.y = gmst;
-
-        // Debug plane for checking seasonal variation and other long-term issues
-        if (now === Date.UTC(2024, 2, 24, 3, 6, 0, 0)) {
-            // If the start time is the 2024 vernal equinox (which is in the past),
-            // this plane will align with the terminator at be on the prime meridian
-            // on page load
-            const planeGeometry = new THREE.BoxGeometry(0.1, 10, 10);
-            const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
-            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
-            scene.add(plane);
-            initSunPointingHelper();
-        }
-    })
-        .catch(error => {
-            console.error('Failed to load textures:', error);
-        });
 }
 
 async function initSatellites() {
@@ -534,27 +354,26 @@ function animate() {
     const delta = renderParameters.speedFactor * renderClock.getDelta();
     elapsedTime += delta;
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
-    const sunDirection = getSunPointingAngle(deltaNow);
 
     onWindowResize();
 
+    updateClock(deltaNow);
+
     if (earth !== undefined) {
-        earth.rotation.y = gstime(deltaNow);
-        // Uncomment this line if using the sun pointing helper for debugging
-        // sunHelper.setDirection(getSunPointingAngle(deltaNow));
-        earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
-        atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
+        earth.update(deltaNow);
     }
-    if (skybox !== undefined) {
-        if (skybox.isStarry()) {
+
+    if (groupMap !== undefined) {
+        groupMap.update();
+    }
+
+    if (skybox !== undefined && skybox.isStarry()) {
+        const sunDirection = earth?.earthMaterial?.uniforms.sunDirection.value;
+        if (sunDirection) {
             skybox.material.uniforms.uSunDirection.value.copy(sunDirection);
         }
     }
 
-    updateClock(deltaNow);
-    if (groupMap !== undefined) {
-        groupMap.update();
-    }
     controls.update();
     stats.update();
 
