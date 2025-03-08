@@ -8,6 +8,9 @@
     "serve": "vite preview"
   },
   "dependencies": {
+    "axios": "^1.8.2",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
     "lil-gui": "^0.19.2",
     "lodash": "^4.17.21",
     "satellite.js": "^5.0.0",

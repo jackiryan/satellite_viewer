@@ -162,6 +162,45 @@ function getTextureUrls() {
     ];
 }
 
+async function loadFullCloudMap(date) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    // For zoom level 2, we need a 4x4 grid of tiles
+    canvas.width = 512 * 4;  // Assuming tiles are 512x512
+    canvas.height = 512 * 4;
+    
+    const formattedDate = date.toISOString().split('.')[0] + 'Z';
+    
+    // Load all tiles for zoom level 1
+    for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 4; col++) {
+            const url = `http://localhost:3000/clouds?time=2025-03-05T00:00:00Z&tileMatrix=3&tileCol=${col}&tileRow=${row}`;
+        
+            await new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.onload = () => {
+                    ctx.drawImage(img, col * 512, row * 512);
+                    resolve();
+                };
+                img.onerror = () => {
+                    console.error(`Failed to load tile at ${row},${col}`);
+                    resolve(); // Continue even if one tile fails
+                };
+                img.src = url;
+            });
+        }
+    }
+    
+    // Create a texture from the canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    
+    return texture;
+}
+
 async function init() {
     /* Boilerplate */
     // The camera will be in a fixed intertial reference, so the Earth will rotate
@@ -225,12 +264,14 @@ async function init() {
     fitCameraToObject(camera, tempearth, 5);
 
     const earthImageUrls = getTextureUrls();
+    const texturePromises = earthImageUrls.map(url =>
+        loadTexture(url, {}, 3, 100)
+    );
+    texturePromises.push(loadFullCloudMap(now));
 
     // has to resolve or page load will essentially fail... shaders depend on it
     // For this reason, texture loading retries thrice with 100 ms intervals before giving up.
-    Promise.all(earthImageUrls.map(url =>
-        loadTexture(url, {}, 3, 100)
-    )).then((textures) => {
+    Promise.all(texturePromises).then((textures) => {
         for (let i = 0; i < textures.length - 1; i++) {
             textures[i].colorSpace = THREE.SRGBColorSpace;
             textures[i].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -241,12 +282,15 @@ async function init() {
         // I am only using the first two for this value since Astronomical Twilight is essentially night
         const twilightAngle = 12.0 * Math.PI / 180.0;
 
+        const cloudTexture = textures[textures.length - 1];
+
         // Shader material can only be created after all three textures have loaded
         earthMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 dayTexture: new THREE.Uniform(blueMarble),
                 nightTexture: new THREE.Uniform(blackMarble),
                 specularMapTexture: new THREE.Uniform(earthSpec),
+                cloudTexture: new THREE.Uniform(cloudTexture),
                 sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
                 twilightAngle: new THREE.Uniform(twilightAngle),
                 dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),

@@ -84,8 +84,9 @@ async function init() {
         `${baseUrl}/BlackMarble_2048x1024.avif`,
         `${baseUrl}/EarthSpec_2048x1024.avif`
     ];
-    // the textured globe will fail to load if the imageLoader fails to resolve
-    Promise.all(earthImageUrls.map((url) => {
+    
+    // Create a promise array with the original textures
+    const texturePromises = earthImageUrls.map((url) => {
         return new Promise((resolve, reject) => {
             imageLoader.load(
                 url,
@@ -98,22 +99,32 @@ async function init() {
                 }
             );
         });
-    })).then((textures) => {
+    });
+    
+    // Add the cloud map promise to the array
+    texturePromises.push(loadFullCloudMap(now));
+    
+    Promise.all(texturePromises).then((textures) => {
+        // The first three textures are the original Earth textures
         for (let i = 0; i < textures.length - 1; i++) {
             textures[i].colorSpace = THREE.SRGBColorSpace;
             textures[i].anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
         }
-
+    
         // Civil, Nautical, and Astronomical Twilight account for sun angles up to about 18 degrees past the horizon
         // I am only using the first two for this value since Astronomical Twilight is essentially night
-        const twilightAngle = 12.0 * Math.PI / 180.0;
-
-        // Shader material can only be created after all three textures have loaded
+        const twilightAngle = 18.0 * Math.PI / 180.0;
+    
+        // The cloud texture is the last one in the array
+        const cloudTexture = textures[textures.length - 1];
+        
+        // Shader material can only be created after all textures have loaded
         earthMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 dayTexture: new THREE.Uniform(textures[0]),
                 nightTexture: new THREE.Uniform(textures[1]),
                 specularMapTexture: new THREE.Uniform(textures[2]),
+                cloudTexture: new THREE.Uniform(cloudTexture),
                 sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
                 twilightAngle: new THREE.Uniform(twilightAngle),
                 dayColor: new THREE.Uniform(new THREE.Color(earthParameters.dayColor)),
@@ -122,11 +133,11 @@ async function init() {
             vertexShader: earthVertexShader,
             fragmentShader: earthFragmentShader
         });
-
+    
         earth = new THREE.Mesh(earthGeometry, earthMaterial);
         scene.remove(tempearth);
         scene.add(earth);
-
+    
         /* Atmosphere  -- don't load this until the Earth has been added or it will look weird */
         const atmosphereGeometry = new THREE.SphereGeometry(earthParameters.radius * 1.015, 64, 64);
         atmosphereMaterial = new THREE.ShaderMaterial({
@@ -144,11 +155,60 @@ async function init() {
         });
         atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
         scene.add(atmosphere);
-
+    
         // Refer back to definition of gmst if you are confused
         earth.rotation.y = gmst;
         atmosphere.rotation.y = gmst;
+        
+        // Set up periodic cloud texture updates (every hour)
+        setInterval(() => {
+            const currentTime = new Date(now.getTime() + elapsedTime * 1000);
+            loadFullCloudMap(currentTime).then(newCloudTexture => {
+                if (earth && earthMaterial) {
+                    earthMaterial.uniforms.cloudTexture.value = newCloudTexture;
+                }
+            });
+        }, 3600000); // Update every hour
     });
+}
+
+async function loadFullCloudMap(date) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    // For zoom level 2, we need a 4x4 grid of tiles
+    canvas.width = 512 * 3;  // Assuming tiles are 512x512
+    canvas.height = 512 * 3;
+    
+    const formattedDate = date.toISOString().split('.')[0] + 'Z';
+    
+    // Load all tiles for zoom level 1
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+            const url = `http://localhost:3000/clouds?time=2025-03-07T00:00:00Z&tileMatrix=2&tileCol=${col}&tileRow=${row}`;
+        
+            await new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.onload = () => {
+                    ctx.drawImage(img, col * 512, row * 512);
+                    resolve();
+                };
+                img.onerror = () => {
+                    console.error(`Failed to load tile at ${row},${col}`);
+                    resolve(); // Continue even if one tile fails
+                };
+                img.src = url;
+            });
+        }
+    }
+    
+    // Create a texture from the canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    
+    return texture;
 }
 
 function onWindowResize() {
