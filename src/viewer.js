@@ -37,23 +37,11 @@ const renderParameters = {
 
 const interactiveLayer = 1;
 
-// Taken from this very popular stackoverflow thread: https://stackoverflow.com/questions/11381673/detecting-a-mobile-browser
-// no I do not intend to support iemobile or blackberry, but it doesn't hurt anything to have them in there.
-window.mobileAndSafariCheck = function () {
-    // Detect Safari
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
-    // Detect mobile devices (including tablets)
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-    return isSafari || isMobile;
-};
-
 await init().then(async () => {
     await initSky({ sceneObj: scene }).then((sky) => {
         skybox = sky;
     });
-
+    await earth.loadCloudTexture();
     requestAnimationFrame(animate);
 });
 

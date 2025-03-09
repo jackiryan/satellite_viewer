@@ -1,6 +1,8 @@
 uniform sampler2D dayTexture;
 uniform sampler2D nightTexture;
 uniform sampler2D specularMapTexture;
+uniform sampler2D cloudTexture;
+uniform bool showClouds;
 uniform vec3 sunDirection;
 uniform float twilightAngle;
 uniform vec3 dayColor;
@@ -27,6 +29,112 @@ vec3 gammaCorrection(vec3 color, float gamma) {
     return pow(color, vec3(1.0 / gamma));
 }
 
+// Function to determine if a color is within a range (with some tolerance)
+bool isInRange(vec3 color, vec3 minColor, vec3 maxColor, float tolerance) {
+    vec3 diff1 = color - minColor;
+    vec3 diff2 = maxColor - color;
+    return all(greaterThanEqual(diff1, vec3(-tolerance))) && all(greaterThanEqual(diff2, vec3(-tolerance)));
+}
+
+vec3 closestPointOnSegment(vec3 p, vec3 a, vec3 b) {
+    vec3 ab = b - a;
+    float t = dot(p - a, ab) / dot(ab, ab);
+    t = clamp(t, 0.0, 1.0);
+    return a + t * ab;
+}
+
+float closestPointOnSegmentWithT(vec3 p, vec3 a, vec3 b) {
+    vec3 ab = b - a;
+    float t = dot(p - a, ab) / dot(ab, ab);
+    return clamp(t, 0.0, 1.0);
+}
+
+float isOnGradient(vec3 testColor, vec3 colorA, vec3 colorB, vec3 colorC, vec3 colorD) {
+
+    // Find closest points on each segment
+    vec3 closest1 = closestPointOnSegment(testColor, colorA, colorB);
+    vec3 closest2 = closestPointOnSegment(testColor, colorB, colorC);
+    vec3 closest3 = closestPointOnSegment(testColor, colorC, colorD);
+    
+    // Find minimum distance
+    float dist1 = distance(testColor, closest1);
+    float dist2 = distance(testColor, closest2);
+    float dist3 = distance(testColor, closest3);
+    
+    float minDist = min(dist1, min(dist2, dist3));
+    
+    return minDist;
+}
+
+float mapColorToGradientT(vec3 testColor, vec3 colorA, vec3 colorB, vec3 colorC, vec3 colorD, vec4 stops) {
+    
+    // Find closest points and distances on each segment
+    float t1 = closestPointOnSegmentWithT(testColor, colorA, colorB);
+    float t2 = closestPointOnSegmentWithT(testColor, colorB, colorC);
+    float t3 = closestPointOnSegmentWithT(testColor, colorC, colorD);
+    
+    vec3 closest1 = mix(colorA, colorB, t1);
+    vec3 closest2 = mix(colorB, colorC, t2);
+    vec3 closest3 = mix(colorC, colorD, t3);
+    
+    float dist1 = distance(testColor, closest1);
+    float dist2 = distance(testColor, closest2);
+    float dist3 = distance(testColor, closest3);
+    
+    // Use inverse distance weighting to handle cases where the color
+    // might be nearly equidistant to multiple segments
+    float weight_sum = 0.0;
+    if (dist1 > 0.0001) weight_sum += 1.0/dist1;
+    if (dist2 > 0.0001) weight_sum += 1.0/dist2;
+    if (dist3 > 0.0001) weight_sum += 1.0/dist3;
+    
+    // Global t values for each segment
+    float global_t1 = mix(stops.x, stops.y, t1);
+    float global_t2 = mix(stops.y, stops.z, t2);
+    float global_t3 = mix(stops.z, stops.w, t3);
+    
+    // Weighted average of t values
+    float result = 0.0;
+    if (dist1 > 0.0001) result += (global_t1 * (1.0/dist1)) / weight_sum;
+    if (dist2 > 0.0001) result += (global_t2 * (1.0/dist2)) / weight_sum;
+    if (dist3 > 0.0001) result += (global_t3 * (1.0/dist3)) / weight_sum;
+    
+    return result;
+}
+
+
+// Calculates cloud optical depth and properties based on RGB encoding
+vec4 calculateCloudProperties(vec4 cloudRGBA) {
+    vec3 iceColorA = vec3(182.0, 0.0, 184.0) / 255.0;
+    vec3 iceColorB = vec3(92.0,   0.0, 152.0) / 255.0;
+    vec3 iceColorC = vec3(0.0, 122.0, 254.0) / 255.0;
+    vec3 iceColorD = vec3(0.0, 1.0, 0.0);
+    vec4 iceStops = vec4(0.0, 82.0 / 228.0, 152.0 / 228.0, 1.0);
+    vec3 watColorA = vec3(255.0, 255.0, 4.0) / 255.0;
+    vec3 watColorB = vec3(255.0, 255.0, 181.0) / 255.0;
+    vec3 watColorC = vec3(255.0, 0.0, 0.0) / 255.0;
+    vec3 watColorD = vec3(135.0, 0.0, 0.0) / 255.0;
+    vec4 watStops = vec4(0.0, 79.0 / 228.0, 190.0 / 228.0, 1.0);
+    
+    // Tolerance for color comparison
+    float tolerance = 1.0;
+    
+    // Initialize result: rgb = cloud color, a = opacity
+    vec4 result = vec4(1.0, 1.0, 1.0, 0.0);
+
+    vec3 cloudRGB = cloudRGBA.rgb;
+    float iceDist = isOnGradient(cloudRGB, iceColorA, iceColorB, iceColorC, iceColorD);
+    float watDist = isOnGradient(cloudRGB, watColorA, watColorB, watColorC, watColorD);
+    float iceDepth = mapColorToGradientT(cloudRGB, iceColorA, iceColorB, iceColorC, iceColorD, iceStops);
+    float watDepth = mapColorToGradientT(cloudRGB, watColorA, watColorB, watColorC, watColorD, watStops);
+    float totalDepth = mix(mix(0.0, iceDepth, 0.4 - iceDist), mix(0.0, watDepth, 0.4 - watDist), iceDist - watDist);
+    totalDepth = clamp(totalDepth, 0.0, 1.0);
+    result.rgb = mix(vec3(0.95, 0.95, 0.95), vec3(0.7, 0.7, 0.8), totalDepth);
+    result.a = clamp(totalDepth * 3.0, 0.0, 1.0);
+    
+    return result;
+}
+
 
 void main() {
     vec3 viewDirection = normalize(vPosition - cameraPosition);
@@ -40,8 +148,24 @@ void main() {
     vec3 dayTexColor = texture(dayTexture, vUv).rgb;
     vec3 nightTexColor = texture(nightTexture, vUv).rgb;
     color = mix(nightTexColor, dayTexColor, dayMix);
-
     float specularTexColor = texture(specularMapTexture, vUv).r;
+
+    // Apply cloud texture if enabled
+    if (showClouds) {
+
+        vec4 cloudPixel = texture(cloudTexture, vUv);
+        // Calculate cloud properties based on optical depth encoding
+        vec4 cloudProperties = calculateCloudProperties(cloudPixel);
+        float cloudFactor = mix(0.05, 1.0, dayMix);
+        vec3 cloudColor = cloudProperties.rgb * cloudFactor;
+
+        // Blend cloud color with earth, using calculated opacity
+        color = mix(color, cloudColor, cloudProperties.a);
+        // Allow specular highlights to show through clouds a bit
+        float cloudSpecularDamping = mix(1.0, 0.0, cloudProperties.a);
+        specularTexColor *= cloudSpecularDamping;
+
+    }
 
     // Fresnel
     float fresnel = dot(viewDirection, normal) + 1.0;
@@ -73,22 +197,3 @@ void main() {
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
 }
-
-/*
-void oldFrag() {
-    float cosAngle = cos(-declinationAngle);
-    float sinAngle = sin(-declinationAngle);
-    // The sphere is rotated by the gmst in scene space, which cares about sidereal time, but we
-    // want a "solar time", so back out the gmst rotation and add in a rotation representing the 
-    // difference between solar noon at the prime meridian and the time now.
-    float rotatedX = vPosition.x * cos(-gmst + solarTime) + vPosition.z * sin(-gmst + solarTime);
-    float rotPos = rotatedX * cosAngle - vPosition.y * sinAngle;
-    vec3 dayColor = texture2D(dayTexture, vUv).rgb;
-    vec3 nightColor = texture2D(nightTexture, vUv).rgb;
-
-    // Blend between day and night offset over the 18 degrees of twilight, biased towards the night side
-    // Note that the degrees of twilight is doubled for aesthetic reasons
-    float blendFactor = clamp((rotPos + twilightAngle) / twilightAngle, 0.0, 1.0);
-    vec3 color = mix(nightColor, dayColor, blendFactor);
-    gl_FragColor = vec4(color, 1.0);
-} */

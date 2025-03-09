@@ -33,6 +33,7 @@ await init().then(async () => {
     await initSky({ sceneObj: scene }).then((sky) => {
         skybox = sky;
     });
+    await earth.loadCloudTexture();
     requestAnimationFrame(animate);
 });
 

@@ -148,6 +148,74 @@ export class Earth {
         ];
     }
 
+    // Function to get the cloud texture URL with the proper date parameter
+    getCloudTextureUrl(initialDate) {
+        // Get previous day's date
+        const prevDay = new Date(initialDate);
+        prevDay.setDate(prevDay.getDate() - 2);
+
+        // Format as ISO string and extract the date part (YYYY-MM-DD)
+        const dateStr = prevDay.toISOString().split('T')[0] + 'T00:00:00Z';
+
+        // Use the proxied URL path instead of direct access to localhost:3000
+        return `/api/cloud-texture?tileMatrix=3&date=${dateStr}`;
+    }
+
+    // Function to load cloud texture from API endpoint
+    async loadCloudTexture() {
+        if (!this.earthMaterial) {
+            console.warn('Earth material not initialized, cannot load cloud texture');
+            return null;
+        }
+
+        const url = this.getCloudTextureUrl(this.initialDate);
+        console.log('Loading cloud texture from:', url);
+
+        try {
+            const cloudTexture = await this.loadTexture(url);
+
+            // Set up the texture properties similar to other textures
+            cloudTexture.colorSpace = THREE.SRGBColorSpace;
+            cloudTexture.anisotropy = Math.min(8,
+                this.scene.renderer?.capabilities.getMaxAnisotropy() || 8);
+
+            // For proper transparent cloud textures
+            cloudTexture.transparent = true;
+            cloudTexture.needsUpdate = true;
+
+            // Add to Earth material uniforms
+            this.earthMaterial.uniforms.cloudTexture.value = cloudTexture;
+            this.earthMaterial.uniforms.showClouds.value = true;
+
+            console.log('Cloud texture loaded successfully');
+            return cloudTexture;
+        } catch (error) {
+            console.error('Failed to load cloud texture:', error);
+            // Ensure showClouds is false if loading failed
+            this.earthMaterial.uniforms.showClouds.value = false;
+            return null;
+        }
+    }
+
+    // Function to toggle cloud visibility
+    toggleClouds(visible = null) {
+        if (!this.earthMaterial || !this.earthMaterial.uniforms.showClouds) {
+            console.warn('Earth material or cloud uniform not available');
+            return false;
+        }
+
+        // If visible is null, toggle the current state
+        if (visible === null) {
+            this.earthMaterial.uniforms.showClouds.value = !this.earthMaterial.uniforms.showClouds.value;
+        } else {
+            // Otherwise, set to the specified value
+            this.earthMaterial.uniforms.showClouds.value = Boolean(visible);
+        }
+
+        console.log(`Clouds are now ${this.earthMaterial.uniforms.showClouds.value ? 'visible' : 'hidden'}`);
+        return this.earthMaterial.uniforms.showClouds.value;
+    }
+
     // Main initialization function for the globe
     async initialize(interactiveLayer, useLowRes = false) {
         const earthImageUrls = this.getTextureUrls(useLowRes);
@@ -185,6 +253,11 @@ export class Earth {
                 this.tempEarth = null;
             }
 
+            // Load cloud texture asynchronously after Earth is initialized
+            // We don't await this call since we want it to happen in the background
+            this.loadCloudTexture().catch(err =>
+                console.warn('Could not load cloud texture, proceeding without clouds:', err));
+
             // Debug plane for checking seasonal variation (if needed)
             if (this.initialDate.getTime() === Date.UTC(2024, 2, 24, 3, 6, 0, 0)) {
                 this.initSunPointingHelper();
@@ -200,7 +273,7 @@ export class Earth {
     async createEarth(blueMarble, blackMarble, earthSpec, twilightAngle, interactiveLayer) {
         const earthGeometry = new THREE.SphereGeometry(this.parameters.radius, 64, 64);
 
-        // Shader material
+        // Shader material with added cloud texture uniforms
         this.earthMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 dayTexture: new THREE.Uniform(blueMarble),
@@ -209,7 +282,10 @@ export class Earth {
                 sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
                 twilightAngle: new THREE.Uniform(twilightAngle),
                 dayColor: new THREE.Uniform(new THREE.Color(this.parameters.dayColor)),
-                twilightColor: new THREE.Uniform(new THREE.Color(this.parameters.twilightColor))
+                twilightColor: new THREE.Uniform(new THREE.Color(this.parameters.twilightColor)),
+                // Add cloud texture uniforms with default values
+                cloudTexture: new THREE.Uniform(null),
+                showClouds: new THREE.Uniform(false)
             },
             vertexShader: earthVertexShader,
             fragmentShader: earthFragmentShader
