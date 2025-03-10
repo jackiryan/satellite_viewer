@@ -285,7 +285,8 @@ export class Earth {
                 twilightColor: new THREE.Uniform(new THREE.Color(this.parameters.twilightColor)),
                 // Add cloud texture uniforms with default values
                 cloudTexture: new THREE.Uniform(null),
-                showClouds: new THREE.Uniform(false)
+                showClouds: new THREE.Uniform(false),
+                time: new THREE.Uniform(0.0)
             },
             vertexShader: earthVertexShader,
             fragmentShader: earthFragmentShader
@@ -362,6 +363,8 @@ export class Earth {
         const sunDirection = getSunPointingAngle(currentDate);
         this.earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
         this.atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
+
+        this.earthMaterial.uniforms.time.value = performance.now() * 0.001;
 
         // Update sun helper if present
         if (this.sunHelper) {

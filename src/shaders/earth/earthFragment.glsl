@@ -7,6 +7,7 @@ uniform vec3 sunDirection;
 uniform float twilightAngle;
 uniform vec3 dayColor;
 uniform vec3 twilightColor;
+uniform float time;
 
 varying vec2 vUv;
 varying vec3 vPosition;
@@ -61,9 +62,34 @@ float isOnGradient(vec3 testColor, vec3 colorA, vec3 colorB, vec3 colorC, vec3 c
     float dist2 = distance(testColor, closest2);
     float dist3 = distance(testColor, closest3);
     
-    float minDist = min(dist1, min(dist2, dist3));
+    // Smooth minimum function (smoother than min())
+    float k = 8.0; // Adjust for smoothness
+    float s12 = exp(-k * dist1) + exp(-k * dist2);
+    float s123 = s12 + exp(-k * dist3);
     
-    return minDist;
+    return -log(s123) / k; // Convert back to distance
+}
+float isOnGradientWat(vec3 testColor, vec3 colorA, vec3 colorB, vec3 colorC, vec3 colorD, vec3 colorE) {
+
+    // Find closest points on each segment
+    vec3 closest1 = closestPointOnSegment(testColor, colorA, colorB);
+    vec3 closest2 = closestPointOnSegment(testColor, colorB, colorC);
+    vec3 closest3 = closestPointOnSegment(testColor, colorC, colorD);
+    vec3 closest4 = closestPointOnSegment(testColor, colorD, colorE);
+    
+    // Find minimum distance
+    float dist1 = distance(testColor, closest1);
+    float dist2 = distance(testColor, closest2);
+    float dist3 = distance(testColor, closest3);
+    float dist4 = distance(testColor, closest4);
+    
+    // Smooth minimum function (smoother than min())
+    float k = 8.0; // Adjust for smoothness
+    float s12 = exp(-k * dist1) + exp(-k * dist2);
+    float s123 = s12 + exp(-k * dist3);
+    float s1234 = s123 + exp(-k * dist4);
+    
+    return -log(s1234) / k; // Convert back to distance
 }
 
 float mapColorToGradientT(vec3 testColor, vec3 colorA, vec3 colorB, vec3 colorC, vec3 colorD, vec4 stops) {
@@ -102,39 +128,65 @@ float mapColorToGradientT(vec3 testColor, vec3 colorA, vec3 colorB, vec3 colorC,
     return result;
 }
 
+float calculateEdgeDistance(float rawAlpha, float threshold) {
+    // Convert alpha to a signed distance (positive inside, negative outside)
+    return (rawAlpha - threshold) * 4.0; // Scale factor determines edge width
+}
 
-// Calculates cloud optical depth and properties based on RGB encoding
+
 vec4 calculateCloudProperties(vec4 cloudRGBA) {
     vec3 iceColorA = vec3(182.0, 0.0, 184.0) / 255.0;
     vec3 iceColorB = vec3(92.0,   0.0, 152.0) / 255.0;
     vec3 iceColorC = vec3(0.0, 122.0, 254.0) / 255.0;
     vec3 iceColorD = vec3(0.0, 1.0, 0.0);
     vec4 iceStops = vec4(0.0, 82.0 / 228.0, 152.0 / 228.0, 1.0);
+    
     vec3 watColorA = vec3(255.0, 255.0, 4.0) / 255.0;
     vec3 watColorB = vec3(255.0, 255.0, 181.0) / 255.0;
-    vec3 watColorC = vec3(255.0, 0.0, 0.0) / 255.0;
-    vec3 watColorD = vec3(135.0, 0.0, 0.0) / 255.0;
+    vec3 watColorC = vec3(255.0, 133.0, 0.0) / 255.0;
+    vec3 watColorD = vec3(255.0, 0.0, 0.0) / 255.0;
+    vec3 watColorE = vec3(135.0, 0.0, 0.0) / 255.0;
     vec4 watStops = vec4(0.0, 79.0 / 228.0, 190.0 / 228.0, 1.0);
     
-    // Tolerance for color comparison
-    float tolerance = 1.0;
-    
-    // Initialize result: rgb = cloud color, a = opacity
-    vec4 result = vec4(1.0, 1.0, 1.0, 0.0);
-
+    float maxDistance = 0.4;
     vec3 cloudRGB = cloudRGBA.rgb;
+    
+    // Calculate distances to both gradients
     float iceDist = isOnGradient(cloudRGB, iceColorA, iceColorB, iceColorC, iceColorD);
-    float watDist = isOnGradient(cloudRGB, watColorA, watColorB, watColorC, watColorD);
+    float watDist = isOnGradientWat(cloudRGB, watColorA, watColorB, watColorC, watColorD, watColorE);
+    
+    // Calculate smooth weights for each gradient with smoothstep
+    float iceWeight = 1.0 - smoothstep(0.0, maxDistance, iceDist);
+    float watWeight = 1.0 - smoothstep(0.1, maxDistance, watDist);
+    
+    // Add a tiny epsilon to prevent division by zero
+    float totalWeight = max(0.0001, iceWeight + watWeight);
+    iceWeight /= totalWeight;
+    //watWeight /= totalWeight;
+    
+    // Calculate depths for both gradients
     float iceDepth = mapColorToGradientT(cloudRGB, iceColorA, iceColorB, iceColorC, iceColorD, iceStops);
-    float watDepth = mapColorToGradientT(cloudRGB, watColorA, watColorB, watColorC, watColorD, watStops);
-    float totalDepth = mix(mix(0.0, iceDepth, 0.4 - iceDist), mix(0.0, watDepth, 0.4 - watDist), iceDist - watDist);
-    totalDepth = clamp(totalDepth, 0.0, 1.0);
-    result.rgb = mix(vec3(0.95, 0.95, 0.95), vec3(0.7, 0.7, 0.8), totalDepth);
-    result.a = clamp(totalDepth * 3.0, 0.0, 1.0);
+    //float watDepth = clamp(mapColorToGradientT(cloudRGB, watColorA, watColorB, watColorD, watColorE, watStops), 0.5, 0.8);
+    
+    // Blend the colors based on the weights
+    vec3 iceColor = mix(vec3(0.95, 0.95, 0.95), vec3(0.8, 0.8, 0.9), iceDepth);
+    //vec3 watColor = mix(vec3(0.95, 0.95, 0.95), vec3(0.7, 0.7, 0.8), watDepth);
+    
+    // Blend the opacities based on the weights
+    float iceOpacity = clamp(iceDepth * 1.2, 0.0, 1.0);
+    //float watOpacity = clamp(watDepth * 1.0, 0.0, 1.0);
+    
+    // Combine the results
+    vec4 result;
+    result.rgb = iceColor * iceWeight;// + watColor * watWeight;
+    //result.rgb = watColor * watWeight;
+    //float rawAlpha = (iceOpacity * iceWeight + watOpacity * watWeight) * min(1.0, iceWeight + watWeight);
+    float rawAlpha = (iceOpacity * iceWeight) * min(1.0, iceWeight);
+    float distance = calculateEdgeDistance(rawAlpha, 0.5);
+    result.a = clamp(0.5 + 0.5 * distance, 0.0, 1.0); // Remap to 0-1
     
     return result;
 }
-
 
 void main() {
     vec3 viewDirection = normalize(vPosition - cameraPosition);
@@ -144,10 +196,43 @@ void main() {
 
     float sunOrientation = dot(sunDirection, normal);
     
-    float dayMix = smoothstep(0.0, twilightAngle / pi, sunOrientation);
+    float dayMix = smoothstep(-twilightAngle/pi, 0.0, sunOrientation);
     vec3 dayTexColor = texture(dayTexture, vUv).rgb;
     vec3 nightTexColor = texture(nightTexture, vUv).rgb;
-    color = mix(nightTexColor, dayTexColor, dayMix);
+
+        // Identify and animate city lights
+    vec3 animatedNightTexColor = nightTexColor;
+    
+    // City lights detection - adjust these threshold values to match your texture
+    vec3 cityLightColor = vec3(1.0, 0.98, 0.85); // Approximate color of city lights (warm yellowish)
+    float cityLightThreshold = 5.0; // Threshold for detecting city lights
+    
+    // Calculate how close the pixel's color is to our target city light color
+    float colorDistance = length(normalize(nightTexColor) - normalize(cityLightColor));
+    float isCityLight = 1.0 - smoothstep(0.0, cityLightThreshold, colorDistance);
+    
+    // Only animate pixels that are bright enough (not just dark areas that happen to match the color)
+    float brightness = length(nightTexColor);
+    isCityLight *= step(0.2, brightness);
+    
+    // Animation patterns
+    if (isCityLight > 0.0) {
+        float globalPulse = 0.93 + 0.07 * sin(time * 6.0); // Slow global pulse
+        float randomOffset = fract(sin(dot(vUv, vec2(2.9898, 78.233)) * 4370.0));
+        float regionalVariation = 0.85 + 0.15 * sin(vUv.x * 5.0 + time * 5.0) * cos(vUv.y* 5.0 + time * 5.0);
+        float twinkling = 0.85 + 0.15 * sin(time * 20.0 + randomOffset * 4.28);
+        
+        float animationFactor = globalPulse * twinkling * regionalVariation;
+        
+        animatedNightTexColor = nightTexColor * animationFactor;
+        
+
+        animatedNightTexColor = min(animatedNightTexColor * 1.2, vec3(1.0));
+    }
+    
+ 
+
+    color = mix(animatedNightTexColor, dayTexColor, dayMix);
     float specularTexColor = texture(specularMapTexture, vUv).r;
 
     // Apply cloud texture if enabled
@@ -162,7 +247,7 @@ void main() {
         // Blend cloud color with earth, using calculated opacity
         color = mix(color, cloudColor, cloudProperties.a);
         // Allow specular highlights to show through clouds a bit
-        float cloudSpecularDamping = mix(1.0, 0.0, cloudProperties.a);
+        float cloudSpecularDamping = smoothstep(0.01, 0.0, cloudProperties.a);
         specularTexColor *= cloudSpecularDamping;
 
     }
