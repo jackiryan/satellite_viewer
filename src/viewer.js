@@ -41,7 +41,8 @@ await init().then(async () => {
     await initSky({ sceneObj: scene }).then((sky) => {
         skybox = sky;
     });
-    await earth.loadCloudTexture();
+    // clouds are disabled for now until further details get worked out in the shader
+    // await earth.loadCloudTexture();
     requestAnimationFrame(animate);
 });
 

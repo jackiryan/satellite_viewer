@@ -169,11 +169,11 @@ vec4 calculateCloudProperties(vec4 cloudRGBA) {
     //float watDepth = clamp(mapColorToGradientT(cloudRGB, watColorA, watColorB, watColorD, watColorE, watStops), 0.5, 0.8);
     
     // Blend the colors based on the weights
-    vec3 iceColor = mix(vec3(0.95, 0.95, 0.95), vec3(0.8, 0.8, 0.9), iceDepth);
+    vec3 iceColor = mix(vec3(0.95, 0.95, 0.95), vec3(0.0, 0.9, 0.95), iceDepth);
     //vec3 watColor = mix(vec3(0.95, 0.95, 0.95), vec3(0.7, 0.7, 0.8), watDepth);
     
     // Blend the opacities based on the weights
-    float iceOpacity = clamp(iceDepth * 1.2, 0.0, 1.0);
+    float iceOpacity = clamp(iceDepth * 1.6, 0.0, 1.0);
     //float watOpacity = clamp(watDepth * 1.0, 0.0, 1.0);
     
     // Combine the results
@@ -200,44 +200,51 @@ void main() {
     vec3 dayTexColor = texture(dayTexture, vUv).rgb;
     vec3 nightTexColor = texture(nightTexture, vUv).rgb;
 
-        // Identify and animate city lights
+    // Identify and animate city lights -- this effect is completely unrealistic but it
+    // makes the whole thing feel more alive
     vec3 animatedNightTexColor = nightTexColor;
     
-    // City lights detection - adjust these threshold values to match your texture
-    vec3 cityLightColor = vec3(1.0, 0.98, 0.85); // Approximate color of city lights (warm yellowish)
-    float cityLightThreshold = 5.0; // Threshold for detecting city lights
+    // Approximate color of city lights (slight yellow)
+    vec3 cityLightColor = vec3(1.0, 0.98, 0.85);
+    // Threshold for detecting city lights -- it's greater than 1 because the second step
+    // of scaling by brightness cuts down the effect a lot
+    float cityLightThreshold = 5.0;
     
     // Calculate how close the pixel's color is to our target city light color
     float colorDistance = length(normalize(nightTexColor) - normalize(cityLightColor));
     float isCityLight = 1.0 - smoothstep(0.0, cityLightThreshold, colorDistance);
     
     // Only animate pixels that are bright enough (not just dark areas that happen to match the color)
+    // if removing this later, lower the threshold a lot (to 0.1 or so)
     float brightness = length(nightTexColor);
     isCityLight *= step(0.2, brightness);
     
-    // Animation patterns
     if (isCityLight > 0.0) {
-        float globalPulse = 0.93 + 0.07 * sin(time * 6.0); // Slow global pulse
-        float randomOffset = fract(sin(dot(vUv, vec2(2.9898, 78.233)) * 4370.0));
+        // heartbeat
+        float globalPulse = 0.93 + 0.07 * sin(time * 6.0);
+        // conceals heartbeat by modulating the pulse with slow-moving circles
         float regionalVariation = 0.85 + 0.15 * sin(vUv.x * 5.0 + time * 5.0) * cos(vUv.y* 5.0 + time * 5.0);
-        float twinkling = 0.85 + 0.15 * sin(time * 20.0 + randomOffset * 4.28);
+        // high-frequency flicker, the sine wave pattern is noticeable when pixel peeping but looks good
+        // at a distance, lowering coefficient of time makes it slower, lower the final coefficient of
+        // randomOffset increases the spatial frequency
+        float randomOffset = fract(sin(dot(vUv, vec2(2.9898, 78.233)) * 4370.0));
+        float twinkling = 0.8 + 0.2 * sin(time * 20.0 + randomOffset * 4.28);
         
         float animationFactor = globalPulse * twinkling * regionalVariation;
         
         animatedNightTexColor = nightTexColor * animationFactor;
-        
-
+        // the lights should tend to modulate brighter than darker, to suggest stray light reaching
+        // into space (hence why I'm multiplying by 1.2)
         animatedNightTexColor = min(animatedNightTexColor * 1.2, vec3(1.0));
     }
     
- 
-
     color = mix(animatedNightTexColor, dayTexColor, dayMix);
     float specularTexColor = texture(specularMapTexture, vUv).r;
 
-    // Apply cloud texture if enabled
+    // Apply cloud texture if enabled -- currently hard disabled since I'm not happy with this
+    // and I don't want to incur a performance penalty for even having the branch statement
+    /*
     if (showClouds) {
-
         vec4 cloudPixel = texture(cloudTexture, vUv);
         // Calculate cloud properties based on optical depth encoding
         vec4 cloudProperties = calculateCloudProperties(cloudPixel);
@@ -249,8 +256,8 @@ void main() {
         // Allow specular highlights to show through clouds a bit
         float cloudSpecularDamping = smoothstep(0.01, 0.0, cloudProperties.a);
         specularTexColor *= cloudSpecularDamping;
-
     }
+    */
 
     // Fresnel
     float fresnel = dot(viewDirection, normal) + 1.0;

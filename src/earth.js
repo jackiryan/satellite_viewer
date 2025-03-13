@@ -253,11 +253,6 @@ export class Earth {
                 this.tempEarth = null;
             }
 
-            // Load cloud texture asynchronously after Earth is initialized
-            // We don't await this call since we want it to happen in the background
-            this.loadCloudTexture().catch(err =>
-                console.warn('Could not load cloud texture, proceeding without clouds:', err));
-
             // Debug plane for checking seasonal variation (if needed)
             if (this.initialDate.getTime() === Date.UTC(2024, 2, 24, 3, 6, 0, 0)) {
                 this.initSunPointingHelper();
