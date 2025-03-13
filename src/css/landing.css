@@ -18,7 +18,8 @@
     --spacing-xnarrow: 0.25rem;
 }
 
-html, body {
+html,
+body {
     height: 100%;
     margin: 0;
     font-family: 'AudioLink Mono', Monospace;
@@ -99,7 +100,8 @@ p {
     margin-bottom: 2rem;
 }
 
-.card h1, .card h2 {
+.card h1,
+.card h2 {
     text-align: center;
 }
 
@@ -130,6 +132,14 @@ p {
     gap: 1rem;
 }
 
+.button-row {
+    display: flex;
+    width: 100%;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+
 #right-column-card .main-button {
     display: flex;
     align-items: center;
@@ -149,13 +159,33 @@ p {
     transition: background-color 0.1s ease-out;
 }
 
+.github-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border: 1px solid var(--slate-200);
+    border-radius: 0.5rem;
+    background-color: var(--slate-950);
+    color: var(--slate-50);
+    text-decoration: none;
+    transition: background-color 0.1s ease-out;
+}
+
+.github-width {
+    flex: 1;
+}
+
 @media (hover: hover) {
-    #right-column-card .main-button:hover {
+
+    #right-column-card .main-button:hover,
+    .github-button:hover {
         background-color: var(--slate-600);
     }
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1500px) {
     .card {
         width: 100%;
         padding-block: 1rem;
