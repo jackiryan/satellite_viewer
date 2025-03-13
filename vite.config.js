@@ -3,7 +3,7 @@ import glsl from 'vite-plugin-glsl';
 import { resolve } from 'path';
 import { defineConfig } from 'vite';
 
-export default defineConfig ({
+export default defineConfig({
     root: 'src/',
     publicDir: '../static/',
     base: './',
@@ -13,6 +13,14 @@ export default defineConfig ({
         headers: {
             'Cross-Origin-Opener-Policy': 'same-origin',
             'Cross-Origin-Embedder-Policy': 'require-corp',
+        },
+        proxy: {
+            // Proxy all requests to /api/cloud-texture to the actual API
+            '/api/cloud-texture': {
+                target: 'http://localhost:3000',
+                changeOrigin: true,
+                rewrite: (path) => path.replace(/^\/api\/cloud-texture/, '/global-texture')
+            }
         },
         host: true, // Open to local network and display URL
         open: !('SANDBOX_URL' in process.env || 'CODESANDBOX_HOST' in process.env) // Open if it's not a CodeSandbox
@@ -52,8 +60,8 @@ export default defineConfig ({
         }
     },
     plugins:
-    [
-        restart({ restart: [ '../static/**', ] }), // Restart server on static file change
-        glsl() // Handle shader files
-    ]
+        [
+            restart({ restart: ['../static/**',] }), // Restart server on static file change
+            glsl() // Handle shader files
+        ]
 });
