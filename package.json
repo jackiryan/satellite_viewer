@@ -16,6 +16,6 @@
     "vite-plugin-restart": "^0.4.1"
   },
   "devDependencies": {
-    "vite": "^5.3.5"
+    "vite": "^7.3.1"
   }
 }
