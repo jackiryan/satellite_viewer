@@ -1,11 +1,29 @@
 #!/usr/bin/env python3
-"""processes a pre-fetched tle file and sorts it into JSON files"""
+"""Sorts a space-track GP catalog export into per-group JSON files.
+
+Group membership is derived entirely from the space-track data itself -- object
+name patterns, orbital parameters (for GLONASS) and object type -- so no
+CelesTrak requests are made. The parser reads a single CSV export of the `gp`
+class (see update_satellites.sh for the exact query) and writes one JSON file
+per group plus an index.json, matching the previous CelesTrak-based output.
+
+Caveats of the space-track-only approach:
+  * space-track has no notion of "operational" satellites, so the GPS and
+    GLONASS groups include every on-orbit satellite of that constellation, not
+    just CelesTrak's operational subset.
+  * "Weather" and "Science" are curated multi-operator groups on CelesTrak with
+    no single defining attribute; here they are approximated by a best-effort
+    union of well-known object-name patterns and will not match CelesTrak
+    exactly.
+  * "Active" is every on-orbit PAYLOAD that does not fall into a named group;
+    everything else (rocket bodies, debris, unknown) becomes "Debris".
+"""
 import argparse
+import csv
 from copy import deepcopy
 import json
 import logging
 import pathlib
-import requests
 
 logger = logging.getLogger(__name__)
 
@@ -97,37 +115,148 @@ satellite_groups = {
 
 special_colors = {}
 
-# A blacklist of active satellites that will get filtered from the "Other" group
-# This helps prevent the many tracked items around space stations from clipping on top of each other
-# The list is built primarily when processing the Space Station gp
-filter_items = []
-
-# The only two items associated with space stations that should be displayed
+# The only two items associated with space stations that should be displayed;
+# everything else co-orbiting with a station is filtered as clutter (see below).
+# These strings must match the space-track OBJECT_NAME exactly.
 station_whitelist = ["ISS (ZARYA)", "CSS (TIANHE)"]
 
+# Objects deployed from / docking with a station clutter the view around it.
+# We drop them entirely (keeping only the whitelist above). ISS-deployed objects
+# share the 1998-067 international designator; docked/visiting vehicles are
+# matched by name for both the ISS and the Chinese Space Station.
+STATION_CLUTTER_DESIGNATORS = ("1998-067",)
+STATION_CLUTTER_NAMES = [
+    "PROGRESS",
+    "CYGNUS",
+    "DRAGON",
+    "SOYUZ",
+    "TIANZHOU",
+    "SHENZHOU",
+    "STARLINER",
+    "CST-100",
+]
 
-def remove_blanks(lines: list[str]) -> list[str]:
-    """remove blank lines from text responses"""
-    return [line for line in lines if line.strip()]
+# OBJECT_NAME substrings (matched case-insensitively) that place a PAYLOAD into a
+# named group. Ordered by priority: the first group whose token matches wins.
+# GLONASS is handled separately because its members are named "COSMOS ..." which
+# is ambiguous, so it is disambiguated by orbit instead of name.
+NAME_PATTERNS = {
+    "Starlink": ["STARLINK"],
+    "OneWeb": ["ONEWEB"],
+    "Beidou": ["BEIDOU", "COMPASS"],
+    "Galileo": ["GALILEO"],
+    "GPS": ["NAVSTAR"],
+    "Molniya": ["MOLNIYA"],
+    "Planet Labs": ["FLOCK", "SKYSAT", "SUPERDOVE", "DOVE", "PELICAN", "TANAGER"],
+    "Telesat": ["TELESAT"],
+    # Weather and Science are curated mixes on CelesTrak; these unions are a
+    # best-effort approximation and will not match CelesTrak exactly.
+    "Weather": [
+        "NOAA",
+        "GOES",
+        "METEOSAT",
+        "METOP",
+        "FENGYUN",
+        "FY-",
+        "DMSP",
+        "HIMAWARI",
+        "METEOR",
+        "SENTINEL-3",
+        "INSAT",
+        "ELEKTRO",
+        "ARKTIKA",
+        "GEO-KOMPSAT",
+        "GK-2",
+        "MTG",
+        "GOMS",
+    ],
+    "Science": [
+        "HUBBLE",
+        "SWIFT",
+        "FERMI",
+        "FGST",
+        "XMM-NEWTON",
+        "SWARM",
+        "HINODE",
+        "IXPE",
+        "CALIPSO",
+        "CLOUDSAT",
+        "NUSTAR",
+        "INTEGRAL",
+        "CHEOPS",
+        "TIMED",
+        "GEOTAIL",
+        "THEMIS",
+    ],
+}
+
+# Operational GLONASS satellites sit in ~64.8-degree semi-synchronous MEO
+# (mean motion ~2.13 rev/day). This separates them from the many other Russian
+# "COSMOS" satellites, including the ~63.4-degree Molniya-orbit ones (mean
+# motion ~2.0 rev/day).
+GLONASS_INCLINATION = (63.0, 66.0)
+GLONASS_MEAN_MOTION = (2.10, 2.20)
 
 
-def find_group(norad_id: int, group_data: dict[str, list[int]]) -> str:
-    """find the satellite group that a satellite belongs to based off its NORAD ID"""
-    return next((k for k, v in group_data.items() if norad_id in v), "Active")
+def _to_float(value: str | None) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
-def get_norad_id(tle_line: str) -> int:
-    """get the NORAD ID of a spacecraft with hardcoded string indices from the TLE spec"""
-    return int(tle_line[2:7])
+def is_station_clutter(rec: dict) -> bool:
+    """True if the object is station-associated clutter that should be dropped."""
+    if rec["name"] in station_whitelist:
+        return False
+    if rec["object_id"].startswith(STATION_CLUTTER_DESIGNATORS):
+        return True
+    upper = rec["name"].upper()
+    return any(tok in upper for tok in STATION_CLUTTER_NAMES)
 
 
-def add_satellite(
-    name: str, tle_line1: str, tle_line2: str, norad_id: int, group: str
-) -> None:
-    logger.debug(f"Adding {name} to the group {group}")
+def is_glonass_orbit(rec: dict) -> bool:
+    inc, mm = rec["inclination"], rec["mean_motion"]
+    if inc is None or mm is None:
+        return False
+    return (
+        GLONASS_INCLINATION[0] <= inc <= GLONASS_INCLINATION[1]
+        and GLONASS_MEAN_MOTION[0] <= mm <= GLONASS_MEAN_MOTION[1]
+    )
+
+
+def classify(rec: dict) -> str:
+    """Return the group name a catalog record belongs to."""
+    name = rec["name"]
+    if name in station_whitelist:
+        return "Space Stations"
+    # Only payloads belong to the named groups; rocket bodies, debris and
+    # unknown objects (even if their name matches a constellation) go to Debris.
+    if rec["object_type"] != "PAYLOAD":
+        return "Debris"
+    upper = name.upper()
+    for group_name, tokens in NAME_PATTERNS.items():
+        if any(tok in upper for tok in tokens):
+            return group_name
+    if "COSMOS" in upper and is_glonass_orbit(rec):
+        return "GLONASS"
+    return "Active"
+
+
+def add_satellite(rec: dict, group: str) -> None:
     entities = satellite_groups[group]["entities"]
+    name = rec["name"]
+    # JSON object keys must be unique; disambiguate name collisions (common in
+    # the Debris group) with the NORAD id.
+    if name in entities:
+        name = f"{name} ({rec['norad_id']})"
+    logger.debug(f"Adding {name} to the group {group}")
     satellite_groups[group]["count"] += 1
-    entities[name] = {"noradId": norad_id, "tleLine1": tle_line1, "tleLine2": tle_line2}
+    entities[name] = {
+        "noradId": rec["norad_id"],
+        "tleLine1": rec["line1"],
+        "tleLine2": rec["line2"],
+    }
     entity_color = special_colors.get(name)
     if entity_color is not None:
         logger.debug(
@@ -136,152 +265,44 @@ def add_satellite(
         entities[name]["entityColor"] = entity_color
 
 
-def download_content(url: str) -> bytes:
-    try:
-        response = requests.get(url)
-
-        if response.status_code == 200:
-            return response.content
-        else:
-            logger.error(
-                f"Failed to download file at {url}. Status code: {response.status_code}"
+def parse_catalog(catalog: pathlib.Path) -> None:
+    """Read the space-track GP CSV export and sort every object into a group."""
+    filtered = 0
+    with catalog.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        required = {"OBJECT_NAME", "NORAD_CAT_ID", "TLE_LINE1", "TLE_LINE2"}
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(
+                f"Catalog CSV is missing required columns: {sorted(missing)}"
             )
-            return bytes()
-    except Exception as e:
-        logger.error(f"A Python error occurred when downloading: {e}")
-        raise e
-
-
-def download_group_files() -> dict[str, list[int]]:
-    group_data = {}
-    for group_name, group in satellite_groups.items():
-        gp_name = group.get("gpName")
-        if gp_name is None:
-            continue
-        if gp_name == "molniya":
-            handle_molniya()
-            continue
-        if gp_name == "stations":
-            handle_stations()
-        gp_url = (
-            f"https://celestrak.org/NORAD/elements/gp.php?GROUP={gp_name}&FORMAT=csv"
-        )
-        logger.debug(f"Getting group data for {gp_name}...")
-        gp_data = download_content(gp_url)
-        gp_lines = remove_blanks(gp_data.decode("utf-8").splitlines())
-        try:
-            id_ndx = gp_lines[0].split(",").index("NORAD_CAT_ID")
-        except ValueError as e:
-            logging.error(f"Failed to find NORAD_CAT_ID in group csv")
-            raise e
-        group_data[group_name] = [
-            int(gp_sat.split(",")[id_ndx]) for gp_sat in gp_lines[1:]
-        ]
-        logger.debug(f"Found {len(gp_lines)} entries for the {gp_name} group.")
-    return group_data
-
-
-def handle_molniya():
-    gp_name = "molniya"
-    gp_url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={gp_name}&FORMAT=tle"
-    logger.debug(f"Getting group data for {gp_name}...")
-    gp_data = download_content(gp_url)
-    gp_lines = remove_blanks(gp_data.decode("utf-8").splitlines())
-    parse_tle_lines(gp_lines, hc_group="Molniya")
-
-
-def handle_stations():
-    gp_name = "stations"
-    gp_url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={gp_name}&FORMAT=tle"
-    logger.debug(f"Getting group data for {gp_name}...")
-    gp_data = download_content(gp_url)
-    gp_lines = remove_blanks(gp_data.decode("utf-8").splitlines())
-    parse_tle_lines(gp_lines, hc_group="Space Stations")
-
-
-def parse_tle_lines(
-    tle_lines: list[str],
-    group_data: dict[str, list[int]] | None = None,
-    hc_group: str | None = None,
-) -> None:
-    for line_ndx, line in enumerate(tle_lines):
-        match line_ndx % 3:
-            case 0:
-                sat_name = line.strip()
-            case 1:
-                tle_line1 = line.strip()
-                # active satellites all have integer norad IDs, no ValueError expected
-                norad_id = get_norad_id(tle_line1)
-                if group_data:
-                    group = find_group(norad_id, group_data)
-                else:
-                    group = hc_group
-            case 2:
-                tle_line2 = line.strip()
-                if hc_group == "Space Stations" and sat_name not in station_whitelist:
-                    filter_items.append(norad_id)
-                # Short circuit if an item is on the blacklist (mostly station parts)
-                if norad_id in filter_items:
-                    continue
-                add_satellite(sat_name, tle_line1, tle_line2, norad_id, group)
-                filter_items.append(norad_id)
-
-
-def parse_other_sats(
-    cat_lines: list[str],
-    group_data: dict[str, list[int]] | None = None,
-    hc_group: str | None = None,
-) -> None:
-    entityMap: dict[str, str] = satellite_groups["Debris"]["entities"]
-    for line_ndx, line in enumerate(cat_lines):
-        match line_ndx % 3:
-            case 0:
-                sat_name = line.strip()
-            case 1:
-                tle_line1 = line.strip()
-                # Some TBA objects have norad IDs starting with T, skip them for now
-                try:
-                    norad_id = get_norad_id(tle_line1)
-                except ValueError:
-                    continue
-                group = hc_group or "Debris"
-            case 2:
-                tle_line2 = line.strip()
-                if norad_id in filter_items:
-                    logging.debug(f"Skipping {sat_name} as it has already been added")
-                    continue
-                if sat_name in entityMap.keys():
-                    sat_name = f"{sat_name} ({str(norad_id)})"
-                add_satellite(sat_name, tle_line1, tle_line2, norad_id, group)
-
-
-def parse_tle(
-    infile: pathlib.Path,
-    catalog: pathlib.Path,
-    group_data: dict[str, list[int]],
-    workdir: pathlib.Path | None,
-    one_file: bool,
-) -> None:
-    lines = infile.read_text().splitlines()
-    workdir = workdir or pathlib.Path.cwd()
-    tle_lines = remove_blanks(lines)
-    parse_tle_lines(tle_lines, group_data)
-    catalog_lines = catalog.read_text().splitlines()
-    # space-track results have 0, 1, or 2 and a space at the beginning of each line
-    cleaned_lines = [
-        line[2:] if line.startswith("0 ") else line for line in catalog_lines
-    ]
-    parse_other_sats(cleaned_lines, group_data)
-    try:
-        if one_file:
-            write_one_file(infile, workdir)
-        else:
-            write_group_files(workdir)
-    except Exception as e:
-        logging.error(f"Error writing satellite database: {e}")
-        logging.debug("Satellite database is as follows:")
-        logging.debug(satellite_groups)
-        raise e
+        for row in reader:
+            name = (row.get("OBJECT_NAME") or "").strip()
+            line1 = (row.get("TLE_LINE1") or "").strip()
+            line2 = (row.get("TLE_LINE2") or "").strip()
+            if not (name and line1 and line2):
+                continue
+            try:
+                norad_id = int(row["NORAD_CAT_ID"])
+            except (KeyError, ValueError):
+                logger.debug(f"Skipping {name}: missing/invalid NORAD id")
+                continue
+            rec = {
+                "name": name,
+                "line1": line1,
+                "line2": line2,
+                "norad_id": norad_id,
+                "object_type": (row.get("OBJECT_TYPE") or "").strip().upper(),
+                "object_id": (row.get("OBJECT_ID") or "").strip(),
+                "inclination": _to_float(row.get("INCLINATION")),
+                "mean_motion": _to_float(row.get("MEAN_MOTION")),
+            }
+            if is_station_clutter(rec):
+                logger.debug(f"Filtering station-associated object {name}")
+                filtered += 1
+                continue
+            add_satellite(rec, classify(rec))
+    logger.debug(f"Filtered {filtered} station-associated objects")
 
 
 def write_group_files(workdir: pathlib.Path) -> None:
@@ -297,24 +318,18 @@ def write_group_files(workdir: pathlib.Path) -> None:
     index_file.write_text(json.dumps(group_index, indent=2))
 
 
-def write_one_file(infile: pathlib.Path, workdir: pathlib.Path) -> None:
-    outfile = workdir / f"{infile.stem}.json"
+def write_one_file(catalog: pathlib.Path, workdir: pathlib.Path) -> None:
+    outfile = workdir / f"{catalog.stem}.json"
     outfile.write_text(json.dumps(satellite_groups, indent=2))
 
 
 def setup_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "infile",
-        type=pathlib.Path,
-        metavar="FILE",
-        help="input text file containing active satellite TLEs from Celestrak",
-    )
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "catalog",
         type=pathlib.Path,
         metavar="FILE",
-        help="full catalog file containing all TLEs from Space-Track API",
+        help="space-track gp catalog export in CSV format",
     )
     parser.add_argument(
         "-w", "--workdir", type=pathlib.Path, help="working directory, default is cwd"
@@ -322,7 +337,7 @@ def setup_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--one-file",
         action="store_true",
-        help="Store output to a single file instead of one group",
+        help="Store output to a single file instead of one per group",
     )
     return parser
 
@@ -337,9 +352,19 @@ def main() -> None:
     )
     parser = setup_parser()
     args = parser.parse_args()
+    workdir = args.workdir or pathlib.Path.cwd()
 
-    group_data = download_group_files()
-    parse_tle(args.infile, args.catalog, group_data, args.workdir, args.one_file)
+    parse_catalog(args.catalog)
+    for name, group in satellite_groups.items():
+        logger.debug(f"{name}: {group['count']} entities")
+    try:
+        if args.one_file:
+            write_one_file(args.catalog, workdir)
+        else:
+            write_group_files(workdir)
+    except Exception as e:
+        logging.error(f"Error writing satellite database: {e}")
+        raise e
 
 
 if __name__ == "__main__":
