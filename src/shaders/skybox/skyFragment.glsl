@@ -1,21 +1,21 @@
 // Star Shader
 // (c) 2024 Alex Stone-Martinez & Jacqueline Ryan
-  
-// Permission is hereby granted, free of charge, to any person obtaining a copy of 
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
 // this software and associated documentation files (the “Software”), to deal in the
 // Software without restriction, including without limitation the rights to use, copy,
 // modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
-// and to permit persons to whom the Software is furnished to do so, subject to the 
+// and to permit persons to whom the Software is furnished to do so, subject to the
 // following conditions:
 //
 // The above copyright notice and this permission notice shall be included in all copies
 // or substantial portions of the Software.
 
-// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
-// INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
-// PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT 
-// HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION 
-// OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
+// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+// PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+// HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+// OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 uniform sampler2D uStarData;
@@ -24,6 +24,7 @@ uniform float uPixelSize;
 uniform float uSigma;
 uniform float uScaleFactor;
 uniform float uBrightnessScale;
+uniform float uStarSaturation; // 1.0 = physical blackbody color, > 1.0 = more vivid
 
 uniform sampler2D uSkybox;
 // uniform float uRotX;
@@ -102,7 +103,7 @@ vec4 getPixInfo(vec3 dir, vec2 offset) {
         // Original condition for Pprime.z >= 0
         Pprime1.xy = coord1;
         Pprime1.z = 1.0 - abs(coord1.x) - abs(coord1.y); // Invert original front-facing projection
-    } else { 
+    } else {
         // Original condition for Pprime.z < 0, needs guessing
         // This branch is trickier because the original transformation compresses more information into the same space
         Pprime1.x = sign(coord1.x) * (1.0 - abs(coord1.y));
@@ -154,6 +155,27 @@ vec4 desaturate(vec4 color, float saturation) {
     return vec4(desaturatedColor, 1.0);
 }
 
+// Luminance weights for *linear* sRGB (Rec. 709). desaturate() above uses the Rec. 601
+// weights, which are meant for gamma-encoded values.
+const vec3 LINEAR_LUMA = vec3(0.2126, 0.7152, 0.0722);
+
+// Push a linear color away from grey by `amount` (1.0 = unchanged) without going negative.
+vec3 saturateColor(vec3 color, float amount) {
+    return max(vec3(0.0), mix(vec3(dot(color, LINEAR_LUMA)), color, amount));
+}
+
+// Bright stars reach linear values far above 1.0 (Betelgeuse is about (26, 16, 9) at its
+// center). Clipping each channel at 1.0 turns their cores white and leaves the color only
+// in the falloff. Instead, compress the luminance and scale all three channels together,
+// so each star keeps its hue in the center. Faint stars (luminance << 1) pass
+// through unchanged because 1 - exp(-L) ~= L for small L.
+vec3 toneMapPreserveHue(vec3 color) {
+    float lum = dot(color, LINEAR_LUMA);
+    vec3 mapped = color * ((1.0 - exp(-lum)) / max(lum, 1e-6));
+    float peak = max(mapped.r, max(mapped.g, mapped.b));
+    return mapped / max(peak, 1.0);
+}
+
 void main() {
     // bake in -90 degree rotation about y and x axes
     vec3 dir = vec3(vDirection.z, vDirection.x, vDirection.y);
@@ -175,7 +197,8 @@ void main() {
     // bake in -90 degree rotation about X axis for UV coordinate
     vec4 skyColor = desaturate(texture(uSkybox, vec2(1.0 - vUv.x, vUv.y)) * uMwBright, 0.6);
 
-    gl_FragColor = starColor + skyColor;
+    vec3 stars = saturateColor(starColor.rgb, uStarSaturation);
+    gl_FragColor = vec4(toneMapPreserveHue(stars + skyColor.rgb), 1.0);
 
     #include <tonemapping_fragment>
 	#include <colorspace_fragment>

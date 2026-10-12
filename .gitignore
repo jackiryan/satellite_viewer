@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .DS_Store
+scripts/__pycache__/
+scripts/update_satellites.sh
+.venv/
 
 getSatellites_service.log
 # All json files except index.json

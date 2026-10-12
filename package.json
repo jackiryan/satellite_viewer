@@ -13,7 +13,7 @@
     "satellite.js": "^5.0.0",
     "three": "^0.167.1",
     "vite-plugin-glsl": "^1.3.0",
-    "vite-plugin-restart": "^0.4.1"
+    "vite-plugin-restart": "^2.0.0"
   },
   "devDependencies": {
     "vite": "^7.3.1"

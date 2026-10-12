@@ -4,7 +4,7 @@
  * minus their V magnitudes, which approximates a blackbody color temperature when no such data is
  * available. This is currently incorrect in some cases, and I have it on my list to fix it, but I
  * would need to clean up the pre-processing script used to generate the datapack texture.
- * 
+ *
  * Almost the exact same code is implemented in skybox.js, except that there is a sun defined using SDFs
  * and the stars are not colored. I could have used inheritance to avoid "repeating myself", but I felt
  * it would reduce the readability of the code at no tangible benefit to the functionality of these demos.
@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import skyVertexShader from './shaders/skybox/skyVertex.glsl';
 import skyFragmentShader from './shaders/skybox/skyFragment.glsl';
+import { saturation } from 'three/tsl';
 
 export class Sky extends THREE.Mesh {
     constructor() {
@@ -75,10 +76,11 @@ export class Sky extends THREE.Mesh {
             const uniforms = {
                 'uStarData': { type: 't', value: textures[0] },
                 'uTempData': { type: 't', value: textures[1] },
+                'uStarSaturation': { type: 'f', value: 1.0 },
                 'uPixelSize': { type: 'f', value: 1024.0 },
                 'uSigma': { type: 'f', value: 100.0 },
                 'uScaleFactor': { type: 'f', value: 0.0 },
-                'uBrightnessScale': { type: 'f', value: 30.0 },
+                'uBrightnessScale': { type: 'f', value: 54.0 },
                 'uSkybox': { type: 't', value: textures[2] },
                 'uMwBright': { type: 'f', value: 0.10 },
             };
@@ -88,7 +90,10 @@ export class Sky extends THREE.Mesh {
                 vertexShader: skyVertexShader,
                 fragmentShader: skyFragmentShader,
                 side: THREE.BackSide,
-                depthWrite: false
+                depthWrite: false,
+                // the shader tone-maps itself (toneMapPreserveHue); a renderer tone map
+                // applied on top would push star cores past 1.0 and clip them to white again
+                toneMapped: false
             });
 
             this.material = this.starMaterial;
@@ -193,12 +198,14 @@ function initTweaks(gui, skybox) {
         sigma: uniforms['uSigma'].value,
         scaleFactor: uniforms['uScaleFactor'].value,
         brightnessScale: uniforms['uBrightnessScale'].value,
+        saturation: uniforms['uStarSaturation'].value,
         mwBright: uniforms['uMwBright'].value
     };
 
     gui.add(effectController, 'sigma', 0.0, 500.0, 0.1).onChange(guiChanged);
     gui.add(effectController, 'scaleFactor', 0.0, 10.0, 0.01).onChange(guiChanged);
     gui.add(effectController, 'brightnessScale', 0.0, 100.0, 0.1).onChange(guiChanged);
+    gui.add(effectController, 'saturation', 0.0, 2.0, 0.01).onChange(guiChanged);
     gui.add(effectController, 'mwBright', 0.0, 1.0, 0.01).onChange(guiChanged);
 
     function guiChanged() {
@@ -206,6 +213,7 @@ function initTweaks(gui, skybox) {
         uniforms['uSigma'].value = effectController.sigma;
         uniforms['uScaleFactor'].value = effectController.scaleFactor;
         uniforms['uBrightnessScale'].value = effectController.brightnessScale;
+        uniforms['uStarSaturation'].value = effectController.saturation;
         uniforms['uMwBright'].value = effectController.mwBright;
     }
 
