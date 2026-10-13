@@ -7,11 +7,12 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
 import { initSky } from './skybox.js';
 import { initEarth } from './earth.js';
+import { initMoon } from './moon.js';
 import Stats from 'three/addons/libs/stats.module.js';
 import { HoverIntentHandler } from './hoverIntentHandler.js';
 
 let camera, controls, scene, renderer, stats;
-let earth, skybox, groupMap;
+let earth, moon, skybox, groupMap;
 
 // Determine the initial rotation of the Earth based on the current sidereal time
 const now = new Date(); // Get current time
@@ -70,7 +71,7 @@ async function init() {
     controls.maxDistance = 150;
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
-    controls.enablePan = false;
+    controls.enablePan = true;
     controls.update();
 
     /* Other objects that are updated during animation callback */
@@ -89,8 +90,12 @@ async function init() {
     fitCameraToObject(camera, tempSphere, 5);
     scene.remove(tempSphere);
 
-    // Create the actual globe
+    // Create the actual globe, loading the Moon's texture at the same time. The Moon stays
+    // off the interactive layer so the satellite raycaster never picks it up. The camera's
+    // far plane (1000) already covers the Moon, which sits about 300 scene units out.
+    const moonPromise = initMoon(scene, now);
     earth = await initEarth(scene, now, interactiveLayer);
+    moon = await moonPromise;
 
     // satellite data is stored in this data structure, position state is handled in a separate webworker
     const modelName = './shootingstar3.gltf';
@@ -350,6 +355,10 @@ function animate() {
 
     if (earth !== undefined) {
         earth.update(deltaNow);
+    }
+
+    if (moon !== undefined) {
+        moon.update(deltaNow);
     }
 
     if (groupMap !== undefined) {
