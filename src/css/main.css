@@ -392,7 +392,8 @@ a, button, input, select {
     transform-origin: 50% 50%;
 }
 
-#speed-control {
+#speed-control,
+#jump-control {
     display: flex;
     padding-bottom: 0rem;
     align-items: center;
@@ -400,7 +401,8 @@ a, button, input, select {
     gap: var(--spacing);
 }
 
-#speed-indicator {
+#speed-indicator,
+#jump-indicator {
     width: 50%;
 }
 

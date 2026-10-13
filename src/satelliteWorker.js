@@ -58,12 +58,15 @@ self.onmessage = function (e) {
         case 'reset':
             resetTime(data);
             break;
+        case 'shiftTime':
+            shiftTime(data);
+            break;
     }
 };
 
 function workerInitGroup(data) {
     const { url, groupData, buffer } = data;
-    // This is not the full instance Matrix, but merely a view to the 
+    // This is not the full instance Matrix, but merely a view to the
     // instanceMatrix.array's buffer
     const dataString = new TextDecoder().decode(groupData);
     const groupDb = JSON.parse(dataString);
@@ -238,4 +241,10 @@ function getPosVel(data) {
 function resetTime(data) {
     speedFactor = 1;
     elapsedTime = Date.now() - startTime;
+}
+
+function shiftTime(data) {
+    // Offset this worker's simulation clock by a fixed amount (in milliseconds)
+    // without changing the speed
+    elapsedTime += data.millis;
 }

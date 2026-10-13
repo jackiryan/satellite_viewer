@@ -37,6 +37,9 @@ const renderParameters = {
     animFrameRate: 60.0 // frames per second, deprecated
 };
 
+// Used for jumping days in the simulation
+const secondsPerDay = 86400;
+
 const interactiveLayer = 1;
 
 await init().then(async () => {
@@ -175,6 +178,9 @@ function initSettingsMenu() {
     const realTimeIndicator = document.getElementById('real-time-indicator');
     const projectedIndicator = document.getElementById('projected-indicator');
 
+    const dayBackButton = document.getElementById('day-back');
+    const dayForwardButton = document.getElementById('day-forward');
+
     const starsButton = document.getElementById('stars');
     const showAllButton = document.getElementById('show-all');
     const hideAllButton = document.getElementById('hide-all');
@@ -242,6 +248,19 @@ function initSettingsMenu() {
         updateSpeed(renderParameters.speedFactor - 1);
         setRealTime(true);
     });
+
+    // Jump the simulation by a full day. The satellites are propagated inside
+    // the workers, so we shift both the main-thread time and every worker's
+    // time to keep them in sync.
+    function jumpTime(days) {
+        elapsedTime += days * secondsPerDay;
+        groupMap.shiftTime(days * secondsPerDay);
+        // The displayed time no longer tracks the real wall clock.
+        setRealTime(false);
+    }
+
+    dayBackButton.addEventListener('click', () => jumpTime(-1));
+    dayForwardButton.addEventListener('click', () => jumpTime(1));
 
     starsButton.addEventListener('click', () => {
         if (skybox !== undefined) {

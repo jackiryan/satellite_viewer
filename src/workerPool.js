@@ -76,6 +76,13 @@ export class WorkerPool {
         this.workers[workerIndex].worker.postMessage(message);
     }
 
+    // Send a message to every worker in the pool, regardless of group assignment
+    broadcast(message) {
+        this.workers.forEach(workerInfo => {
+            workerInfo.worker.postMessage(message);
+        });
+    }
+
     // Remove a group from a worker's assignments
     removeGroup(groupUrl) {
         if (this.workQueue.has(groupUrl)) {

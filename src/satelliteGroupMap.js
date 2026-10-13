@@ -262,6 +262,17 @@ export class SatelliteGroupMap {
         }
     }
 
+    shiftTime(seconds) {
+        // Offset every worker clock by a fixed amount without changing the speed.
+        // We broadcast to all workers (not just those with active groups) so that
+        // groups displayed after a jump also land at the shifted time. The worker
+        // tracks time in milliseconds.
+        this.workerPool.broadcast({
+            action: 'shiftTime',
+            data: { millis: seconds * 1000 }
+        });
+    }
+
     addOrbit(etGroup, etIid) {
         // etGroup/etIid = event group / event instance id, used to diambiguate the arguments
         const group = this.map.get(etGroup);
