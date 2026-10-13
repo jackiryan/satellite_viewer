@@ -1,5 +1,6 @@
 /* landing.js - main JavaScript source for the index.html of my personal website */
 import * as THREE from 'three';
+import { Timer } from 'three/addons/misc/Timer.js';
 import { initSky } from './skybox.js';
 import { initEarth } from './earth.js';
 
@@ -23,7 +24,7 @@ const renderParameters = {
 
 // mutable that is used for adjusting simulation speed
 let elapsedTime = 0;
-const renderClock = new THREE.Clock();
+const renderTimer = new Timer();
 const sceneBoundingBox = new THREE.Box3(
     new THREE.Vector3(-0.5 * earthRadius, -10, -5),
     new THREE.Vector3(100 + 0.5 * earthRadius, 10, 5)
@@ -115,7 +116,8 @@ function animate() {
     // the speedFactor should be enough that the earth will move while the user is on the page,
     // but not so much that it will be obvious at a glance. It's a tricky little detail for
     // people who are paying attention :)
-    const delta = renderParameters.speedFactor * renderClock.getDelta();
+    renderTimer.update();
+    const delta = renderParameters.speedFactor * renderTimer.getDelta();
     elapsedTime += delta;
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
 

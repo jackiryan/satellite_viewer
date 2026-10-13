@@ -9,6 +9,7 @@ import { initSky } from './skybox.js';
 import { initEarth } from './earth.js';
 import { initMoon } from './moon.js';
 import Stats from 'three/addons/libs/stats.module.js';
+import { Timer } from 'three/addons/misc/Timer.js';
 import { HoverIntentHandler } from './hoverIntentHandler.js';
 
 let camera, controls, scene, renderer, stats;
@@ -22,7 +23,7 @@ const now = new Date(); // Get current time
 
 // mutable that is used for adjusting simulation speed
 let elapsedTime = 0;
-const renderClock = new THREE.Clock();
+const renderTimer = new Timer();
 
 const mainElement = document.querySelector('main');
 let previousClockValue = '';
@@ -180,7 +181,7 @@ function initSettingsMenu() {
 
     function setRealTime(isRealTime) {
         if (isRealTime) {
-            // elapsedTime is in seconds on the main thread due to renderClock,
+            // elapsedTime is in seconds on the main thread due to renderTimer,
             // so remember to divide by 1000 (ms -> s)
             elapsedTime = (Date.now() - now.getTime()) / 1000.0;
             groupMap.setRealTime();
@@ -345,7 +346,8 @@ function onWindowResize() {
 }
 
 function animate() {
-    const delta = renderParameters.speedFactor * renderClock.getDelta();
+    renderTimer.update();
+    const delta = renderParameters.speedFactor * renderTimer.getDelta();
     elapsedTime += delta;
     const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
 

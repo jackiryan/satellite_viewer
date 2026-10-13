@@ -2,9 +2,10 @@
 import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { Timer } from 'three/addons/misc/Timer.js';
 import { initSky } from './skyboxcolor.js';
 
-let scene, renderer, camera, controls, clock, skybox;
+let scene, renderer, camera, controls, timer, skybox;
 
 await init();
 
@@ -28,7 +29,7 @@ async function init() {
     const gui = new GUI();
     await initSky({ sceneObj: scene, guiObj: gui }).then((sky) => {
         skybox = sky;
-        clock = new THREE.Clock();
+        timer = new Timer();
         requestAnimationFrame(animate);
     });
 }
