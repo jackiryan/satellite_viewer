@@ -143,6 +143,8 @@ function addStats() {
     stats = new Stats();
     stats.domElement.style.position = 'absolute';
     stats.domElement.style.top = '3.5rem';
+    // Stats defaults to z-index 10000, which would float it above the group drawer
+    stats.domElement.style.zIndex = '1';
     mainElement.appendChild(stats.domElement);
 }
 
@@ -159,6 +161,13 @@ function initSettingsMenu() {
     toggleButton.addEventListener('click', () => {
         settingsMenu.classList.toggle('hidden');
         menuToggle.classList.toggle('on');
+    });
+
+    // On narrow screens the satellite group drawer covers this menu, so close it
+    // when the drawer opens rather than leaving it open underneath
+    window.addEventListener('groupDrawerOpened', () => {
+        settingsMenu.classList.add('hidden');
+        menuToggle.classList.remove('on');
     });
 
     const speedStates = new Map([

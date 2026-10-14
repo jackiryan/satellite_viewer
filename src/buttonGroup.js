@@ -9,6 +9,18 @@ const navarrowRight = document.getElementById('navarrow-right');
 const arrowIconLeft = document.getElementById('arrowicon-left');
 const arrowIconRight = document.getElementById('arrowicon-right');
 
+// Narrow screens: the "Groups" button that replaces the strip, and the drawer it opens
+// (see the "Group drawer" section of main.css)
+const groupToggle = document.getElementById('group-toggle');
+const groupCountBadge = document.getElementById('group-count');
+const groupDrawer = document.getElementById('group-drawer');
+const groupSummary = document.getElementById('group-summary');
+const drawerBackdrop = document.getElementById('group-drawer-backdrop');
+const drawerClose = document.getElementById('group-drawer-close');
+
+// Same as the default material in satelliteGroupMap.js, used for groups without a baseColor
+const defaultGroupColor = '#c4a484';
+
 
 export async function populateButtonGroup(defaultGroups) {
     const baseUrl = window.location.origin;
@@ -20,11 +32,14 @@ export async function populateButtonGroup(defaultGroups) {
         return {
             name: key,
             country: satDb[key].country ? satDb[key].country.toLowerCase() : null,
-            entitiesUrl: satDb[key].entities
+            entitiesUrl: satDb[key].entities,
+            color: satDb[key].baseColor ?? defaultGroupColor,
+            count: satDb[key].count
         };
     });
 
     populateButtons(buttonGroups, defaultGroups);
+    initGroupDrawer();
     checkOverflow();
 }
 
@@ -34,6 +49,15 @@ function populateButtons(groups, defaultGroups) {
     groups.forEach(group => {
         const button = document.createElement('div');
         button.className = 'toggle-button off'; // Default to 'off' state
+        button.setAttribute('role', 'button');
+        button.setAttribute('aria-pressed', 'false');
+        button.tabIndex = 0;
+
+        // The color swatch and satellite count are only displayed in the drawer
+        const swatch = document.createElement('span');
+        swatch.className = 'group-swatch';
+        swatch.style.backgroundColor = group.color;
+        button.appendChild(swatch);
 
         if (group.country) {
             const flag = document.createElement('img');
@@ -42,25 +66,41 @@ function populateButtons(groups, defaultGroups) {
             button.appendChild(flag);
         }
 
-        const textNode = document.createTextNode(group.name);
-        button.appendChild(textNode);
+        const name = document.createElement('span');
+        name.className = 'group-name';
+        name.textContent = group.name;
+        button.appendChild(name);
+
+        if (Number.isFinite(group.count)) {
+            const count = document.createElement('span');
+            count.className = 'group-count';
+            count.textContent = group.count.toLocaleString('en-US');
+            count.title = `${count.textContent} satellites`;
+            button.appendChild(count);
+        }
+
+        button.addEventListener('click', () => toggleButtonState(button, group.entitiesUrl));
+        button.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleButtonState(button, group.entitiesUrl);
+            }
+        });
+
+        container.appendChild(button);
 
         if (defaultGroups.has(group.name)) {
             toggleButtonState(button, group.entitiesUrl);
         }
-
-        button.addEventListener('click', () => toggleButtonState(button, group.entitiesUrl));
-
-        container.appendChild(button);
     });
+    updateGroupCount();
 
     addButtonGroupGrab();
     addOverflowBehavior();
 }
 
 async function toggleButtonState(button, entitiesUrl) {
-    button.classList.toggle('on');
-    button.classList.toggle('off');
+    setButtonState(button, !button.classList.contains('on'));
 
     if (button.classList.contains('on')) {
         const displayEvent = new CustomEvent('displayGroup', { detail: entitiesUrl });
@@ -79,6 +119,57 @@ export function setButtonState(button, state) {
         button.classList.remove('on');
         button.classList.add('off');
     }
+    button.setAttribute('aria-pressed', String(state));
+    updateGroupCount();
+}
+
+// Show how many groups are on, on the "Groups" button and at the top of the drawer
+function updateGroupCount() {
+    const total = buttonContainer.querySelectorAll('.toggle-button').length;
+    const shown = buttonContainer.querySelectorAll('.toggle-button.on').length;
+    groupCountBadge.textContent = String(shown);
+    groupCountBadge.classList.toggle('none', shown === 0);
+    groupSummary.textContent = `${shown} of ${total} shown`;
+    groupToggle.setAttribute('aria-label', `Satellite groups, ${shown} of ${total} shown`);
+}
+
+/* Group drawer (narrow screens) */
+function isDrawerMode() {
+    // main.css only displays the "Groups" button below its breakpoint
+    return window.getComputedStyle(groupToggle).display !== 'none';
+}
+
+function isGroupDrawerOpen() {
+    return groupDrawer.classList.contains('open');
+}
+
+function setGroupDrawerOpen(open) {
+    if (open === isGroupDrawerOpen()) {
+        return;
+    }
+    groupDrawer.classList.toggle('open', open);
+    drawerBackdrop.classList.toggle('open', open);
+    groupToggle.setAttribute('aria-expanded', String(open));
+
+    if (open) {
+        // lets viewer.js close the settings menu, which the drawer would cover
+        window.dispatchEvent(new CustomEvent('groupDrawerOpened'));
+    } else if (groupDrawer.contains(document.activeElement)) {
+        // the drawer is about to become invisible, so don't leave keyboard focus in it
+        groupToggle.focus();
+    }
+}
+
+function initGroupDrawer() {
+    groupToggle.disabled = false;
+    groupToggle.addEventListener('click', () => setGroupDrawerOpen(!isGroupDrawerOpen()));
+    drawerBackdrop.addEventListener('click', () => setGroupDrawerOpen(false));
+    drawerClose.addEventListener('click', () => setGroupDrawerOpen(false));
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            setGroupDrawerOpen(false);
+        }
+    });
 }
 
 function addButtonGroupGrab() {
@@ -126,12 +217,14 @@ function addOverflowBehavior() {
 }
 
 function checkOverflow() {
-    // hard-coding this to the same value used in the CSS
-    if (window.innerWidth < 600) {
+    if (isDrawerMode()) {
         navarrowLeft.style.display = 'none';
         navarrowRight.style.display = 'none';
         return;
     }
+    // The drawer isn't shown on wide screens, so don't leave it open for the next
+    // time the window gets narrow
+    setGroupDrawerOpen(false);
 
     if (buttonContainer.scrollWidth > buttonContainer.clientWidth) {
         navarrowLeft.style.display = 'block';

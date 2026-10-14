@@ -31,7 +31,10 @@
             height: 50px;
         }
 
-        .hidden {
+        .hidden,
+        .group-toggle,
+        .drawer-backdrop,
+        .drawer-header {
             display: none;
         }
 
@@ -128,8 +131,41 @@
                     </g>
                 </svg>
             </span>
-            <span class="container-fluid button-flex border-right">
-            </span>
+            <!-- Narrow screens only: replaces the scrolling strip and opens the group drawer.
+                 buttonGroup.js enables it once the groups have loaded. -->
+            <button id="group-toggle" class="group-toggle" type="button" aria-expanded="false"
+                aria-controls="group-drawer" aria-label="Satellite groups" disabled>
+                <span class="group-toggle-inner">
+                    <svg class="group-toggle-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle class="orbit" cx="12" cy="12" r="9.5" />
+                        <circle class="body" cx="12" cy="12" r="3.75" />
+                        <circle class="body" cx="18.7" cy="5.3" r="2.1" />
+                    </svg>
+                    <span class="group-toggle-label">Groups</span>
+                    <span id="group-count" class="group-count-badge"></span>
+                    <svg class="group-toggle-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 12" aria-hidden="true">
+                        <path class="icon-stroke" d="M25.31,2.5l-11.41,7.38L2.5,2.5" />
+                    </svg>
+                </span>
+            </button>
+            <div id="group-drawer-backdrop" class="drawer-backdrop"></div>
+            <!-- Wide screens: display: contents, so .button-flex sits in the header row as before.
+                 Narrow screens: a drawer that drops down over the scene. -->
+            <div id="group-drawer" class="group-drawer">
+                <div class="drawer-header">
+                    <div>
+                        <span class="drawer-title">Satellite Groups</span>
+                        <span id="group-summary" class="drawer-summary"></span>
+                    </div>
+                    <button id="group-drawer-close" class="drawer-close" type="button" aria-label="Close satellite groups">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M3,3l10,10M13,3L3,13" />
+                        </svg>
+                    </button>
+                </div>
+                <span class="container-fluid button-flex border-right">
+                </span>
+            </div>
             <span id="navarrow-right" class="container-xnarrow border-right">
                 <svg id="arrowicon-right" class="navarrow on" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 40">
                     <g id="arrowicon-right-stroke" data-name="Layer_1">
