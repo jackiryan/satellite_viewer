@@ -122,3 +122,39 @@ export function blendRows(rows, weights, out) {
         out[i + 3] = a;
     }
 }
+
+/* ------------------------------------------------------------ single-channel versions */
+
+/** resampleRow for one float per pixel. */
+export function resampleValues(src, dst, taps) {
+    const { offsets, index, weight } = taps;
+    const outSize = offsets.length - 1;
+    for (let o = 0; o < outSize; o++) {
+        let v = 0;
+        for (let k = offsets[o], end = offsets[o + 1]; k < end; k++) v += src[index[k]] * weight[k];
+        dst[o] = v;
+    }
+}
+
+/**
+ * blendRows for one float per pixel holding a value in 0-1 (reflectance). Writes it to 8 bits
+ * as sqrt(value) * 255, which spends more of the 256 levels on thin clouds; decode with
+ * v * v. `out` should be a Uint8ClampedArray.
+ */
+export function blendValues(rows, weights, out) {
+    const taps = rows.length;
+    const n = out.length;
+    if (taps === 2) {
+        const r0 = rows[0], r1 = rows[1], w0 = weights[0], w1 = weights[1];
+        for (let i = 0; i < n; i++) {
+            const v = r0[i] * w0 + r1[i] * w1;
+            out[i] = v > 0 ? Math.sqrt(v) * 255 : 0;
+        }
+        return;
+    }
+    for (let i = 0; i < n; i++) {
+        let v = 0;
+        for (let k = 0; k < taps; k++) v += rows[k][i] * weights[k];
+        out[i] = v > 0 ? Math.sqrt(v) * 255 : 0;
+    }
+}

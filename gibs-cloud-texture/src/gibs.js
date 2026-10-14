@@ -68,11 +68,12 @@ function upstreamMessage(body) {
 }
 
 /**
- * Fetch one tile's PNG bytes, retrying network errors and 5xx/429 responses with backoff.
- * Tiles are cached by Cloudflare for `cacheTtl` seconds, so textures of other sizes made
- * from the same tiles don't download them again.
+ * Fetch a GIBS resource, retrying network errors and 5xx/429 responses with backoff.
+ * Responses are cached by Cloudflare for `cacheTtl` seconds, so textures of other sizes made
+ * from the same tiles don't download them again. `what` names the resource in errors.
+ * @returns {Promise<{bytes: Uint8Array, contentType: string}>}
  */
-export async function fetchTile(url, { fetchImpl = fetch, signal, cacheTtl, retries = 3 } = {}) {
+export async function fetchBytes(url, { fetchImpl = fetch, signal, cacheTtl, retries = 3, what = 'a file' } = {}) {
     for (let attempt = 0; ; attempt++) {
         const retry = attempt < retries;
         let response;
@@ -93,24 +94,27 @@ export async function fetchTile(url, { fetchImpl = fetch, signal, cacheTtl, retr
             continue;
         }
 
-        if (bytes) {
-            if (isPng(bytes)) return bytes;
-            const type = response.headers.get('content-type') ?? 'unknown type';
-            throw new UpstreamError(`GIBS returned ${type} instead of a PNG tile`, {
-                detail: `${url}: ${upstreamMessage(new TextDecoder().decode(bytes.subarray(0, 2000)))}`
-            });
-        }
+        if (bytes) return { bytes, contentType: response.headers.get('content-type') ?? 'unknown type' };
 
         const body = await response.text().catch(() => '');
         if (RETRYABLE.has(response.status) && retry) {
             await sleep(250 * 3 ** attempt);
             continue;
         }
-        throw new UpstreamError(`GIBS returned HTTP ${response.status} for a tile`, {
+        throw new UpstreamError(`GIBS returned HTTP ${response.status} for ${what}`, {
             upstreamStatus: response.status,
             detail: `${url}: ${upstreamMessage(body)}`
         });
     }
+}
+
+/** Fetch one tile and check that it really is a PNG. */
+export async function fetchTile(url, options = {}) {
+    const { bytes, contentType } = await fetchBytes(url, { ...options, what: 'a tile' });
+    if (isPng(bytes)) return bytes;
+    throw new UpstreamError(`GIBS returned ${contentType} instead of a PNG tile`, {
+        detail: `${url}: ${upstreamMessage(new TextDecoder().decode(bytes.subarray(0, 2000)))}`
+    });
 }
 
 /**
@@ -125,13 +129,18 @@ export async function fetchTile(url, { fetchImpl = fetch, signal, cacheTtl, retr
  *     background while the current one is read. Memory stays flat at any level, but a
  *     later tile can still fail after the response has started.
  * Either way only one tile row is held inflated at a time.
+ *
+ * Rows come out as premultiplied RGBA floats, or, when a `mapper` is given, as one float
+ * per pixel from mapper (see albedo.js).
  */
 export class TileMosaic {
-    constructor({ grid, date, config, fetchImpl, cacheTtl, prefetchAll = false }) {
+    constructor({ grid, date, config, fetchImpl, cacheTtl, prefetchAll = false, mapper = null }) {
         this.grid = grid;
         this.width = grid.width;
         this.height = grid.height;
         this.prefetchAll = prefetchAll;
+        this.mapper = mapper;
+        this.channels = mapper ? 1 : 4;
         this.controller = new AbortController();
         this.fetchOptions = { date, config, fetchImpl, cacheTtl };
         this.pending = new Array(grid.rows).fill(null); // tile row -> Promise<Uint8Array[]>
@@ -156,13 +165,15 @@ export class TileMosaic {
         await this.advance();
     }
 
-    /** Write source row y (rows must be read in order) as premultiplied RGBA floats. */
+    /** Write source row y (rows must be read in order) into `out`, `channels` floats per pixel. */
     async readRow(y, out) {
         const tileRow = Math.floor(y / TILE_SIZE);
         while (this.tileRow < tileRow) await this.advance();
         for (let col = 0; col < this.grid.cols; col++) {
             const x0 = col * TILE_SIZE;
-            this.readers[col].readRow(out, x0 * 4, Math.min(TILE_SIZE, this.width - x0));
+            const count = Math.min(TILE_SIZE, this.width - x0);
+            if (this.mapper) this.readers[col].readValues(out, x0, count, this.mapper);
+            else this.readers[col].readRow(out, x0 * 4, count);
         }
     }
 

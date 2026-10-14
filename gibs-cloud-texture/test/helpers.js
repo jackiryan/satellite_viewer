@@ -129,3 +129,44 @@ export async function readRgba(bytes, decodePng) {
     }
     return { width: reader.width, height: reader.height, pixel: (x, y) => [...out.subarray((y * reader.width + x) * 4, (y * reader.width + x) * 4 + 4)] };
 }
+
+/** A colormap XML in the GIBS v1.3 format covering PALETTE (no data, two ice, two water). */
+export const COLORMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<ColorMaps xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:noNamespaceSchemaLocation="http://gibs.earthdata.nasa.gov/schemas/ColorMap_v1.3.xsd">
+  <ColorMap title="No Data">
+    <Entries>
+      <ColorMapEntry rgb="220,220,255" transparent="true" sourceValue="[-9999,1)" nodata="true" ref="0"/>
+    </Entries>
+    <Legend type="classification">
+      <LegendEntry rgb="220,220,255" tooltip="Fill" id="0"/>
+    </Legend>
+  </ColorMap>
+  <ColorMap title="Cloud Optical Thickness - Ice Phase">
+    <Entries>
+      <ColorMapEntry rgb="184,0,185" transparent="false" sourceValue="[1,100)" value="[0.01,1)" ref="1"/>
+      <ColorMapEntry rgb="0,122,254" transparent="false" sourceValue="[2181.3,2263.8001)" value="[21.813,22.638)" ref="85"/>
+    </Entries>
+    <Legend type="continuous" minLabel="&lt; 1.0" maxLabel="&#8805; 100.0">
+      <LegendEntry rgb="0,255,0" tooltip="100" id="126"/>
+    </Legend>
+  </ColorMap>
+  <ColorMap title="Cloud Optical Thickness - Water Phase">
+    <Entries>
+      <ColorMapEntry rgb="255,255,0" transparent="false" sourceValue="[1,100)" value="[0.01,1.0)" ref="127"/>
+      <ColorMapEntry rgb="255,0,0" transparent="false" sourceValue="[4584.5001,4758.0001)" value="[45.845,47.58)" ref="231"/>
+    </Entries>
+  </ColorMap>
+</ColorMaps>`;
+
+/** fakeGibs that also serves COLORMAP_XML for colormap URLs. */
+export function fakeGibsWithColormap(tileFor) {
+    const tiles = fakeGibs(tileFor);
+    const fake = async (url) => {
+        fake.requests.push(url);
+        if (/colormaps/.test(url)) return new Response(COLORMAP_XML, { headers: { 'content-type': 'text/xml' } });
+        return tiles(url);
+    };
+    fake.requests = tiles.requests;
+    return fake;
+}

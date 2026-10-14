@@ -1,10 +1,15 @@
 /* texture.js - turns a TileMatrix level of GIBS tiles into one equirectangular PNG texture,
  * streamed out as it is produced.
  *
+ * Two products:
+ *   colormap  RGBA, the GIBS colours as they are
+ *   albedo    greyscale, the cloud's visible reflectance worked out from each tile colour
+ *             (see albedo.js), stored as sqrt(reflectance)
+ *
  * Pipeline, one output row at a time:
- *   tile rows (TileMosaic) -> source row, premultiplied RGBA floats
+ *   tile rows (TileMosaic) -> source row: premultiplied RGBA floats, or reflectance
  *     -> horizontal resample to the output width (kept in a small ring buffer)
- *     -> vertical blend of the buffered rows -> straight-alpha RGBA8
+ *     -> vertical blend of the buffered rows -> straight-alpha RGBA8, or sqrt-encoded grey
  *     -> Up filter -> zlib (CompressionStream) -> PNG chunks
  *
  * The finished image is never held in memory: peak live memory measured 35-50 MB for
@@ -13,7 +18,10 @@
  */
 import { TileMosaic, tileGrid } from './gibs.js';
 import { PngStreamEncoder, filterScanline } from './png.js';
-import { blendRows, filterTaps, resampleRow } from './resample.js';
+import { blendRows, blendValues, filterTaps, resampleRow, resampleValues } from './resample.js';
+import { loadAlbedoMapper } from './albedo.js';
+
+export const PRODUCTS = ['colormap', 'albedo'];
 
 export const OUTPUT_SIZES = {
     '1k': [1024, 512],
@@ -40,13 +48,16 @@ export const PREFETCH_ALL_MAX_TILES = 64;
  *   in which case the stream is aborted. `complete` is true when every tile was already
  *   checked, so the stream can no longer fail because of GIBS.
  */
-export async function createTexture({ date, tileMatrix, outputRes, config, fetchImpl = fetch, cacheTtl }) {
+export async function createTexture({
+    date, tileMatrix, outputRes, product = 'colormap', config, fetchImpl = fetch, cacheTtl
+}) {
     const grid = tileGrid(tileMatrix);
     const [width, height] = OUTPUT_SIZES[outputRes];
     const started = Date.now();
 
+    const mapper = product === 'albedo' ? await loadAlbedoMapper(config.colormapUrl, { fetchImpl }) : null;
     const prefetchAll = grid.cols * grid.rows <= PREFETCH_ALL_MAX_TILES;
-    const mosaic = new TileMosaic({ grid, date, config, fetchImpl, cacheTtl, prefetchAll });
+    const mosaic = new TileMosaic({ grid, date, config, fetchImpl, cacheTtl, prefetchAll, mapper });
     try {
         await mosaic.open();
     } catch (error) {
@@ -54,7 +65,7 @@ export async function createTexture({ date, tileMatrix, outputRes, config, fetch
         throw error;
     }
 
-    const encoder = new PngStreamEncoder(width, height);
+    const encoder = new PngStreamEncoder(width, height, mosaic.channels);
     const done = render(mosaic, encoder, width, height).then(
         () => ({ tiles: mosaic.tilesFetched, ms: Date.now() - started }),
         (error) => {
@@ -69,17 +80,20 @@ export async function createTexture({ date, tileMatrix, outputRes, config, fetch
 async function render(source, encoder, width, height) {
     const horizontal = filterTaps(source.width, width, { wrap: true });
     const vertical = filterTaps(source.height, height, { wrap: false });
+    const channels = source.channels;
+    const resample = channels === 4 ? resampleRow : resampleValues;
+    const blend = channels === 4 ? blendRows : blendValues;
 
-    const sourceRow = new Float32Array(source.width * 4);
+    const sourceRow = new Float32Array(source.width * channels);
     // Ring buffer of horizontally resampled source rows. Each output row draws on at most
     // maxTaps consecutive source rows, so that many slots are enough.
     const slots = vertical.maxTaps;
-    const ring = Array.from({ length: slots }, () => new Float32Array(width * 4));
+    const ring = Array.from({ length: slots }, () => new Float32Array(width * channels));
     let nextSourceRow = 0;
 
-    let current = new Uint8ClampedArray(width * 4);
+    let current = new Uint8ClampedArray(width * channels);
     let previous = null;
-    const scanlineBytes = width * 4 + 1;
+    const scanlineBytes = width * channels + 1;
     const rowsPerBatch = Math.max(1, Math.floor(BATCH_BYTES / scanlineBytes));
     let batch = null;
     let batchRows = 0;
@@ -91,7 +105,7 @@ async function render(source, encoder, width, height) {
         const lastSourceRow = vertical.index[end - 1];
         while (nextSourceRow <= lastSourceRow) {
             await source.readRow(nextSourceRow, sourceRow);
-            resampleRow(sourceRow, ring[nextSourceRow % slots], horizontal);
+            resample(sourceRow, ring[nextSourceRow % slots], horizontal);
             nextSourceRow++;
         }
 
@@ -101,7 +115,7 @@ async function render(source, encoder, width, height) {
             rows.push(ring[vertical.index[k] % slots]);
             weights.push(vertical.weight[k]);
         }
-        blendRows(rows, weights, current);
+        blend(rows, weights, current);
 
         if (!batch) batch = new Uint8Array(rowsPerBatch * scanlineBytes);
         filterScanline(batch.subarray(batchRows * scanlineBytes, (batchRows + 1) * scanlineBytes), current, previous);
@@ -113,7 +127,7 @@ async function render(source, encoder, width, height) {
         }
 
         // keep this row unfiltered; the next row is filtered against it
-        const swap = previous ?? new Uint8ClampedArray(width * 4);
+        const swap = previous ?? new Uint8ClampedArray(width * channels);
         previous = current;
         current = swap;
     }
