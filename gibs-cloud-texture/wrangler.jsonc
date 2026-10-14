@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gibs-cloud-texture",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+
+  // Needs the Workers Paid plan: a level 3 texture is 50 tile requests plus the cache
+  // lookup, over the Free plan's 50-subrequest cap, and takes seconds of CPU, not 10 ms.
+  "limits": {
+    "cpu_ms": 60000
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  "vars": {
+    // GIBS WMTS service (EPSG:4326, "best" imagery); wmts.cgi is appended to this
+    "GIBS_BASE_URL": "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best",
+    "GIBS_LAYER": "VIIRS_NOAA20_Cloud_Optical_Thickness",
+    "GIBS_TILE_MATRIX_SET": "1km",
+    // First day of the layer in GetCapabilities; earlier dates are rejected without a request
+    "GIBS_EARLIEST_DATE": "2018-02-17",
+    // Highest tileMatrix callers may ask for. Level 4 (200 tiles) already has more pixels
+    // than an 8k texture; level 5 is 800 tiles and the 1km set stops at 6 (3,200 tiles).
+    "MAX_TILE_MATRIX": "5",
+    "ALLOWED_ORIGINS": "https://jackiepi.xyz,https://www.jackiepi.xyz,http://localhost:5173"
+  }
+
+  //"routes": [{ "pattern": "www.jackiepi.xyz/cloud-texture/*", "zone_name": "jackiepi.xyz", "custom_domain": true }]
+}

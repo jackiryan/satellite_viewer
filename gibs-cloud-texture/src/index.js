@@ -1,0 +1,276 @@
+/* gibs-cloud-texture - Cloudflare Worker that stitches a full TileMatrix level of a NASA GIBS
+ * WMTS layer (by default NOAA-20 VIIRS Cloud Optical Thickness) into one equirectangular
+ * PNG texture for three.js.
+ *
+ *   GET /global-texture?date=2026-10-12&tileMatrix=3&outputRes=8k
+ *
+ * date        required  YYYY-MM-DD; a full timestamp such as 2026-10-12T00:00:00Z is
+ *                       accepted and its time of day ignored (the layer is daily)
+ * tileMatrix  optional  GIBS TileMatrix (zoom level) to read, default 3
+ * outputRes   optional  1k | 2k | 4k | 8k -> 1024x512 ... 8192x4096, default 8k
+ *
+ * The texture is a 2:1 equirectangular RGBA PNG: west edge at 180 W, north at the top,
+ * exact GIBS colormap colours, transparent where GIBS has no data. Results are cached at
+ * the edge (Cache API) and in browsers via Cache-Control.
+ */
+import { TILE_MATRIX_SET_MAX_LEVEL, UpstreamError, tileGrid } from './gibs.js';
+import { OUTPUT_SIZES, createTexture } from './texture.js';
+
+const TEXTURE_PATH = '/global-texture';
+const DEFAULT_TILE_MATRIX = 3;
+const DEFAULT_OUTPUT_RES = '8k';
+// GIBS publishes a day's data over the following couple of days, so recent textures are
+// only cached briefly; older ones are treated as final.
+const RECENT_DAYS = 4;
+const RECENT_MAX_AGE = 60 * 60;            // 1 hour
+const FINAL_MAX_AGE = 30 * 24 * 60 * 60;   // 30 days
+// Bump to invalidate every cached texture after changing how textures are made
+const CACHE_VERSION = '1';
+
+const EXPOSED_HEADERS = ['X-Cache', 'X-Source-Layer', 'X-Source-Date', 'X-Source-Tile-Matrix', 'X-Source-Size', 'X-Texture-Size'];
+
+class RequestError extends Error {
+    constructor(status, message) {
+        super(message);
+        this.status = status;
+    }
+}
+
+function readConfig(env) {
+    const tileMatrixSet = env.GIBS_TILE_MATRIX_SET || '1km';
+    const configuredMax = Number.parseInt(env.MAX_TILE_MATRIX ?? '5', 10);
+    return {
+        gibsBaseUrl: (env.GIBS_BASE_URL || 'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best').replace(/\/+$/, ''),
+        layer: env.GIBS_LAYER || 'VIIRS_NOAA20_Cloud_Optical_Thickness',
+        tileMatrixSet,
+        earliestDate: env.GIBS_EARLIEST_DATE || '2018-02-17',
+        maxTileMatrix: Math.min(
+            Number.isFinite(configuredMax) ? configuredMax : 5,
+            TILE_MATRIX_SET_MAX_LEVEL[tileMatrixSet] ?? Infinity
+        ),
+        allowedOrigins: (env.ALLOWED_ORIGINS || '*').split(',').map((s) => s.trim()).filter(Boolean)
+    };
+}
+
+/* ---------------------------------------------------------------------------- params */
+
+const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+function todayUtc() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function parseDate(value, config) {
+    if (!value) throw new RequestError(400, 'Missing required parameter "date" (YYYY-MM-DD)');
+    const match = DATE_PATTERN.exec(value.trim());
+    if (!match) throw new RequestError(400, `Invalid date "${value}"; expected YYYY-MM-DD`);
+    const [, y, m, d] = match.map(Number);
+    const parsed = new Date(Date.UTC(y, m - 1, d));
+    if (parsed.getUTCFullYear() !== y || parsed.getUTCMonth() !== m - 1 || parsed.getUTCDate() !== d) {
+        throw new RequestError(400, `Invalid date "${value}"; that day does not exist`);
+    }
+    const date = parsed.toISOString().slice(0, 10);
+    if (date < config.earliestDate) {
+        throw new RequestError(404, `No data for ${date}: ${config.layer} starts on ${config.earliestDate}`);
+    }
+    if (date > todayUtc()) {
+        throw new RequestError(404, `No data for ${date}: that date is in the future (UTC)`);
+    }
+    return date;
+}
+
+function parseTileMatrix(value, config) {
+    if (value === null || value === '') return DEFAULT_TILE_MATRIX;
+    if (!/^\d+$/.test(value.trim())) {
+        throw new RequestError(400, `Invalid tileMatrix "${value}"; expected an integer from 0 to ${config.maxTileMatrix}`);
+    }
+    const level = Number(value);
+    if (level > config.maxTileMatrix) {
+        throw new RequestError(400, `tileMatrix ${level} is not allowed; the maximum is ${config.maxTileMatrix}` +
+            ` (level ${level} is ${tileGrid(level).cols * tileGrid(level).rows} tiles)`);
+    }
+    return level;
+}
+
+function parseOutputRes(value) {
+    if (value === null || value === '') return DEFAULT_OUTPUT_RES;
+    const res = value.trim().toLowerCase();
+    if (!(res in OUTPUT_SIZES)) {
+        throw new RequestError(400, `Invalid outputRes "${value}"; expected one of ${Object.keys(OUTPUT_SIZES).join(', ')}`);
+    }
+    return res;
+}
+
+function parseParams(searchParams, config) {
+    return {
+        date: parseDate(searchParams.get('date'), config),
+        tileMatrix: parseTileMatrix(searchParams.get('tileMatrix'), config),
+        outputRes: parseOutputRes(searchParams.get('outputRes'))
+    };
+}
+
+function maxAgeFor(date) {
+    const ageDays = (Date.now() - Date.parse(`${date}T00:00:00Z`)) / 86_400_000;
+    return ageDays < RECENT_DAYS ? RECENT_MAX_AGE : FINAL_MAX_AGE;
+}
+
+/* --------------------------------------------------------------------------- responses */
+
+function corsHeaders(request, config) {
+    const headers = {
+        'Access-Control-Expose-Headers': EXPOSED_HEADERS.join(', '),
+        // lets pages served with Cross-Origin-Embedder-Policy: require-corp use the texture
+        'Cross-Origin-Resource-Policy': 'cross-origin'
+    };
+    if (config.allowedOrigins.includes('*')) {
+        headers['Access-Control-Allow-Origin'] = '*';
+    } else {
+        headers.Vary = 'Origin';
+        const origin = request.headers.get('Origin');
+        if (origin && config.allowedOrigins.includes(origin)) headers['Access-Control-Allow-Origin'] = origin;
+    }
+    return headers;
+}
+
+function withHeaders(response, extra) {
+    const out = new Response(response.body, response);
+    for (const [name, value] of Object.entries(extra)) {
+        if (name === 'Vary') out.headers.append(name, value);
+        else out.headers.set(name, value);
+    }
+    return out;
+}
+
+function json(body, status, cors) {
+    return new Response(JSON.stringify(body, null, 2), {
+        status,
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...cors }
+    });
+}
+
+function apiDescription(origin, config) {
+    return {
+        name: 'gibs-cloud-texture',
+        description: 'Stitches every tile of one GIBS WMTS TileMatrix level into a single 2:1 equirectangular RGBA PNG.',
+        source: { layer: config.layer, tileMatrixSet: config.tileMatrixSet, service: config.gibsBaseUrl },
+        endpoint: `${origin}${TEXTURE_PATH}`,
+        parameters: {
+            date: { required: true, format: 'YYYY-MM-DD (a time of day is accepted and ignored)', earliest: config.earliestDate },
+            tileMatrix: { default: DEFAULT_TILE_MATRIX, min: 0, max: config.maxTileMatrix },
+            outputRes: {
+                default: DEFAULT_OUTPUT_RES,
+                values: Object.fromEntries(Object.entries(OUTPUT_SIZES).map(([k, [w, h]]) => [k, `${w}x${h}`]))
+            }
+        },
+        example: `${origin}${TEXTURE_PATH}?date=2026-10-12&tileMatrix=3&outputRes=4k`
+    };
+}
+
+/* ------------------------------------------------------------------------------ worker */
+
+export default {
+    async fetch(request, env, ctx) {
+        const config = readConfig(env);
+        const url = new URL(request.url);
+        const cors = corsHeaders(request, config);
+
+        if (request.method === 'OPTIONS') {
+            return new Response(null, {
+                status: 204,
+                headers: { ...cors, 'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Max-Age': '86400' }
+            });
+        }
+        if (url.pathname === '/' && request.method === 'GET') {
+            return json(apiDescription(url.origin, config), 200, cors);
+        }
+        if (url.pathname !== TEXTURE_PATH) {
+            return json({ error: `Not found; the texture endpoint is ${TEXTURE_PATH}` }, 404, cors);
+        }
+        if (request.method !== 'GET') {
+            return withHeaders(json({ error: 'Method not allowed' }, 405, cors), { Allow: 'GET, OPTIONS' });
+        }
+
+        let params;
+        try {
+            params = parseParams(url.searchParams, config);
+        } catch (error) {
+            if (error instanceof RequestError) return json({ error: error.message }, error.status, cors);
+            throw error;
+        }
+        const { date, tileMatrix, outputRes } = params;
+
+        // One cache entry per distinct texture, whatever order or spelling the query used,
+        // plus a small marker written only after the texture was fully produced. Without the
+        // marker a cached texture is not trusted: if a stream fails part way, the runtime
+        // may still end the response normally, and the cache can keep the truncated copy.
+        const key = new URL(TEXTURE_PATH, url.origin);
+        key.search = new URLSearchParams({
+            date, tileMatrix: String(tileMatrix), outputRes,
+            layer: config.layer, tms: config.tileMatrixSet, v: CACHE_VERSION
+        }).toString();
+        const cacheKey = new Request(key.toString());
+        const markerKey = new Request(`${key}&complete=1`);
+        const cache = caches.default;
+
+        const [cached, marker] = await Promise.all([cache.match(cacheKey), cache.match(markerKey)]);
+        marker?.body?.cancel();
+        if (cached && marker) return withHeaders(cached, { ...cors, 'X-Cache': 'HIT' });
+        cached?.body?.cancel();
+
+        const maxAge = maxAgeFor(date);
+        let texture;
+        try {
+            texture = await createTexture({ date, tileMatrix, outputRes, config, cacheTtl: maxAge });
+        } catch (error) {
+            if (error instanceof UpstreamError) {
+                console.error(JSON.stringify({ event: 'upstream_error', date, tileMatrix, message: error.message, detail: error.detail }));
+                return json({ error: error.message, upstreamStatus: error.upstreamStatus, detail: error.detail }, error.status, cors);
+            }
+            throw error;
+        }
+
+        // The PNG streams from here on. If it still fails (only possible above level 3,
+        // where tiles are fetched as the texture is written) the body is cut short.
+        const cacheControl = `public, max-age=${maxAge}`;
+        const response = new Response(texture.stream, {
+            headers: {
+                'Content-Type': 'image/png',
+                'Cache-Control': cacheControl,
+                'Content-Disposition': `inline; filename="clouds_${date}_tm${tileMatrix}_${outputRes}.png"`,
+                'X-Source-Layer': `${config.layer} (${config.tileMatrixSet})`,
+                'X-Source-Date': date,
+                'X-Source-Tile-Matrix': String(tileMatrix),
+                'X-Source-Size': `${texture.grid.width}x${texture.grid.height}`,
+                'X-Texture-Size': `${texture.width}x${texture.height}`
+            }
+        });
+
+        // The cached copy carries no CORS headers; they are added per request on the way out
+        const log = { date, tileMatrix, outputRes };
+        const stored = cache.put(cacheKey, response.clone()).then(() => true, (error) => {
+            console.warn(JSON.stringify({ event: 'cache_put_failed', ...log, message: error.message }));
+            return false;
+        });
+        ctx.waitUntil((async () => {
+            let stats;
+            try {
+                stats = await texture.done;
+            } catch (error) {
+                console.error(JSON.stringify({ event: 'texture_failed', ...log, message: error.message, detail: error.detail }));
+                return;
+            }
+            console.log(JSON.stringify({ event: 'texture', ...log, ...stats }));
+            if (await stored) {
+                await cache.put(markerKey, new Response('1', { headers: { 'Cache-Control': cacheControl } }))
+                    .catch((error) => console.warn(JSON.stringify({ event: 'cache_put_failed', ...log, message: error.message })));
+            }
+        })());
+
+        // A browser can't tell a cut-short PNG from a whole one, so a response that could
+        // still fail is not stored by the browser. Later requests are served from the edge
+        // cache with the normal Cache-Control.
+        const clientHeaders = { ...cors, 'X-Cache': 'MISS' };
+        if (!texture.complete) clientHeaders['Cache-Control'] = 'no-store';
+        return withHeaders(response, clientHeaders);
+    }
+};

@@ -1,0 +1,16 @@
+{
+  "name": "gibs-cloud-texture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker that stitches NASA GIBS WMTS tiles into one equirectangular PNG texture for three.js",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "devDependencies": {
+    "wrangler": "^4.151.0"
+  }
+}
