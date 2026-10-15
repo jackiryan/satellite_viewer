@@ -90,6 +90,8 @@ float cloudHeight(float reflectance) {
 //   y  at the top of the cloud here, for the cloud itself
 //   z  brightening/darkening of the cloud top by its slope toward or away from the sun
 // pixelLod: mip level matching the pixel's footprint on the cloud texture
+// sunDir is the sun used for lighting (main() passes the twilight-remapped one, which only sets
+// below the horizon where the day side has finished fading out)
 vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localReflectance, float pixelLod) {
     float mu = dot(normal, sunDir);
     vec3 towardSun = sunDir - normal * mu;              // horizontal direction to the sun
@@ -148,7 +150,22 @@ void main() {
 
     float sunOrientation = dot(sunDirection, normal);
 
-    float dayMix = smoothstep(-twilightAngle/pi, 0.0, sunOrientation);
+    float twilightWidth = twilightAngle / pi;
+    float dayMix = smoothstep(-twilightWidth, 0.0, sunOrientation);
+
+    // Sun used to light the day side. The day texture is drawn past the geometric terminator,
+    // fading out by sunOrientation = -twilightWidth, but there the real sun is below the horizon
+    // and anything lit by it (cloud shadows, cloud-top shading, the sun glint) would switch off
+    // at the terminator while the day texture is still showing. So keep the sun's real direction
+    // across the ground (its azimuth) and remap its elevation, so that it reaches the horizon
+    // where the day side finishes fading out: sin(elevation) = (mu + w) / (1 + w). Overhead sun
+    // is unchanged, and at the geometric terminator the lighting sun is still ~6 degrees up.
+    float litSunMu = (sunOrientation + twilightWidth) / (1.0 + twilightWidth);
+    vec3 sunHorizontal = sunDirection - normal * sunOrientation;
+    float sunHorizontalLength = length(sunHorizontal);
+    vec3 litSunDirection = sunHorizontalLength > 1e-4
+        ? normal * litSunMu + sunHorizontal / sunHorizontalLength * sqrt(max(1.0 - litSunMu * litSunMu, 0.0))
+        : sunDirection;
     vec3 dayTexColor = texture(dayTexture, vUv).rgb;
     vec3 nightTexColor = texture(nightTexture, vUv).rgb;
 
@@ -212,13 +229,13 @@ void main() {
     uvDy.x -= floor(uvDy.x + 0.5);
     float footprintA = length(uvDx * cloudTexels), footprintB = length(uvDy * cloudTexels);
     float pixelLod = max(log2(max(min(footprintA, footprintB), max(footprintA, footprintB) / 4.0)), 0.0);
-    vec3 sunlight = cloudSunlight(vUv, normal, sunDirection, length(vPosition), cloudReflectance, pixelLod);
+    vec3 sunlight = cloudSunlight(vUv, normal, litSunDirection, length(vPosition), cloudReflectance, pixelLod);
     float sunTransmission = sunlight.x;
     float cloudTopLight = mix(CLOUD_SHADOW_AMBIENT, 1.0, sunlight.y) * sunlight.z;
     // Sunlight reddens as the sun gets low (hue only; dayMix handles the fade to night). Cloud
     // tops also get blue skylight, so they take at most half the reddening of the direct beam,
     // scaled down further by cloudTwilightTint.
-    vec3 sunlightTint = exp(-0.5 * atmosphereOpticalDepth * (min(airMass(sunOrientation), 20.0) - 1.0));
+    vec3 sunlightTint = exp(-0.5 * atmosphereOpticalDepth * (min(airMass(litSunMu), 20.0) - 1.0));
     sunlightTint = mix(vec3(1.0), sunlightTint / sunlightTint.r, cloudTwilightTint);
 
     vec3 dayCloudy = cloudReflectance * cloudTopLight * sunlightTint
@@ -229,6 +246,7 @@ void main() {
     // Glint and the retina effect below only apply to water the sun reaches and we can see
     float specularTexColor = oceanMask * sunTransmission * viewTransmission;
 
+    /*
     // Fresnel
     float fresnel = dot(viewDirection, normal) + 1.0;
     fresnel = pow(fresnel, 2.0);
@@ -239,30 +257,35 @@ void main() {
     float twilightMix = smoothstep(-0.05, nightSideTwilightExtent + (twilightAngle / pi), sunOrientation)
                       * (-smoothstep(-0.05, daySideTwilightExtent + (twilightAngle / pi), sunOrientation) + 1.0);
     color = mix(color, dayColor, fresnel * dayMix / 8.0);
-    // divide the mix variable by 10 to done down the atmosphere color by a lot.
+    // divide the mix variable by 5 to done down the atmosphere color by a lot.
     color = mix(color, twilightColor, fresnel * twilightMix / 5.0);
+    */
 
     // Sun glint, from the Cox & Munk (1954) model of a wind-roughened sea: wave facet slopes
     // are Gaussian with variance 0.003 + 0.00512 * wind speed, and the glint is the light off
     // facets tilted to mirror the sun into the camera (those facing the half vector), times
     // the Fresnel reflectance of water at that angle. It stretches out and brightens toward
     // the limb (1 / muView) and takes the colour of sunlight that crossed the atmosphere twice.
-    vec3 halfVector = normalize(sunDirection + toCamera);
+    // Lit by the same remapped sun as the clouds, so it reaches into the twilight band and fades
+    // out with the day side (dayMix) instead of stopping at the geometric terminator
+    vec3 halfVector = normalize(litSunDirection + toCamera);
     float cosTilt = max(dot(normal, halfVector), 1e-3);
     float cos2Tilt = cosTilt * cosTilt;
     float tan2Tilt = (1.0 - cos2Tilt) / cos2Tilt;
     float slopeVariance = 0.003 + 0.00512 * windSpeed;
-    float waterFresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(halfVector, sunDirection), 0.0, 1.0), 5.0);
+    float waterFresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(halfVector, litSunDirection), 0.0, 1.0), 5.0);
     float glint = waterFresnel  * exp(-tan2Tilt / slopeVariance)
-        / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.1));
-    glint *= smoothstep(0.0, 0.05, sunOrientation) * step(0.0, muView);
+        / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.9));
+    glint *= dayMix * step(0.0, muView);
+    const float glintMax = 0.9;
+    glint = glintMax * (1.0 - exp(-glint / glintMax));
     // The colour comes from the full extinction along the sun's path down and the view's path
     // back up, as for the cloud tops, but only part of the dimming is applied: the atmosphere
     // also scatters sunlight into those long paths. Taking all of it made the glint (and the
     // cloud shadows, which only show against it) fade out near the limb while the surface
     // there was still in full daylight.
-    float glintPath = min(airMass(sunOrientation) + airMass(muView), 40.0) - 2.0;
-    vec3 glintTint = exp(-0.5 * atmosphereOpticalDepth * glintPath);
+    float glintPath = min(airMass(litSunMu) + airMass(muView), 40.0) - 2.0;
+    vec3 glintTint = exp(-0.3 * atmosphereOpticalDepth * glintPath);
     vec3 glintColor = glintTint / glintTint.r * exp(-0.3 * atmosphereOpticalDepth.r * glintPath);
     color += glint * glintBrightness * specularTexColor * glintColor;
     vec3 retinaColor = mix(gammaCorrection(color, 1.11), color, specularTexColor);

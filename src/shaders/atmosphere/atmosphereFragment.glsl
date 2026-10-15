@@ -24,7 +24,7 @@ void main()
     vec3 atmosphereColor = mix(twilightColor, dayColor, twilightMix);
     //color = mix(color, atmosphereColor, atmosphereDayMix);
     color += atmosphereColor;
-    
+
     // Alpha
     float edgeAlpha = dot(viewDirection, normal);
     edgeAlpha = smoothstep(0.0, 0.5, edgeAlpha);
