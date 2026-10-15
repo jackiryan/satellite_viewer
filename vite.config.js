@@ -49,7 +49,7 @@ export default defineConfig({
             },
         },
         target: "es2023",
-        modulePreload: false
+        modulePreload: { polyfill: false }
     },
     esbuild: {
         target: "es2023"

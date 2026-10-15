@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "serve": "vite preview"
+    "serve": "vite preview",
+    "deploy": "bash scripts/deploy.sh"
   },
   "dependencies": {
     "lil-gui": "^0.19.2",
