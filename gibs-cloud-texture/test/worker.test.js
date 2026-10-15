@@ -128,3 +128,18 @@ test('the root path describes the API', async () => {
     assert.equal(info.parameters.tileMatrix.default, 3);
     assert.equal(info.parameters.outputRes.values['8k'], '8192x4096');
 });
+
+test('product=albedo is cached separately and labelled', async () => {
+    globalThis.fetch = (await import('./helpers.js')).fakeGibsWithColormap(() => solidTile(4));
+    const path = `/global-texture?date=${daysAgo(10)}&tileMatrix=0&outputRes=1k`;
+    const colormap = await call(path);
+    const albedo = await call(`${path}&product=albedo`);
+    assert.equal(colormap.response.headers.get('x-texture-product'), 'colormap');
+    assert.equal(albedo.response.headers.get('x-texture-product'), 'albedo');
+    assert.equal(albedo.response.headers.get('x-cache'), 'MISS');
+    assert.notDeepEqual(albedo.body, colormap.body);
+    const again = await call(`${path}&product=Albedo`);
+    assert.equal(again.response.headers.get('x-cache'), 'HIT');
+    const bad = await call(`${path}&product=truecolor`);
+    assert.equal(bad.response.status, 400);
+});

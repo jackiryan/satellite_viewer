@@ -8,26 +8,31 @@
  *                       accepted and its time of day ignored (the layer is daily)
  * tileMatrix  optional  GIBS TileMatrix (zoom level) to read, default 3
  * outputRes   optional  1k | 2k | 4k | 8k -> 1024x512 ... 8192x4096, default 8k
+ * product     optional  colormap (default) | albedo
  *
- * The texture is a 2:1 equirectangular RGBA PNG: west edge at 180 W, north at the top,
- * exact GIBS colormap colours, transparent where GIBS has no data. Results are cached at
- * the edge (Cache API) and in browsers via Cache-Control.
+ * The texture is a 2:1 equirectangular PNG: west edge at 180 W, north at the top.
+ *   colormap  RGBA with the exact GIBS colormap colours, transparent where there is no data
+ *   albedo    greyscale cloud reflectance (0 = clear) stored as sqrt(reflectance) * 255,
+ *             worked out from the optical thickness each colour stands for (albedo.js)
+ * Results are cached at the edge (Cache API) and in browsers via Cache-Control.
  */
 import { TILE_MATRIX_SET_MAX_LEVEL, UpstreamError, tileGrid } from './gibs.js';
-import { OUTPUT_SIZES, createTexture } from './texture.js';
+import { OUTPUT_SIZES, PRODUCTS, createTexture } from './texture.js';
 
 const TEXTURE_PATH = '/global-texture';
 const DEFAULT_TILE_MATRIX = 3;
 const DEFAULT_OUTPUT_RES = '8k';
+const DEFAULT_PRODUCT = 'colormap';
 // GIBS publishes a day's data over the following couple of days, so recent textures are
 // only cached briefly; older ones are treated as final.
 const RECENT_DAYS = 4;
 const RECENT_MAX_AGE = 60 * 60;            // 1 hour
 const FINAL_MAX_AGE = 30 * 24 * 60 * 60;   // 30 days
 // Bump to invalidate every cached texture after changing how textures are made
-const CACHE_VERSION = '1';
+const CACHE_VERSION = '2';
 
-const EXPOSED_HEADERS = ['X-Cache', 'X-Source-Layer', 'X-Source-Date', 'X-Source-Tile-Matrix', 'X-Source-Size', 'X-Texture-Size'];
+const EXPOSED_HEADERS = ['X-Cache', 'X-Source-Layer', 'X-Source-Date', 'X-Source-Tile-Matrix', 'X-Source-Size',
+    'X-Texture-Size', 'X-Texture-Product'];
 
 class RequestError extends Error {
     constructor(status, message) {
@@ -44,6 +49,7 @@ function readConfig(env) {
         layer: env.GIBS_LAYER || 'VIIRS_NOAA20_Cloud_Optical_Thickness',
         tileMatrixSet,
         earliestDate: env.GIBS_EARLIEST_DATE || '2018-02-17',
+        colormapUrl: env.GIBS_COLORMAP_URL || 'https://gibs.earthdata.nasa.gov/colormaps/v1.3/MODIS_VIIRS_Cloud_Optical_Thickness.xml',
         maxTileMatrix: Math.min(
             Number.isFinite(configuredMax) ? configuredMax : 5,
             TILE_MATRIX_SET_MAX_LEVEL[tileMatrixSet] ?? Infinity
@@ -101,11 +107,21 @@ function parseOutputRes(value) {
     return res;
 }
 
+function parseProduct(value) {
+    if (value === null || value === '') return DEFAULT_PRODUCT;
+    const product = value.trim().toLowerCase();
+    if (!PRODUCTS.includes(product)) {
+        throw new RequestError(400, `Invalid product "${value}"; expected one of ${PRODUCTS.join(', ')}`);
+    }
+    return product;
+}
+
 function parseParams(searchParams, config) {
     return {
         date: parseDate(searchParams.get('date'), config),
         tileMatrix: parseTileMatrix(searchParams.get('tileMatrix'), config),
-        outputRes: parseOutputRes(searchParams.get('outputRes'))
+        outputRes: parseOutputRes(searchParams.get('outputRes')),
+        product: parseProduct(searchParams.get('product'))
     };
 }
 
@@ -160,6 +176,13 @@ function apiDescription(origin, config) {
             outputRes: {
                 default: DEFAULT_OUTPUT_RES,
                 values: Object.fromEntries(Object.entries(OUTPUT_SIZES).map(([k, [w, h]]) => [k, `${w}x${h}`]))
+            },
+            product: {
+                default: DEFAULT_PRODUCT,
+                values: {
+                    colormap: 'RGBA PNG with the GIBS colormap colours',
+                    albedo: 'greyscale PNG of cloud reflectance, stored as sqrt(reflectance) * 255'
+                }
             }
         },
         example: `${origin}${TEXTURE_PATH}?date=2026-10-12&tileMatrix=3&outputRes=4k`
@@ -197,7 +220,7 @@ export default {
             if (error instanceof RequestError) return json({ error: error.message }, error.status, cors);
             throw error;
         }
-        const { date, tileMatrix, outputRes } = params;
+        const { date, tileMatrix, outputRes, product } = params;
 
         // One cache entry per distinct texture, whatever order or spelling the query used,
         // plus a small marker written only after the texture was fully produced. Without the
@@ -205,7 +228,7 @@ export default {
         // may still end the response normally, and the cache can keep the truncated copy.
         const key = new URL(TEXTURE_PATH, url.origin);
         key.search = new URLSearchParams({
-            date, tileMatrix: String(tileMatrix), outputRes,
+            date, tileMatrix: String(tileMatrix), outputRes, product,
             layer: config.layer, tms: config.tileMatrixSet, v: CACHE_VERSION
         }).toString();
         const cacheKey = new Request(key.toString());
@@ -220,7 +243,7 @@ export default {
         const maxAge = maxAgeFor(date);
         let texture;
         try {
-            texture = await createTexture({ date, tileMatrix, outputRes, config, cacheTtl: maxAge });
+            texture = await createTexture({ date, tileMatrix, outputRes, product, config, cacheTtl: maxAge });
         } catch (error) {
             if (error instanceof UpstreamError) {
                 console.error(JSON.stringify({ event: 'upstream_error', date, tileMatrix, message: error.message, detail: error.detail }));
@@ -236,17 +259,18 @@ export default {
             headers: {
                 'Content-Type': 'image/png',
                 'Cache-Control': cacheControl,
-                'Content-Disposition': `inline; filename="clouds_${date}_tm${tileMatrix}_${outputRes}.png"`,
+                'Content-Disposition': `inline; filename="clouds_${date}_tm${tileMatrix}_${outputRes}_${product}.png"`,
                 'X-Source-Layer': `${config.layer} (${config.tileMatrixSet})`,
                 'X-Source-Date': date,
                 'X-Source-Tile-Matrix': String(tileMatrix),
                 'X-Source-Size': `${texture.grid.width}x${texture.grid.height}`,
-                'X-Texture-Size': `${texture.width}x${texture.height}`
+                'X-Texture-Size': `${texture.width}x${texture.height}`,
+                'X-Texture-Product': product
             }
         });
 
         // The cached copy carries no CORS headers; they are added per request on the way out
-        const log = { date, tileMatrix, outputRes };
+        const log = { date, tileMatrix, outputRes, product };
         const stored = cache.put(cacheKey, response.clone()).then(() => true, (error) => {
             console.warn(JSON.stringify({ event: 'cache_put_failed', ...log, message: error.message }));
             return false;

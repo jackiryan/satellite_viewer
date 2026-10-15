@@ -35,7 +35,20 @@ export class Earth {
         this.parameters = {
             radius: 5,
             dayColor: '#d7eaf9',
-            twilightColor: '#fd5e53'
+            twilightColor: '#fd5e53',
+            // scales cloud reflectance; above 1 brightens thin clouds, below 1 makes them sheerer
+            cloudBrightness: 1.0,
+            // top height (km) of the thickest clouds, used to cast shadows (thinner clouds are
+            // lower). Real cloud tops reach about 12 km; shadows from that are under a pixel at
+            // globe scale except near the terminator, so this is exaggerated
+            cloudShadowHeight: 30,
+            // shading of cloud tops by their slope toward or away from the sun (0 = flat)
+            cloudRelief: 0.6,
+            // reddening of cloud tops near the terminator (0 = none, 1 = full sunset colour)
+            cloudTwilightTint: 0.2,
+            // sea surface wind speed (m/s): calmer seas give a smaller, sharper sun glint
+            windSpeed: 5,
+            glintBrightness: 1.5
         };
 
         // Calculate initial rotation based on sidereal time
@@ -129,9 +142,9 @@ export class Earth {
         const baseUrl = window.location.origin || '.';
 
         // Textures - Use a low resolution version on mobile devices, also Safari because it chokes on
-        // preloading images as bitmaps. Other than the obvious benefit of improving performance, it 
+        // preloading images as bitmaps. Other than the obvious benefit of improving performance, it
         // can sometimes happen that the creation of a webgl context fails on lower-end mobile devices
-        // when decompressing 8k textures. 
+        // when decompressing 8k textures.
         if (isMobileOrSafari || useLowRes) {
             return [
                 `${baseUrl}/BlueMarble_2048x1024.avif`,
@@ -148,50 +161,64 @@ export class Earth {
         ];
     }
 
-    // Function to get the cloud texture URL with the proper date parameter
-    getCloudTextureUrl(initialDate) {
-        // Get previous day's date
-        const prevDay = new Date(initialDate);
-        prevDay.setDate(prevDay.getDate() - 2);
-
-        // Format as ISO string and extract the date part (YYYY-MM-DD)
-        const dateStr = prevDay.toISOString().split('T')[0] + 'T00:00:00Z';
-
-        // Use the proxied URL path instead of direct access to localhost:3000
-        return `/api/cloud-texture?tileMatrix=3&date=${dateStr}`;
+    // Cloud texture size: 2048x1024 wherever the Earth textures drop to low resolution
+    // (mobile, Safari, the landing page), otherwise 8192x4096 if the GPU allows it.
+    getCloudResolution(useLowRes = false) {
+        const isMobileOrSafari = window.mobileAndSafariCheck ? window.mobileAndSafariCheck() : false;
+        if (isMobileOrSafari || useLowRes) {
+            return '2k';
+        }
+        const maxTextureSize = this.scene.renderer?.capabilities.maxTextureSize ?? 4096;
+        return maxTextureSize >= 8192 ? '8k' : '4k';
     }
 
-    // Function to load cloud texture from API endpoint
+    // URL of the cloud texture made by the gibs-cloud-texture worker (proxied at /cloud-texture).
+    // product=albedo returns a greyscale PNG of the clouds' visible reflectance, worked out from
+    // NOAA-20 VIIRS cloud optical thickness. GIBS takes about two days to finish a day's data,
+    // so ask for the day two days before the scene time (never later than now).
+    getCloudTextureUrl(useLowRes = false) {
+        const sceneTime = Math.min(this.initialDate.getTime(), Date.now());
+        const date = new Date(sceneTime - 2 * 86400000).toISOString().slice(0, 10);
+        const params = new URLSearchParams({
+            date,
+            tileMatrix: '3',
+            outputRes: this.getCloudResolution(useLowRes),
+            product: 'albedo'
+        });
+        return `${window.location.origin || '.'}/cloud-texture?${params}`;
+    }
+
+    // Load the cloud texture in the background and switch the clouds on once it arrives.
+    // The globe renders normally in the meantime, and stays cloudless if loading fails.
     async loadCloudTexture() {
         if (!this.earthMaterial) {
             console.warn('Earth material not initialized, cannot load cloud texture');
             return null;
         }
 
-        const url = this.getCloudTextureUrl(this.initialDate);
-        console.log('Loading cloud texture from:', url);
-
+        const url = this.getCloudTextureUrl(this.useLowRes);
         try {
-            const cloudTexture = await this.loadTexture(url);
+            // premultiplyAlpha must be passed explicitly: setOptions replaces ImageBitmapLoader's defaults
+            const cloudTexture = await this.loadTexture(url, { premultiplyAlpha: 'none' }, 2, 1000);
 
-            // Set up the texture properties similar to other textures
-            cloudTexture.colorSpace = THREE.SRGBColorSpace;
+            // The texture is data, not colour: sqrt(reflectance) in a single channel. RedFormat
+            // keeps it at one byte per texel on the GPU (32 MB at 8k instead of 128 MB as RGBA).
+            cloudTexture.format = THREE.RedFormat;
+            cloudTexture.colorSpace = THREE.NoColorSpace;
+            // wrap across the antimeridian (shadow lookups step over it)
+            cloudTexture.wrapS = THREE.RepeatWrapping;
             cloudTexture.anisotropy = Math.min(8,
                 this.scene.renderer?.capabilities.getMaxAnisotropy() || 8);
-
-            // For proper transparent cloud textures
-            cloudTexture.transparent = true;
             cloudTexture.needsUpdate = true;
 
-            // Add to Earth material uniforms
-            this.earthMaterial.uniforms.cloudTexture.value = cloudTexture;
-            this.earthMaterial.uniforms.showClouds.value = true;
-
-            console.log('Cloud texture loaded successfully');
+            const uniforms = this.earthMaterial.uniforms;
+            const previous = uniforms.cloudTexture.value;
+            uniforms.cloudTexture.value = cloudTexture;
+            uniforms.showClouds.value = true;
+            previous?.dispose();
             return cloudTexture;
         } catch (error) {
             console.error('Failed to load cloud texture:', error);
-            // Ensure showClouds is false if loading failed
             this.earthMaterial.uniforms.showClouds.value = false;
             return null;
         }
@@ -218,6 +245,7 @@ export class Earth {
 
     // Main initialization function for the globe
     async initialize(interactiveLayer, useLowRes = false) {
+        this.useLowRes = useLowRes;
         const earthImageUrls = this.getTextureUrls(useLowRes);
 
         try {
@@ -278,9 +306,15 @@ export class Earth {
                 twilightAngle: new THREE.Uniform(twilightAngle),
                 dayColor: new THREE.Uniform(new THREE.Color(this.parameters.dayColor)),
                 twilightColor: new THREE.Uniform(new THREE.Color(this.parameters.twilightColor)),
-                // Add cloud texture uniforms with default values
+                // Clouds: set by loadCloudTexture() once the texture has arrived
                 cloudTexture: new THREE.Uniform(null),
                 showClouds: new THREE.Uniform(false),
+                cloudBrightness: new THREE.Uniform(this.parameters.cloudBrightness),
+                cloudShadowHeight: new THREE.Uniform(this.parameters.cloudShadowHeight * this.parameters.radius / 6371),
+                cloudRelief: new THREE.Uniform(this.parameters.cloudRelief),
+                cloudTwilightTint: new THREE.Uniform(this.parameters.cloudTwilightTint),
+                windSpeed: new THREE.Uniform(this.parameters.windSpeed),
+                glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
                 time: new THREE.Uniform(0.0)
             },
             vertexShader: earthVertexShader,

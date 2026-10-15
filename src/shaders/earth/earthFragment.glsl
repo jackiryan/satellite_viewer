@@ -1,8 +1,14 @@
 uniform sampler2D dayTexture;
 uniform sampler2D nightTexture;
 uniform sampler2D specularMapTexture;
-uniform sampler2D cloudTexture;
+uniform sampler2D cloudTexture;   // sqrt(cloud reflectance) in red, from the gibs-cloud-texture worker
 uniform bool showClouds;
+uniform float cloudBrightness;    // scales cloud reflectance (1.0 = as computed)
+uniform float cloudShadowHeight;  // top height of the thickest clouds, in scene units
+uniform float cloudRelief;        // strength of the slope shading on cloud tops (0 = flat)
+uniform float cloudTwilightTint;  // 0 = cloud tops stay white to the terminator, 1 = full sunset colour
+uniform float windSpeed;          // m/s; rougher seas spread the sun glint out
+uniform float glintBrightness;    // scales the sun glint
 uniform vec3 sunDirection;
 uniform float twilightAngle;
 uniform vec3 dayColor;
@@ -30,162 +36,110 @@ vec3 gammaCorrection(vec3 color, float gamma) {
     return pow(color, vec3(1.0 / gamma));
 }
 
-// Function to determine if a color is within a range (with some tolerance)
-bool isInRange(vec3 color, vec3 minColor, vec3 maxColor, float tolerance) {
-    vec3 diff1 = color - minColor;
-    vec3 diff2 = maxColor - color;
-    return all(greaterThanEqual(diff1, vec3(-tolerance))) && all(greaterThanEqual(diff2, vec3(-tolerance)));
+// Clouds faintly visible on the night side (moonlight, airglow), as a reflectance multiplier
+const vec3 nightCloudColor = vec3(0.012, 0.014, 0.02);
+
+// Vertical optical depth of the atmosphere at about 650, 550 and 450 nm (Rayleigh scattering
+// plus a little haze). Sunlight that crosses more air loses its blue first, so the sun glint
+// and cloud tops turn golden, then orange and red, toward the terminator and the limb.
+const vec3 atmosphereOpticalDepth = vec3(0.133, 0.197, 0.349);
+
+// Air mass along a ray leaving the ground at cos(zenith angle) mu: the path through a
+// uniform atmosphere 8.4 km deep on a 6371 km Earth (r = 6371 / 8.4). 1 straight up, about
+// 39 along the horizon.
+float airMass(float mu) {
+    const float r = 758.0;
+    mu = max(mu, 0.0);
+    return sqrt(r * r * mu * mu + 2.0 * r + 1.0) - r * mu;
 }
 
-vec3 closestPointOnSegment(vec3 p, vec3 a, vec3 b) {
-    vec3 ab = b - a;
-    float t = dot(p - a, ab) / dot(ab, ab);
-    t = clamp(t, 0.0, 1.0);
-    return a + t * ab;
+float sampleCloudReflectance(vec2 uv, float bias) {
+    float encoded = texture(cloudTexture, uv, bias).r * float(showClouds);
+    return clamp(encoded * encoded * cloudBrightness, 0.0, 0.95);
 }
 
-float closestPointOnSegmentWithT(vec3 p, vec3 a, vec3 b) {
-    vec3 ab = b - a;
-    float t = dot(p - a, ab) / dot(ab, ab);
-    return clamp(t, 0.0, 1.0);
+// Same, from an explicit mip level. The shadow lookups use this rather than a bias: a bias is
+// added to the level the GPU picks for the pixel, which near the limb is already 4-5 levels
+// coarse from foreshortening, so the shadow march ended up reading a ~32x16 texel texture and
+// shadows faded out well before the terminator. textureLod is also safe inside the march loop
+// and after the early return, where implicit derivatives are undefined.
+float sampleCloudReflectanceLod(vec2 uv, float lod) {
+    float encoded = textureLod(cloudTexture, uv, lod).r * float(showClouds);
+    return clamp(encoded * encoded * cloudBrightness, 0.0, 0.95);
 }
 
-float isOnGradient(vec3 testColor, vec3 colorA, vec3 colorB, vec3 colorC, vec3 colorD) {
+// Cloud shadows. The cloud tops are treated as a height field: thin cloud is low, and cloud
+// rises to cloudShadowHeight as it thickens, levelling off into a flat-topped deck once it is
+// opaque (R ~ 0.45, optical thickness ~ 10) so overcast doesn't look lumpy. The shader marches from each point toward the
+// sun along the ground, checking whether any cloud on the way rises above the sun's ray. With
+// the sun high the ray climbs steeply and only nearby clouds cast (short) shadows; near the
+// terminator it climbs slowly, so shadows stretch out along the sun's direction and taller
+// clouds shade lower ones, as in geostationary imagery around sunrise and sunset.
+const int CLOUD_SHADOW_STEPS = 8;
+// Longest shadow as a multiple of the cloud height: tan(84 degrees) ~ 10
+const float MAX_SHADOW_LENGTH = 10.0;
+// Light that still reaches a shadowed cloud top from the sky and surrounding cloud
+const float CLOUD_SHADOW_AMBIENT = 0.35;
 
-    // Find closest points on each segment
-    vec3 closest1 = closestPointOnSegment(testColor, colorA, colorB);
-    vec3 closest2 = closestPointOnSegment(testColor, colorB, colorC);
-    vec3 closest3 = closestPointOnSegment(testColor, colorC, colorD);
-    
-    // Find minimum distance
-    float dist1 = distance(testColor, closest1);
-    float dist2 = distance(testColor, closest2);
-    float dist3 = distance(testColor, closest3);
-    
-    // Smooth minimum function (smoother than min())
-    float k = 8.0; // Adjust for smoothness
-    float s12 = exp(-k * dist1) + exp(-k * dist2);
-    float s123 = s12 + exp(-k * dist3);
-    
-    return -log(s123) / k; // Convert back to distance
-}
-float isOnGradientWat(vec3 testColor, vec3 colorA, vec3 colorB, vec3 colorC, vec3 colorD, vec3 colorE) {
-
-    // Find closest points on each segment
-    vec3 closest1 = closestPointOnSegment(testColor, colorA, colorB);
-    vec3 closest2 = closestPointOnSegment(testColor, colorB, colorC);
-    vec3 closest3 = closestPointOnSegment(testColor, colorC, colorD);
-    vec3 closest4 = closestPointOnSegment(testColor, colorD, colorE);
-    
-    // Find minimum distance
-    float dist1 = distance(testColor, closest1);
-    float dist2 = distance(testColor, closest2);
-    float dist3 = distance(testColor, closest3);
-    float dist4 = distance(testColor, closest4);
-    
-    // Smooth minimum function (smoother than min())
-    float k = 8.0; // Adjust for smoothness
-    float s12 = exp(-k * dist1) + exp(-k * dist2);
-    float s123 = s12 + exp(-k * dist3);
-    float s1234 = s123 + exp(-k * dist4);
-    
-    return -log(s1234) / k; // Convert back to distance
+float cloudHeight(float reflectance) {
+    return cloudShadowHeight * smoothstep(0.0, 0.45, reflectance);
 }
 
-float mapColorToGradientT(vec3 testColor, vec3 colorA, vec3 colorB, vec3 colorC, vec3 colorD, vec4 stops) {
-    
-    // Find closest points and distances on each segment
-    float t1 = closestPointOnSegmentWithT(testColor, colorA, colorB);
-    float t2 = closestPointOnSegmentWithT(testColor, colorB, colorC);
-    float t3 = closestPointOnSegmentWithT(testColor, colorC, colorD);
-    
-    vec3 closest1 = mix(colorA, colorB, t1);
-    vec3 closest2 = mix(colorB, colorC, t2);
-    vec3 closest3 = mix(colorC, colorD, t3);
-    
-    float dist1 = distance(testColor, closest1);
-    float dist2 = distance(testColor, closest2);
-    float dist3 = distance(testColor, closest3);
-    
-    // Use inverse distance weighting to handle cases where the color
-    // might be nearly equidistant to multiple segments
-    float weight_sum = 0.0;
-    if (dist1 > 0.0001) weight_sum += 1.0/dist1;
-    if (dist2 > 0.0001) weight_sum += 1.0/dist2;
-    if (dist3 > 0.0001) weight_sum += 1.0/dist3;
-    
-    // Global t values for each segment
-    float global_t1 = mix(stops.x, stops.y, t1);
-    float global_t2 = mix(stops.y, stops.z, t2);
-    float global_t3 = mix(stops.z, stops.w, t3);
-    
-    // Weighted average of t values
-    float result = 0.0;
-    if (dist1 > 0.0001) result += (global_t1 * (1.0/dist1)) / weight_sum;
-    if (dist2 > 0.0001) result += (global_t2 * (1.0/dist2)) / weight_sum;
-    if (dist3 > 0.0001) result += (global_t3 * (1.0/dist3)) / weight_sum;
-    
-    return result;
-}
+// Sunlight reaching this spot, after the clouds between it and the sun:
+//   x  at the ground (includes the cloud overhead), for the surface and the sun glint
+//   y  at the top of the cloud here, for the cloud itself
+//   z  brightening/darkening of the cloud top by its slope toward or away from the sun
+// pixelLod: mip level matching the pixel's footprint on the cloud texture
+// sunDir is the sun used for lighting (main() passes the twilight-remapped one, which only sets
+// below the horizon where the day side has finished fading out)
+vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localReflectance, float pixelLod) {
+    float mu = dot(normal, sunDir);
+    vec3 towardSun = sunDir - normal * mu;              // horizontal direction to the sun
+    float sinZenith = length(towardSun);
+    if (mu <= 0.0 || sinZenith < 1e-4) {
+        return vec3(1.0 - localReflectance, 1.0, 1.0);
+    }
 
-float calculateEdgeDistance(float rawAlpha, float threshold) {
-    // Convert alpha to a signed distance (positive inside, negative outside)
-    return (rawAlpha - threshold) * 4.0; // Scale factor determines edge width
-}
+    // Texture coordinates per scene unit of distance toward the sun. The Earth spins about the
+    // scene's y axis, so east and north follow from the normal; u grows east and v north.
+    vec3 eastUnscaled = cross(vec3(0.0, 1.0, 0.0), normal);
+    float cosLatitude = max(length(eastUnscaled), 0.05);
+    vec3 east = eastUnscaled / cosLatitude;
+    vec3 north = cross(normal, east);
+    vec3 sunAzimuth = towardSun / sinZenith;
+    vec2 uvPerUnit = vec2(dot(sunAzimuth, east) / (2.0 * 3.14159265 * radius * cosLatitude),
+                          dot(sunAzimuth, north) / (3.14159265 * radius));
+    float texelsPerUnit = float(textureSize(cloudTexture, 0).x) / (2.0 * 3.14159265 * radius);
 
+    // Slope of the cloud tops along the sun's direction, from heights three texels either side
+    // (on a slightly blurred level, so it follows the shape of the clouds rather than pixel
+    // noise). A top rising away from the sun faces it and catches more light.
+    float nearStep = 3.0 / texelsPerUnit;
+    float slopeLod = max(pixelLod, 1.5);
+    float slope = (cloudHeight(sampleCloudReflectanceLod(uv - uvPerUnit * nearStep, slopeLod))
+                 - cloudHeight(sampleCloudReflectanceLod(uv + uvPerUnit * nearStep, slopeLod))) / (2.0 * nearStep);
+    slope *= cloudRelief;
+    float slopeLight = clamp((mu + sinZenith * slope) / (sqrt(1.0 + slope * slope) * mu), 0.4, 1.4);
 
-vec4 calculateCloudProperties(vec4 cloudRGBA) {
-    vec3 iceColorA = vec3(182.0, 0.0, 184.0) / 255.0;
-    vec3 iceColorB = vec3(92.0,   0.0, 152.0) / 255.0;
-    vec3 iceColorC = vec3(0.0, 122.0, 254.0) / 255.0;
-    vec3 iceColorD = vec3(0.0, 1.0, 0.0);
-    vec4 iceStops = vec4(0.0, 82.0 / 228.0, 152.0 / 228.0, 1.0);
-    
-    vec3 watColorA = vec3(255.0, 255.0, 4.0) / 255.0;
-    vec3 watColorB = vec3(255.0, 255.0, 181.0) / 255.0;
-    vec3 watColorC = vec3(255.0, 133.0, 0.0) / 255.0;
-    vec3 watColorD = vec3(255.0, 0.0, 0.0) / 255.0;
-    vec3 watColorE = vec3(135.0, 0.0, 0.0) / 255.0;
-    vec4 watStops = vec4(0.0, 79.0 / 228.0, 190.0 / 228.0, 1.0);
-    
-    float maxDistance = 0.4;
-    vec3 cloudRGB = cloudRGBA.rgb;
-    
-    // Calculate distances to both gradients
-    float iceDist = isOnGradient(cloudRGB, iceColorA, iceColorB, iceColorC, iceColorD);
-    float watDist = isOnGradientWat(cloudRGB, watColorA, watColorB, watColorC, watColorD, watColorE);
-    
-    // Calculate smooth weights for each gradient with smoothstep
-    float iceWeight = 1.0 - smoothstep(0.0, maxDistance, iceDist);
-    float watWeight = 1.0 - smoothstep(0.1, maxDistance, watDist);
-    
-    // Add a tiny epsilon to prevent division by zero
-    float totalWeight = max(0.0001, iceWeight + watWeight);
-    iceWeight /= totalWeight;
-    //watWeight /= totalWeight;
-    
-    // Calculate depths for both gradients
-    float iceDepth = mapColorToGradientT(cloudRGB, iceColorA, iceColorB, iceColorC, iceColorD, iceStops);
-    //float watDepth = clamp(mapColorToGradientT(cloudRGB, watColorA, watColorB, watColorD, watColorE, watStops), 0.5, 0.8);
-    
-    // Blend the colors based on the weights
-    vec3 iceColor = mix(vec3(0.95, 0.95, 0.95), vec3(0.0, 0.9, 0.95), iceDepth);
-    //vec3 watColor = mix(vec3(0.95, 0.95, 0.95), vec3(0.7, 0.7, 0.8), watDepth);
-    
-    // Blend the opacities based on the weights
-    float iceOpacity = clamp(iceDepth * 1.6, 0.0, 1.0);
-    //float watOpacity = clamp(watDepth * 1.0, 0.0, 1.0);
-    
-    // Combine the results
-    vec4 result;
-    result.rgb = iceColor * iceWeight;// + watColor * watWeight;
-    //result.rgb = watColor * watWeight;
-    //float rawAlpha = (iceOpacity * iceWeight + watOpacity * watWeight) * min(1.0, iceWeight + watWeight);
-    float rawAlpha = (iceOpacity * iceWeight) * min(1.0, iceWeight);
-    float distance = calculateEdgeDistance(rawAlpha, 0.5);
-    result.a = clamp(0.5 + 0.5 * distance, 0.0, 1.0); // Remap to 0-1
-    
-    return result;
+    // March toward the sun out to where the ray clears the tallest cloud. Samples come from a
+    // mip level about as coarse as the step, so the march blends into soft streaks instead of
+    // showing copies of each cloud.
+    float tanZenith = min(sinZenith / mu, MAX_SHADOW_LENGTH);
+    float stepLength = cloudShadowHeight * tanZenith / float(CLOUD_SHADOW_STEPS);
+    float marchLod = max(clamp(log2(max(stepLength * texelsPerUnit, 1.0)), 0.0, 4.0), pixelLod);
+    float softness = 0.25 * cloudShadowHeight;
+    float localHeight = cloudHeight(localReflectance);
+    float groundBlocked = localReflectance;
+    float topBlocked = 0.0;
+    for (int i = 1; i <= CLOUD_SHADOW_STEPS; i++) {
+        float marchDistance = (float(i) - 0.5) * stepLength;
+        float reflectance = sampleCloudReflectanceLod(uv + uvPerUnit * marchDistance, marchLod);
+        float height = cloudHeight(reflectance);
+        float rayHeight = marchDistance / tanZenith;         // the sun's ray, measured from the ground
+        groundBlocked = max(groundBlocked, reflectance * smoothstep(-softness, softness, height - rayHeight));
+        topBlocked = max(topBlocked, reflectance * smoothstep(-softness, softness, height - localHeight - rayHeight));
+    }
+    return vec3(1.0 - groundBlocked, 1.0 - topBlocked, slopeLight);
 }
 
 void main() {
@@ -195,30 +149,45 @@ void main() {
     float pi = 3.1415926;
 
     float sunOrientation = dot(sunDirection, normal);
-    
-    float dayMix = smoothstep(-twilightAngle/pi, 0.0, sunOrientation);
+
+    float twilightWidth = twilightAngle / pi;
+    float dayMix = smoothstep(-twilightWidth, 0.0, sunOrientation);
+
+    // Sun used to light the day side. The day texture is drawn past the geometric terminator,
+    // fading out by sunOrientation = -twilightWidth, but there the real sun is below the horizon
+    // and anything lit by it (cloud shadows, cloud-top shading, the sun glint) would switch off
+    // at the terminator while the day texture is still showing. So keep the sun's real direction
+    // across the ground (its azimuth) and remap its elevation, so that it reaches the horizon
+    // where the day side finishes fading out: sin(elevation) = (mu + w) / (1 + w). Overhead sun
+    // is unchanged, and at the geometric terminator the lighting sun is still ~6 degrees up.
+    float litSunMu = (sunOrientation + twilightWidth) / (1.0 + twilightWidth);
+    vec3 sunHorizontal = sunDirection - normal * sunOrientation;
+    float sunHorizontalLength = length(sunHorizontal);
+    vec3 litSunDirection = sunHorizontalLength > 1e-4
+        ? normal * litSunMu + sunHorizontal / sunHorizontalLength * sqrt(max(1.0 - litSunMu * litSunMu, 0.0))
+        : sunDirection;
     vec3 dayTexColor = texture(dayTexture, vUv).rgb;
     vec3 nightTexColor = texture(nightTexture, vUv).rgb;
 
     // Identify and animate city lights -- this effect is completely unrealistic but it
     // makes the whole thing feel more alive
     vec3 animatedNightTexColor = nightTexColor;
-    
+
     // Approximate color of city lights (slight yellow)
     vec3 cityLightColor = vec3(1.0, 0.98, 0.85);
     // Threshold for detecting city lights -- it's greater than 1 because the second step
     // of scaling by brightness cuts down the effect a lot
     float cityLightThreshold = 5.0;
-    
+
     // Calculate how close the pixel's color is to our target city light color
     float colorDistance = length(normalize(nightTexColor) - normalize(cityLightColor));
     float isCityLight = 1.0 - smoothstep(0.0, cityLightThreshold, colorDistance);
-    
+
     // Only animate pixels that are bright enough (not just dark areas that happen to match the color)
     // if removing this later, lower the threshold a lot (to 0.1 or so)
     float brightness = length(nightTexColor);
     isCityLight *= step(0.2, brightness);
-    
+
     if (isCityLight > 0.0) {
         // heartbeat
         float globalPulse = 0.93 + 0.07 * sin(time * 6.0);
@@ -229,36 +198,55 @@ void main() {
         // randomOffset increases the spatial frequency
         float randomOffset = fract(sin(dot(vUv, vec2(2.9898, 78.233)) * 4370.0));
         float twinkling = 0.8 + 0.2 * sin(time * 20.0 + randomOffset * 4.28);
-        
+
         float animationFactor = globalPulse * twinkling * regionalVariation;
-        
+
         animatedNightTexColor = nightTexColor * animationFactor;
         // the lights should tend to modulate brighter than darker, to suggest stray light reaching
         // into space (hence why I'm multiplying by 1.2)
         animatedNightTexColor = min(animatedNightTexColor * 1.2, vec3(1.0));
     }
-    
-    color = mix(animatedNightTexColor, dayTexColor, dayMix);
-    float specularTexColor = texture(specularMapTexture, vUv).r;
 
-    // Apply cloud texture if enabled -- currently hard disabled since I'm not happy with this
-    // and I don't want to incur a performance penalty for even having the branch statement
+    float oceanMask = texture(specularMapTexture, vUv).r;
+    vec3 toCamera = -viewDirection;
+    float muView = dot(normal, toCamera);
+
+    // Clouds. The texture holds the visible reflectance R of the clouds, worked out by the
+    // worker from NOAA-20 VIIRS cloud optical thickness (0 where there is no cloud). Cloud
+    // droplets and crystals scatter without absorbing, so a cloud that reflects R passes
+    // T = 1 - R on. By day the surface is lit through the cloud between it and the sun
+    // (sunTransmission, which is what casts shadows), seen through the cloud above it
+    // (viewTransmission), and gets back some of its own light from the cloud base:
+    // R + A T_sun T_view / (1 - R A) for a surface of albedo A. Thick clouds (R ~ 0.8) are
+    // bright white and hide the ground; thin ones (R < 0.1) only veil it.
+    float cloudReflectance = sampleCloudReflectance(vUv, 0.0);
+    float viewTransmission = 1.0 - cloudReflectance;
+    // Mip level for the shadow lookups: the pixel's footprint on the texture, allowing for up to
+    // 4:1 stretching by foreshortening near the limb (as anisotropic filtering would)
+    vec2 cloudTexels = vec2(textureSize(cloudTexture, 0));
+    vec2 uvDx = dFdx(vUv), uvDy = dFdy(vUv);
+    uvDx.x -= floor(uvDx.x + 0.5);                  // u wraps from 1 to 0 at the antimeridian
+    uvDy.x -= floor(uvDy.x + 0.5);
+    float footprintA = length(uvDx * cloudTexels), footprintB = length(uvDy * cloudTexels);
+    float pixelLod = max(log2(max(min(footprintA, footprintB), max(footprintA, footprintB) / 4.0)), 0.0);
+    vec3 sunlight = cloudSunlight(vUv, normal, litSunDirection, length(vPosition), cloudReflectance, pixelLod);
+    float sunTransmission = sunlight.x;
+    float cloudTopLight = mix(CLOUD_SHADOW_AMBIENT, 1.0, sunlight.y) * sunlight.z;
+    // Sunlight reddens as the sun gets low (hue only; dayMix handles the fade to night). Cloud
+    // tops also get blue skylight, so they take at most half the reddening of the direct beam,
+    // scaled down further by cloudTwilightTint.
+    vec3 sunlightTint = exp(-0.5 * atmosphereOpticalDepth * (min(airMass(litSunMu), 20.0) - 1.0));
+    sunlightTint = mix(vec3(1.0), sunlightTint / sunlightTint.r, cloudTwilightTint);
+
+    vec3 dayCloudy = cloudReflectance * cloudTopLight * sunlightTint
+        + dayTexColor * sunTransmission * viewTransmission / (1.0 - cloudReflectance * dayTexColor);
+    // At night city lights shine up through the cloud once, and the cloud tops are barely lit
+    vec3 nightCloudy = animatedNightTexColor * viewTransmission + cloudReflectance * nightCloudColor;
+    color = mix(nightCloudy, dayCloudy, dayMix);
+    // Glint and the retina effect below only apply to water the sun reaches and we can see
+    float specularTexColor = oceanMask * sunTransmission * viewTransmission;
+
     /*
-    if (showClouds) {
-        vec4 cloudPixel = texture(cloudTexture, vUv);
-        // Calculate cloud properties based on optical depth encoding
-        vec4 cloudProperties = calculateCloudProperties(cloudPixel);
-        float cloudFactor = mix(0.05, 1.0, dayMix);
-        vec3 cloudColor = cloudProperties.rgb * cloudFactor;
-
-        // Blend cloud color with earth, using calculated opacity
-        color = mix(color, cloudColor, cloudProperties.a);
-        // Allow specular highlights to show through clouds a bit
-        float cloudSpecularDamping = smoothstep(0.01, 0.0, cloudProperties.a);
-        specularTexColor *= cloudSpecularDamping;
-    }
-    */
-
     // Fresnel
     float fresnel = dot(viewDirection, normal) + 1.0;
     fresnel = pow(fresnel, 2.0);
@@ -268,20 +256,38 @@ void main() {
     float nightSideTwilightExtent = 0.1;
     float twilightMix = smoothstep(-0.05, nightSideTwilightExtent + (twilightAngle / pi), sunOrientation)
                       * (-smoothstep(-0.05, daySideTwilightExtent + (twilightAngle / pi), sunOrientation) + 1.0);
-    vec3 atmosphereColor = mix(dayColor, twilightColor, twilightMix);
     color = mix(color, dayColor, fresnel * dayMix / 8.0);
-    // divide the mix variable by 10 to done down the atmosphere color by a lot.
+    // divide the mix variable by 5 to done down the atmosphere color by a lot.
     color = mix(color, twilightColor, fresnel * twilightMix / 5.0);
+    */
 
-    // Specular
-    vec3 reflection = reflect(-sunDirection, normal);
-    float specular = -dot(reflection, viewDirection);
-    specular = max(specular, 0.0);
-    specular = pow(specular, 100.0);
-    specular *= specularTexColor;
-
-    vec3 specularColor = mix(vec3(0.31, 0.31, 0.35), atmosphereColor, fresnel);
-    color += specular * specularColor;
+    // Sun glint, from the Cox & Munk (1954) model of a wind-roughened sea: wave facet slopes
+    // are Gaussian with variance 0.003 + 0.00512 * wind speed, and the glint is the light off
+    // facets tilted to mirror the sun into the camera (those facing the half vector), times
+    // the Fresnel reflectance of water at that angle. It stretches out and brightens toward
+    // the limb (1 / muView) and takes the colour of sunlight that crossed the atmosphere twice.
+    // Lit by the same remapped sun as the clouds, so it reaches into the twilight band and fades
+    // out with the day side (dayMix) instead of stopping at the geometric terminator
+    vec3 halfVector = normalize(litSunDirection + toCamera);
+    float cosTilt = max(dot(normal, halfVector), 1e-3);
+    float cos2Tilt = cosTilt * cosTilt;
+    float tan2Tilt = (1.0 - cos2Tilt) / cos2Tilt;
+    float slopeVariance = 0.003 + 0.00512 * windSpeed;
+    float waterFresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(halfVector, litSunDirection), 0.0, 1.0), 5.0);
+    float glint = waterFresnel  * exp(-tan2Tilt / slopeVariance)
+        / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.9));
+    glint *= dayMix * step(0.0, muView);
+    const float glintMax = 0.9;
+    glint = glintMax * (1.0 - exp(-glint / glintMax));
+    // The colour comes from the full extinction along the sun's path down and the view's path
+    // back up, as for the cloud tops, but only part of the dimming is applied: the atmosphere
+    // also scatters sunlight into those long paths. Taking all of it made the glint (and the
+    // cloud shadows, which only show against it) fade out near the limb while the surface
+    // there was still in full daylight.
+    float glintPath = min(airMass(litSunMu) + airMass(muView), 40.0) - 2.0;
+    vec3 glintTint = exp(-0.3 * atmosphereOpticalDepth * glintPath);
+    vec3 glintColor = glintTint / glintTint.r * exp(-0.3 * atmosphereOpticalDepth.r * glintPath);
+    color += glint * glintBrightness * specularTexColor * glintColor;
     vec3 retinaColor = mix(gammaCorrection(color, 1.11), color, specularTexColor);
     color = mix(color, retinaColor, retinaEffect(sunDirection, vec3(0.0), 5.0));
 

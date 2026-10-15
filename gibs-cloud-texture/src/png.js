@@ -3,7 +3,7 @@
  *
  *   decodePng()        parses a tile and returns a reader that unfilters one row at a time
  *                      and writes it out as premultiplied RGBA floats (see below).
- *   PngStreamEncoder   writes an 8-bit RGBA PNG as a stream: rows go in, PNG bytes come out,
+ *   PngStreamEncoder   writes an 8-bit RGBA or greyscale PNG as a stream: rows go in, PNG bytes come out,
  *                      and the full image never has to sit in memory (an 8k RGBA image is
  *                      134 MB raw, more than a Worker's 128 MB limit).
  *
@@ -139,6 +139,8 @@ export class PngRowReader {
         this.filterBpp = filterBpp;
         this.y = 0;
         this.previous = null;
+        this.palette = palette;
+        this.transparency = transparency;
 
         // Lookup table of premultiplied colours for palette and low-bit-depth grey images
         if (this.colorType === 3) {
@@ -160,6 +162,45 @@ export class PngRowReader {
      * floats, starting at `offset` (an index into `out`, not a pixel index).
      */
     readRow(out, offset, count = this.width) {
+        this.convert(this.nextRow(), out, offset, Math.min(count, this.width));
+    }
+
+    /**
+     * Like readRow, but writes one float per pixel, mapped from its colour by `mapper`
+     * (an AlbedoMapper). Palette images are mapped once per palette entry, so the pixel
+     * loop is a table lookup.
+     */
+    readValues(out, offset, count, mapper) {
+        const row = this.nextRow();
+        count = Math.min(count, this.width);
+        if (this.colorType === 3) {
+            if (!this.valueLut || this.valueMapper !== mapper) {
+                this.valueLut = mapper.paletteValues(this.palette, this.transparency);
+                this.valueMapper = mapper;
+            }
+            const lut = this.valueLut;
+            if (this.bitDepth === 8) {
+                for (let x = 0; x < count; x++) out[offset + x] = lut[row[x]];
+            } else {
+                const depth = this.bitDepth, mask = (1 << depth) - 1;
+                for (let x = 0; x < count; x++) {
+                    const bit = x * depth;
+                    out[offset + x] = lut[(row[bit >> 3] >> (8 - depth - (bit & 7))) & mask];
+                }
+            }
+            return;
+        }
+        // Other colour types: decode to RGBA, then map each colour (cached per colour)
+        const rgba = this.scratch ?? (this.scratch = new Float32Array(this.width * 4));
+        this.convert(row, rgba, 0, count);
+        for (let x = 0, i = 0; x < count; x++, i += 4) {
+            const a = rgba[i + 3];
+            out[offset + x] = a < 128 ? 0 : mapper.colorValue(
+                Math.round((rgba[i] * 255) / a), Math.round((rgba[i + 1] * 255) / a), Math.round((rgba[i + 2] * 255) / a), a);
+        }
+    }
+
+    nextRow() {
         if (this.y >= this.height) throw new PngError('read past the last row');
         const start = this.y * (this.rowBytes + 1);
         const filter = this.data[start];
@@ -167,7 +208,7 @@ export class PngRowReader {
         unfilter(filter, row, this.previous, this.filterBpp);
         this.previous = row;
         this.y++;
-        this.convert(row, out, offset, Math.min(count, this.width));
+        return row;
     }
 
     convert(row, out, offset, count) {
@@ -309,21 +350,23 @@ function chunk(type, parts) {
 const IDAT_TARGET_BYTES = 256 * 1024;
 
 /**
- * Streaming 8-bit RGBA PNG writer. Feed it complete scanlines (filter byte + 4 * width
- * bytes each) with write(), then call close(). `readable` yields the PNG file.
+ * Streaming 8-bit PNG writer, RGBA (channels = 4) or greyscale (channels = 1). Feed it
+ * complete scanlines (filter byte + channels * width bytes each) with write(), then call
+ * close(). `readable` yields the PNG file.
  */
 export class PngStreamEncoder {
-    constructor(width, height) {
+    constructor(width, height, channels = 4) {
+        if (channels !== 1 && channels !== 4) throw new Error('channels must be 1 or 4');
         this.width = width;
         this.height = height;
-        this.rowBytes = width * 4 + 1;
+        this.rowBytes = width * channels + 1;
 
         const ihdr = new Uint8Array(13);
         const view = new DataView(ihdr.buffer);
         view.setUint32(0, width);
         view.setUint32(4, height);
-        ihdr[8] = 8;  // bit depth
-        ihdr[9] = 6;  // RGBA
+        ihdr[8] = 8;                        // bit depth
+        ihdr[9] = channels === 4 ? 6 : 0;   // RGBA or greyscale
         // compression, filter method and interlace are all 0
         const head = new Uint8Array(SIGNATURE.length + 25);
         head.set(SIGNATURE, 0);
@@ -370,7 +413,7 @@ export class PngStreamEncoder {
 }
 
 /**
- * Filter one RGBA scanline for PNG output: dst[0] gets the filter type and dst[1..] the
+ * Filter one scanline (any channel count) for PNG output: dst[0] gets the filter type and dst[1..] the
  * filtered bytes. `previous` is the prior row's unfiltered bytes (null for the first row).
  *
  * Always uses the Up filter. On resampled cloud imagery it compresses as well as Paeth or

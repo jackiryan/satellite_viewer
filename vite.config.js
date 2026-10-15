@@ -15,11 +15,13 @@ export default defineConfig({
             'Cross-Origin-Embedder-Policy': 'require-corp',
         },
         proxy: {
-            // Proxy all requests to /api/cloud-texture to the actual API
-            '/api/cloud-texture': {
-                target: 'http://localhost:3000',
+            // Cloud textures come from the gibs-cloud-texture worker, as nginx does in production.
+            // To work on the worker itself, run `npm run dev` in gibs-cloud-texture/ and use
+            // http://localhost:8787 as the target.
+            '/cloud-texture': {
+                target: 'https://gibs-cloud-texture.jpryan104.workers.dev',
                 changeOrigin: true,
-                rewrite: (path) => path.replace(/^\/api\/cloud-texture/, '/global-texture')
+                rewrite: (path) => path.replace(/^\/cloud-texture/, '/global-texture')
             }
         },
         host: true, // Open to local network and display URL
