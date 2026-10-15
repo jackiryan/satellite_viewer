@@ -58,6 +58,16 @@ float sampleCloudReflectance(vec2 uv, float bias) {
     return clamp(encoded * encoded * cloudBrightness, 0.0, 0.95);
 }
 
+// Same, from an explicit mip level. The shadow lookups use this rather than a bias: a bias is
+// added to the level the GPU picks for the pixel, which near the limb is already 4-5 levels
+// coarse from foreshortening, so the shadow march ended up reading a ~32x16 texel texture and
+// shadows faded out well before the terminator. textureLod is also safe inside the march loop
+// and after the early return, where implicit derivatives are undefined.
+float sampleCloudReflectanceLod(vec2 uv, float lod) {
+    float encoded = textureLod(cloudTexture, uv, lod).r * float(showClouds);
+    return clamp(encoded * encoded * cloudBrightness, 0.0, 0.95);
+}
+
 // Cloud shadows. The cloud tops are treated as a height field: thin cloud is low, and cloud
 // rises to cloudShadowHeight as it thickens, levelling off into a flat-topped deck once it is
 // opaque (R ~ 0.45, optical thickness ~ 10) so overcast doesn't look lumpy. The shader marches from each point toward the
@@ -79,7 +89,8 @@ float cloudHeight(float reflectance) {
 //   x  at the ground (includes the cloud overhead), for the surface and the sun glint
 //   y  at the top of the cloud here, for the cloud itself
 //   z  brightening/darkening of the cloud top by its slope toward or away from the sun
-vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localReflectance) {
+// pixelLod: mip level matching the pixel's footprint on the cloud texture
+vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localReflectance, float pixelLod) {
     float mu = dot(normal, sunDir);
     vec3 towardSun = sunDir - normal * mu;              // horizontal direction to the sun
     float sinZenith = length(towardSun);
@@ -102,8 +113,9 @@ vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localR
     // (on a slightly blurred level, so it follows the shape of the clouds rather than pixel
     // noise). A top rising away from the sun faces it and catches more light.
     float nearStep = 3.0 / texelsPerUnit;
-    float slope = (cloudHeight(sampleCloudReflectance(uv - uvPerUnit * nearStep, 1.5))
-                 - cloudHeight(sampleCloudReflectance(uv + uvPerUnit * nearStep, 1.5))) / (2.0 * nearStep);
+    float slopeLod = max(pixelLod, 1.5);
+    float slope = (cloudHeight(sampleCloudReflectanceLod(uv - uvPerUnit * nearStep, slopeLod))
+                 - cloudHeight(sampleCloudReflectanceLod(uv + uvPerUnit * nearStep, slopeLod))) / (2.0 * nearStep);
     slope *= cloudRelief;
     float slopeLight = clamp((mu + sinZenith * slope) / (sqrt(1.0 + slope * slope) * mu), 0.4, 1.4);
 
@@ -112,14 +124,14 @@ vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localR
     // showing copies of each cloud.
     float tanZenith = min(sinZenith / mu, MAX_SHADOW_LENGTH);
     float stepLength = cloudShadowHeight * tanZenith / float(CLOUD_SHADOW_STEPS);
-    float bias = clamp(log2(max(stepLength * texelsPerUnit, 1.0)), 0.0, 4.0);
+    float marchLod = max(clamp(log2(max(stepLength * texelsPerUnit, 1.0)), 0.0, 4.0), pixelLod);
     float softness = 0.25 * cloudShadowHeight;
     float localHeight = cloudHeight(localReflectance);
     float groundBlocked = localReflectance;
     float topBlocked = 0.0;
     for (int i = 1; i <= CLOUD_SHADOW_STEPS; i++) {
         float marchDistance = (float(i) - 0.5) * stepLength;
-        float reflectance = sampleCloudReflectance(uv + uvPerUnit * marchDistance, bias);
+        float reflectance = sampleCloudReflectanceLod(uv + uvPerUnit * marchDistance, marchLod);
         float height = cloudHeight(reflectance);
         float rayHeight = marchDistance / tanZenith;         // the sun's ray, measured from the ground
         groundBlocked = max(groundBlocked, reflectance * smoothstep(-softness, softness, height - rayHeight));
@@ -192,7 +204,15 @@ void main() {
     // bright white and hide the ground; thin ones (R < 0.1) only veil it.
     float cloudReflectance = sampleCloudReflectance(vUv, 0.0);
     float viewTransmission = 1.0 - cloudReflectance;
-    vec3 sunlight = cloudSunlight(vUv, normal, sunDirection, length(vPosition), cloudReflectance);
+    // Mip level for the shadow lookups: the pixel's footprint on the texture, allowing for up to
+    // 4:1 stretching by foreshortening near the limb (as anisotropic filtering would)
+    vec2 cloudTexels = vec2(textureSize(cloudTexture, 0));
+    vec2 uvDx = dFdx(vUv), uvDy = dFdy(vUv);
+    uvDx.x -= floor(uvDx.x + 0.5);                  // u wraps from 1 to 0 at the antimeridian
+    uvDy.x -= floor(uvDy.x + 0.5);
+    float footprintA = length(uvDx * cloudTexels), footprintB = length(uvDy * cloudTexels);
+    float pixelLod = max(log2(max(min(footprintA, footprintB), max(footprintA, footprintB) / 4.0)), 0.0);
+    vec3 sunlight = cloudSunlight(vUv, normal, sunDirection, length(vPosition), cloudReflectance, pixelLod);
     float sunTransmission = sunlight.x;
     float cloudTopLight = mix(CLOUD_SHADOW_AMBIENT, 1.0, sunlight.y) * sunlight.z;
     // Sunlight reddens as the sun gets low (hue only; dayMix handles the fade to night). Cloud
@@ -236,7 +256,14 @@ void main() {
     float glint = waterFresnel  * exp(-tan2Tilt / slopeVariance)
         / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.1));
     glint *= smoothstep(0.0, 0.05, sunOrientation) * step(0.0, muView);
-    vec3 glintColor = exp(-atmosphereOpticalDepth * (min(airMass(sunOrientation) + airMass(muView), 40.0) - 2.0));
+    // The colour comes from the full extinction along the sun's path down and the view's path
+    // back up, as for the cloud tops, but only part of the dimming is applied: the atmosphere
+    // also scatters sunlight into those long paths. Taking all of it made the glint (and the
+    // cloud shadows, which only show against it) fade out near the limb while the surface
+    // there was still in full daylight.
+    float glintPath = min(airMass(sunOrientation) + airMass(muView), 40.0) - 2.0;
+    vec3 glintTint = exp(-0.5 * atmosphereOpticalDepth * glintPath);
+    vec3 glintColor = glintTint / glintTint.r * exp(-0.3 * atmosphereOpticalDepth.r * glintPath);
     color += glint * glintBrightness * specularTexColor * glintColor;
     vec3 retinaColor = mix(gammaCorrection(color, 1.11), color, specularTexColor);
     color = mix(color, retinaColor, retinaEffect(sunDirection, vec3(0.0), 5.0));
