@@ -8,7 +8,9 @@ uniform float cloudShadowHeight;  // top height of the thickest clouds, in scene
 uniform float cloudRelief;        // strength of the slope shading on cloud tops (0 = flat)
 uniform float cloudTwilightTint;  // 0 = cloud tops stay white to the terminator, 1 = full sunset colour
 uniform float windSpeed;          // m/s; rougher seas spread the sun glint out
-uniform float glintBrightness;    // scales the sun glint
+uniform float glintBrightness;
+uniform float atmosphereHaze;       // scales the air seen toward the limb (0 = no haze)
+uniform float atmosphereBrightness; // brightness of sunlit haze where it is thick (at the limb)    // scales the sun glint
 uniform vec3 sunDirection;
 uniform float twilightAngle;
 uniform vec3 dayColor;
@@ -39,19 +41,7 @@ vec3 gammaCorrection(vec3 color, float gamma) {
 // Clouds faintly visible on the night side (moonlight, airglow), as a reflectance multiplier
 const vec3 nightCloudColor = vec3(0.012, 0.014, 0.02);
 
-// Vertical optical depth of the atmosphere at about 650, 550 and 450 nm (Rayleigh scattering
-// plus a little haze). Sunlight that crosses more air loses its blue first, so the sun glint
-// and cloud tops turn golden, then orange and red, toward the terminator and the limb.
-const vec3 atmosphereOpticalDepth = vec3(0.133, 0.197, 0.349);
-
-// Air mass along a ray leaving the ground at cos(zenith angle) mu: the path through a
-// uniform atmosphere 8.4 km deep on a 6371 km Earth (r = 6371 / 8.4). 1 straight up, about
-// 39 along the horizon.
-float airMass(float mu) {
-    const float r = 758.0;
-    mu = max(mu, 0.0);
-    return sqrt(r * r * mu * mu + 2.0 * r + 1.0) - r * mu;
-}
+#include ../common/atmosphere.glsl;
 
 float sampleCloudReflectance(vec2 uv, float bias) {
     float encoded = texture(cloudTexture, uv, bias).r * float(showClouds);
@@ -246,20 +236,18 @@ void main() {
     // Glint and the retina effect below only apply to water the sun reaches and we can see
     float specularTexColor = oceanMask * sunTransmission * viewTransmission;
 
-    /*
-    // Fresnel
-    float fresnel = dot(viewDirection, normal) + 1.0;
-    fresnel = pow(fresnel, 2.0);
-
-    // Atmosphere
-    float daySideTwilightExtent = 0.1;
-    float nightSideTwilightExtent = 0.1;
-    float twilightMix = smoothstep(-0.05, nightSideTwilightExtent + (twilightAngle / pi), sunOrientation)
-                      * (-smoothstep(-0.05, daySideTwilightExtent + (twilightAngle / pi), sunOrientation) + 1.0);
-    color = mix(color, dayColor, fresnel * dayMix / 8.0);
-    // divide the mix variable by 5 to done down the atmosphere color by a lot.
-    color = mix(color, twilightColor, fresnel * twilightMix / 5.0);
-    */
+    // Atmosphere seen from space (aerial perspective). Looking toward the limb, the line of
+    // sight crosses more and more air: the surface and clouds fade behind it, and the air adds
+    // sunlight it scatters toward the camera. Thin air scatters mostly blue; by the limb the air
+    // is so thick that every colour is scattered and the haze turns white, as in DSCOVR/EPIC
+    // images of the whole Earth. Only the air beyond the straight-down path counts, since the
+    // Blue Marble texture already looks like the surface seen straight down from orbit. The haze
+    // is lit by the same twilight-remapped sun as the clouds, so it warms toward the terminator
+    // and fades with the day side.
+    float hazePath = (airMass(muView) - 1.0) * atmosphereHaze;
+    vec3 hazeTransmittance = exp(-atmosphereOpticalDepth * hazePath);
+    vec3 hazeSunlight = attenuatedSunlight(litSunMu, 0.5, 0.3) * dayMix;
+    color = color * hazeTransmittance + skyInscatter(hazePath, hazeSunlight, atmosphereBrightness);
 
     // Sun glint, from the Cox & Munk (1954) model of a wind-roughened sea: wave facet slopes
     // are Gaussian with variance 0.003 + 0.00512 * wind speed, and the glint is the light off

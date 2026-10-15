@@ -48,7 +48,14 @@ export class Earth {
             cloudTwilightTint: 0.2,
             // sea surface wind speed (m/s): calmer seas give a smaller, sharper sun glint
             windSpeed: 5,
-            glintBrightness: 1.5
+            glintBrightness: 1.5,
+            // haze over the globe toward the limb (0 = none), and the brightness of sunlit haze where
+            // it is thick; also used for the glow beyond the limb
+            atmosphereHaze: 1.0,
+            atmosphereBrightness: 0.4,
+            // scene units over which the glow beyond the limb fades with height (the real atmosphere's
+            // 8 km would be under a pixel, so this is exaggerated)
+            haloScaleHeight: 0.02
         };
 
         // Calculate initial rotation based on sidereal time
@@ -315,6 +322,8 @@ export class Earth {
                 cloudTwilightTint: new THREE.Uniform(this.parameters.cloudTwilightTint),
                 windSpeed: new THREE.Uniform(this.parameters.windSpeed),
                 glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
+                atmosphereHaze: new THREE.Uniform(this.parameters.atmosphereHaze),
+                atmosphereBrightness: new THREE.Uniform(this.parameters.atmosphereBrightness),
                 time: new THREE.Uniform(0.0)
             },
             vertexShader: earthVertexShader,
@@ -348,9 +357,11 @@ export class Earth {
             fragmentShader: atmosphereFragmentShader,
             uniforms: {
                 sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                dayColor: new THREE.Uniform(new THREE.Color(this.parameters.dayColor)),
-                twilightColor: new THREE.Uniform(new THREE.Color(this.parameters.twilightColor)),
                 twilightAngle: new THREE.Uniform(twilightAngle),
+                earthRadius: new THREE.Uniform(this.parameters.radius),
+                atmosphereRadius: new THREE.Uniform(atmosphereGeometry.parameters.radius),
+                atmosphereBrightness: new THREE.Uniform(this.parameters.atmosphereBrightness),
+                haloScaleHeight: new THREE.Uniform(this.parameters.haloScaleHeight),
             },
             side: THREE.BackSide,
             transparent: true

@@ -1,21 +1,21 @@
 // Star Shader (w/ Sun and no star color)
 // (c) 2024 Alex Stone-Martinez & Jacqueline Ryan
-  
-// Permission is hereby granted, free of charge, to any person obtaining a copy of 
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
 // this software and associated documentation files (the “Software”), to deal in the
 // Software without restriction, including without limitation the rights to use, copy,
 // modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
-// and to permit persons to whom the Software is furnished to do so, subject to the 
+// and to permit persons to whom the Software is furnished to do so, subject to the
 // following conditions:
 //
 // The above copyright notice and this permission notice shall be included in all copies
 // or substantial portions of the Software.
 
-// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
-// INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
-// PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT 
-// HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION 
-// OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
+// THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+// PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+// HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+// OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 uniform sampler2D uStarData;
@@ -103,7 +103,7 @@ vec4 getPixInfo(vec3 dir, vec2 offset) {
         // Original condition for Pprime.z >= 0
         Pprime1.xy = coord1;
         Pprime1.z = 1.0 - abs(coord1.x) - abs(coord1.y); // Invert original front-facing projection
-    } else { 
+    } else {
         // Original condition for Pprime.z < 0, needs guessing
         // This branch is trickier because the original transformation compresses more information into the same space
         Pprime1.x = sign(coord1.x) * (1.0 - abs(coord1.y));
@@ -165,11 +165,11 @@ float noise4q(vec4 x)
 	f1=f1*f1*(3.0-2.0*f1);
 	f2=f2*f2*(3.0-2.0*f2);
 	vec4 n1 = vec4(0,1.0,157.0,158.0);
-	vec4 n2 = vec4(113.0,114.0,270.0,271.0);	
+	vec4 n2 = vec4(113.0,114.0,270.0,271.0);
 	vec4 vs1 = mix(hash4(p1), hash4(n1.yyyy+p1), f1);
 	vec4 vs2 = mix(hash4(n1.zzzz+p1), hash4(n1.wwww+p1), f1);
 	vec4 vs3 = mix(hash4(p2), hash4(n1.yyyy+p2), f1);
-	vec4 vs4 = mix(hash4(n1.zzzz+p2), hash4(n1.wwww+p2), f1);	
+	vec4 vs4 = mix(hash4(n1.zzzz+p2), hash4(n1.wwww+p2), f1);
 	vs1 = mix(vs1, vs2, f2);
 	vs3 = mix(vs3, vs4, f2);
 	vs2 = mix(hash4(n2.xxxx+p1), hash4(n2.yyyy+p1), f1);
@@ -194,7 +194,7 @@ float ringRayNoise(vec3 sunDirection, vec3 pos, float r, float size) {
     vec3 ps = pos - sunDirection;
     float c = length(ps);
     ps = normalize(ps);
-    
+
     float s = max(0.0, (1.0 - size * (c - r)));
     s = pow(s, 50.0);
 
@@ -202,7 +202,7 @@ float ringRayNoise(vec3 sunDirection, vec3 pos, float r, float size) {
     float n = noise4q(vec4(ps * 1.0, c * 2.0));
     float ns = noise4q(vec4(ps * 10.0, c * 2.0)) * 2.0;
     n = pow(ns, 2.0) * pow(n, 2.0);
-    
+
     // this power of s controls the amount the noise is pushed in towards
     // the radius
     return pow(s, 5.0) + n * s * s;
@@ -243,7 +243,7 @@ void main() {
     vec4 sunColor = vec4(1.0, 0.98, 0.65, 1.0) * sunRays;
 
     // bake in -90 degree rotation about X axis for UV coordinate
-    vec4 skyColor = desaturate(texture(uSkybox, vec2(1.0 - vUv.x, vUv.y)) * uMwBright, 0.6);
+    vec4 skyColor = desaturate(texture(uSkybox, vec2(1.0 - vUv.x, vUv.y)) * uMwBright, 0.9);
 
     gl_FragColor = starColor + skyColor + sunColor;
 
