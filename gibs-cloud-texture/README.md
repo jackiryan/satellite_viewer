@@ -97,7 +97,12 @@ Any other daily layer in the EPSG:4326 "best" endpoint that serves PNG tiles sho
 
 The globe requests `/cloud-texture?date=…&tileMatrix=3&outputRes=…&product=albedo`, with the date two days before the scene time. It asks for 2k on mobile, Safari and the landing page, and 8k elsewhere (4k if the GPU can't hold 8192-pixel textures). nginx proxies `/cloud-texture` to this Worker in production, and Vite does the same in development (`vite.config.js`). To work on the Worker itself, run `npm run dev` here (port 8787) and point that Vite proxy at `http://localhost:8787`.
 
-The texture is uploaded as a single-channel (`RedFormat`) texture, 32 MB of GPU memory at 8k. `earthFragment.glsl` turns it into true-colour-like clouds. For reflectance R and transmission T = 1 - R, the day side shows `R + A T² / (1 - R A)` over a surface of albedo A: light the cloud reflects, the ground seen through the cloud twice, and light bouncing between the ground and the cloud base. At night city lights show through with T and the cloud is faintly lit. `cloudBrightness` in `earth.js` scales R.
+The texture is uploaded as a single-channel (`RedFormat`) texture, 32 MB of GPU memory at 8k. `earthFragment.glsl` turns it into true-colour-like clouds. For cloud reflectance R, the day side shows `R + A T_sun T_view / (1 - R A)` over a surface of albedo A:
+- light the cloud reflects;
+- the ground, lit through the cloud between it and the sun (`T_sun`, read from the texture a little way toward the sun, which casts the shadows) and seen through the cloud above it (`T_view`);
+- light bouncing between the ground and the cloud base.
+
+Shadows come from a short ray march toward the sun over the cloud tops, treated as a height field: thin cloud is low, and opaque cloud forms flat-topped decks up to `cloudShadowHeight`. With the sun high, shadows are short. Near the terminator they stretch out along the sun's direction, and taller cloud shades lower cloud, as in geostationary GeoColor imagery. Cloud tops are also lit by their slope toward the sun. At night city lights show through and the cloud is faintly lit. The sun glint uses the Cox–Munk sea-surface model and also passes through `T_sun` and `T_view`, so clouds shadow it. The knobs are in `parameters` in `earth.js`: `cloudBrightness`, `cloudShadowHeight`, `cloudRelief`, `cloudTwilightTint` (0 removes the warm tint near the terminator), `windSpeed` and `glintBrightness`.
 
 The response sends `Access-Control-Allow-Origin` and `Cross-Origin-Resource-Policy: cross-origin`, so it also loads cross-origin into pages served with `Cross-Origin-Embedder-Policy: require-corp`.
 

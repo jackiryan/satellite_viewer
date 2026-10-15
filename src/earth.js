@@ -37,7 +37,18 @@ export class Earth {
             dayColor: '#d7eaf9',
             twilightColor: '#fd5e53',
             // scales cloud reflectance; above 1 brightens thin clouds, below 1 makes them sheerer
-            cloudBrightness: 1.0
+            cloudBrightness: 1.0,
+            // top height (km) of the thickest clouds, used to cast shadows (thinner clouds are
+            // lower). Real cloud tops reach about 12 km; shadows from that are under a pixel at
+            // globe scale except near the terminator, so this is exaggerated
+            cloudShadowHeight: 30,
+            // shading of cloud tops by their slope toward or away from the sun (0 = flat)
+            cloudRelief: 0.6,
+            // reddening of cloud tops near the terminator (0 = none, 1 = full sunset colour)
+            cloudTwilightTint: 0.2,
+            // sea surface wind speed (m/s): calmer seas give a smaller, sharper sun glint
+            windSpeed: 5,
+            glintBrightness: 1.5
         };
 
         // Calculate initial rotation based on sidereal time
@@ -167,7 +178,7 @@ export class Earth {
     // so ask for the day two days before the scene time (never later than now).
     getCloudTextureUrl(useLowRes = false) {
         const sceneTime = Math.min(this.initialDate.getTime(), Date.now());
-        const date = new Date(sceneTime - 1 * 86400000).toISOString().slice(0, 10);
+        const date = new Date(sceneTime - 2 * 86400000).toISOString().slice(0, 10);
         const params = new URLSearchParams({
             date,
             tileMatrix: '3',
@@ -194,6 +205,8 @@ export class Earth {
             // keeps it at one byte per texel on the GPU (32 MB at 8k instead of 128 MB as RGBA).
             cloudTexture.format = THREE.RedFormat;
             cloudTexture.colorSpace = THREE.NoColorSpace;
+            // wrap across the antimeridian (shadow lookups step over it)
+            cloudTexture.wrapS = THREE.RepeatWrapping;
             cloudTexture.anisotropy = Math.min(8,
                 this.scene.renderer?.capabilities.getMaxAnisotropy() || 8);
             cloudTexture.needsUpdate = true;
@@ -297,6 +310,11 @@ export class Earth {
                 cloudTexture: new THREE.Uniform(null),
                 showClouds: new THREE.Uniform(false),
                 cloudBrightness: new THREE.Uniform(this.parameters.cloudBrightness),
+                cloudShadowHeight: new THREE.Uniform(this.parameters.cloudShadowHeight * this.parameters.radius / 6371),
+                cloudRelief: new THREE.Uniform(this.parameters.cloudRelief),
+                cloudTwilightTint: new THREE.Uniform(this.parameters.cloudTwilightTint),
+                windSpeed: new THREE.Uniform(this.parameters.windSpeed),
+                glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
                 time: new THREE.Uniform(0.0)
             },
             vertexShader: earthVertexShader,
