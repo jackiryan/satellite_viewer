@@ -12,7 +12,7 @@ varying vec3 vPosition;
 
 // The glow of the atmosphere seen edge-on beyond the limb. Each pixel's line of sight passes the
 // Earth at some height above the surface; the air along it thins out exponentially with that
-// height, and it is lit by the sun where it skims closest to the Earth. The colour and opacity
+// height, and it is lit by the sun where it skims closest to the Earth. The color and opacity
 // come from the same scattering as the haze on the globe (common/atmosphere.glsl): thick air near
 // the limb glows white, thinner air above it blue, and it turns warm and fades with the twilight
 // on the night side. Only the part of the shell outside the Earth's disk is ever visible.
@@ -21,7 +21,7 @@ void main()
     vec3 viewDirection = normalize(vPosition - cameraPosition);
     float pi = 3.1415926;
 
-    // Point where the line of sight comes closest to the Earth's centre, and how high that is
+    // Point where the line of sight comes closest to the Earth's center, and how high that is
     vec3 closest = cameraPosition - viewDirection * dot(cameraPosition, viewDirection);
     float height = max(length(closest) - earthRadius, 0.0);
     vec3 up = normalize(closest);

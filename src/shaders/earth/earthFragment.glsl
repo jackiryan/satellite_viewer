@@ -1,12 +1,13 @@
 uniform sampler2D dayTexture;
 uniform sampler2D nightTexture;
+uniform sampler2D nightGlowTexture; // the night texture blurred into the glow lights make under cloud (nightGlowFragment.glsl)
 uniform sampler2D specularMapTexture;
 uniform sampler2D cloudTexture;   // sqrt(cloud reflectance) in red, from the gibs-cloud-texture worker
 uniform bool showClouds;
 uniform float cloudBrightness;    // scales cloud reflectance (1.0 = as computed)
 uniform float cloudShadowHeight;  // top height of the thickest clouds, in scene units
 uniform float cloudRelief;        // strength of the slope shading on cloud tops (0 = flat)
-uniform float cloudTwilightTint;  // 0 = cloud tops stay white to the terminator, 1 = full sunset colour
+uniform float cloudTwilightTint;  // 0 = cloud tops stay white to the terminator, 1 = full sunset color
 uniform float windSpeed;          // m/s; rougher seas spread the sun glint out
 uniform float glintBrightness;
 uniform float atmosphereHaze;       // scales the air seen toward the limb (0 = no haze)
@@ -28,6 +29,19 @@ vec3 gammaCorrection(vec3 color, float gamma) {
 
 // Clouds faintly visible on the night side (moonlight, airglow), as a reflectance multiplier
 const vec3 nightCloudColor = vec3(0.012, 0.014, 0.02);
+
+// Asymmetry parameter of cloud droplets at visible wavelengths, as in the cloud texture worker
+// (gibs-cloud-texture/src/albedo.js), which made the reflectance R from the optical thickness tau
+// with R = (1 - g) tau / (2 + (1 - g) tau)
+const float CLOUD_ASYMMETRY = 0.86;
+
+// Optical thickness of a cloud of reflectance R for light it scatters out of a straight path.
+// Droplets scatter mostly forward, and light turned by only a few degrees still arrives about
+// where it was going, so this counts only scattering at larger angles: the delta-M scaled
+// thickness (1 - g^2) tau, which with tau from R above is 2 (1 + g) R / (1 - R).
+float scatteringDepth(float reflectance) {
+    return 2.0 * (1.0 + CLOUD_ASYMMETRY) * reflectance / (1.0 - reflectance);
+}
 
 #include ../common/atmosphere.glsl;
 
@@ -223,8 +237,20 @@ void main() {
             animatedNightTexColor = min(animatedNightTexColor * 1.2, vec3(1.0));
         }
 
-        // At night city lights shine up through the cloud once, and the cloud tops are barely lit
-        vec3 nightCloudy = animatedNightTexColor * viewTransmission + cloudReflectance * nightCloudColor;
+        // At night city lights shine up through the cloud once, and the cloud tops are barely lit.
+        // The cloud passes 1 - R of the light on. The part that crosses it without being scattered
+        // aside keeps the lights sharp; the rest spreads out sideways inside the cloud and leaves it
+        // as a soft glow (nightGlowTexture). Thin cloud leaves most lights sharp, and only the glow
+        // gets through thick cloud, or along the slanting view toward the limb. Clear sky skips
+        // the glow lookup altogether.
+        vec3 cityLights = animatedNightTexColor * viewTransmission;
+        if (cloudReflectance > 0.0) {
+            float directTransmission = exp(-scatteringDepth(cloudReflectance) / max(muView, 0.1));
+            vec3 glow = textureGrad(nightGlowTexture, vUv, uvDx, uvDy).rgb;
+            cityLights = animatedNightTexColor * directTransmission
+                + glow * max(viewTransmission - directTransmission, 0.0);
+        }
+        vec3 nightCloudy = cityLights + cloudReflectance * nightCloudColor;
         color = nightCloudy * (1.0 - dayMix);
     }
 
@@ -247,7 +273,7 @@ void main() {
     // Atmosphere seen from space (aerial perspective). Looking toward the limb, the line of
     // sight crosses more and more air: the surface and clouds fade behind it, and the air adds
     // sunlight it scatters toward the camera. Thin air scatters mostly blue; by the limb the air
-    // is so thick that every colour is scattered and the haze turns white, as in DSCOVR/EPIC
+    // is so thick that every color is scattered and the haze turns white, as in DSCOVR/EPIC
     // images of the whole Earth. Only the air beyond the straight-down path counts, since the
     // Blue Marble texture already looks like the surface seen straight down from orbit. The haze
     // is lit by the same twilight-remapped sun as the clouds, so it warms toward the terminator
@@ -261,7 +287,7 @@ void main() {
     // are Gaussian with variance 0.003 + 0.00512 * wind speed, and the glint is the light off
     // facets tilted to mirror the sun into the camera (those facing the half vector), times
     // the Fresnel reflectance of water at that angle. It stretches out and brightens toward
-    // the limb (1 / muView) and takes the colour of sunlight that crossed the atmosphere twice.
+    // the limb (1 / muView) and takes the color of sunlight that crossed the atmosphere twice.
     // Lit by the same remapped sun as the clouds, so it reaches into the twilight band and fades
     // out with the day side (dayMix) instead of stopping at the geometric terminator
     if (dayMix > 0.0 && specularTexColor > 0.0 && muView >= 0.0) {
@@ -276,7 +302,7 @@ void main() {
         glint *= dayMix * step(0.0, muView);
         const float glintMax = 0.9;
         glint = glintMax * (1.0 - exp(-glint / glintMax));
-        // The colour comes from the full extinction along the sun's path down and the view's path
+        // The color comes from the full extinction along the sun's path down and the view's path
         // back up, as for the cloud tops, but only part of the dimming is applied: the atmosphere
         // also scatters sunlight into those long paths. Taking all of it made the glint (and the
         // cloud shadows, which only show against it) fade out near the limb while the surface

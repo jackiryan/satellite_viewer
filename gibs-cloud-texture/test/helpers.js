@@ -70,7 +70,7 @@ export function makePng({ width, height, colorType, bitDepth = 8, rows, palette,
     return new Uint8Array(Buffer.concat(parts));
 }
 
-// GIBS no-data colour plus a few colormap entries (ice and water phases)
+// GIBS no-data color plus a few colormap entries (ice and water phases)
 export const PALETTE = [[220, 220, 255], [184, 0, 185], [0, 122, 254], [255, 255, 0], [255, 0, 0]];
 
 /** A 512x512 palette tile where every pixel is palette[index]; index 0 is transparent. */

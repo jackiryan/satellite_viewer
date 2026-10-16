@@ -37,7 +37,7 @@ test('decodes sub-byte palette and greyscale depths', async () => {
     assert.deepEqual(rgba(await decodePng(grey), 3).map((p) => p[0]), [0, 255, 85]);
 });
 
-test('decodes RGB with a tRNS colour key and 16-bit RGBA', async () => {
+test('decodes RGB with a tRNS color key and 16-bit RGBA', async () => {
     const rgb = makePng({
         width: 2, height: 1, colorType: 2, rows: [[1, 2, 3, 9, 9, 9]], trns: [0, 9, 0, 9, 0, 9], filters: [1]
     });

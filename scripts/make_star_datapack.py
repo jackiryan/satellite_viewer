@@ -7,23 +7,23 @@ Regenerates the two star textures sampled by the skybox shaders:
 
   static/skybox/StarData_1024x1024_16bit.png   position + magnitude datapack
                                                (skySunFragment.glsl, skyFragment.glsl)
-  static/skybox/2_Tmap8bit.png                 star colour texture (skyFragment.glsl only)
+  static/skybox/2_Tmap8bit.png                 star color texture (skyFragment.glsl only)
 
-Both come from one placement pass, so each colour texel always belongs to the star
+Both come from one placement pass, so each color texel always belongs to the star
 stored in the same datapack texel. Regenerate and replace them together.
 
 The datapack part is a reconstruction of the lost pre-processing script, built by
 decoding the committed texture and matching it against star catalogs. It reproduces
 the committed texture pixel-for-pixel except for a few dozen texels where two stars of
 identical magnitude collided and the original (unstable) sort placed them in the other
-order. The colour texture is a new, corrected encoding (see below).
+order. The color texture is a new, corrected encoding (see below).
 
 Where the stars come from
 -------------------------
 The committed texture was built from the HYG database (v3.5 or later), not from a
 Simbad V < 7 query:
 
-  * 117,467 stars = every HYG star with mag < 14 that has a B-V colour index, minus the
+  * 117,467 stars = every HYG star with mag < 14 that has a B-V color index, minus the
     Sun (row 0).
   * Sirius is stored as -1.44, its Hipparcos V magnitude (Simbad lists -1.46).
   * Stored sub-pixel offsets match HYG's J2000 positions to within one 16-bit step
@@ -44,7 +44,7 @@ Each star is projected onto the octahedral ("tetrahedral" in the shader) map:
 and written to the PNG at   row = ceil(sx) - 1,  column = ceil(sy) - 1
 (top row of the file is row 0; the three.js loader flips it on upload).
 
-    R = round((row + 0.5 - sx + 1.5) / 3 * 65535)   # pixel-centre-minus-star, in pixels
+    R = round((row + 0.5 - sx + 1.5) / 3 * 65535)   # pixel-center-minus-star, in pixels
     G = round((col + 0.5 - sy + 1.5) / 3 * 65535)
     B = round((14 - V) / 15.46 * 65535)             # matches decodeMagnitude() in the shader
 
@@ -52,25 +52,25 @@ An all-zero texel means "no star". Stars are written brightest first; when a tex
 already taken, the star goes to the nearest free texel among its 8 neighbours, and its
 offset (up to +/-1.5 px) still points back at its true position.
 
-Colour texture layout (1024 x 1024, RGB, 8 bits per channel, same texels)
+color texture layout (1024 x 1024, RGB, 8 bits per channel, same texels)
 -------------------------------------------------------------------------
 skyFragment.glsl renders   texel.rgb * starBrightness,   and skyboxcolor.js loads the
-texture with no colour space, so each texel holds a *linear* sRGB colour that is
+texture with no color space, so each texel holds a *linear* sRGB color that is
 multiplied straight into the star's brightness. starBrightness comes from the V
-magnitude, and the V band closely tracks visual luminance, so the colour must not
+magnitude, and the V band closely tracks visual luminance, so the color must not
 change a star's luminance, only its hue. Each texel is therefore:
 
-    1. B-V -> temperature of the blackbody with that B-V colour (Ballesteros 2012):
+    1. B-V -> temperature of the blackbody with that B-V color (Ballesteros 2012):
            T = 4600 K * (1 / (0.92 (B-V) + 1.7) + 1 / (0.92 (B-V) + 0.62))
        with B-V clamped to [-0.4, 2.0] (about 21,700 K to 3,170 K). This covers 99.7%
-       of the stars; the redder ones (mostly carbon stars) get the reddest colour.
+       of the stars; the redder ones (mostly carbon stars) get the reddest color.
     2. Planck spectrum at T -> CIE 1931 XYZ -> linear sRGB (D65 white, so a ~6,500 K
        star is white and the Sun is faintly warm).
     3. Scaled so its luminance (Y = 0.2126 R + 0.7152 G + 0.0722 B) is exactly
        COLOR_LUMINANCE = 0.5, then rounded to 8 bits.
 
 Constant luminance needs some channels above 1 (a 21,700 K star's blue channel is 1.88x
-its luminance), so the texture stores colours at half luminance. To render the coloured
+its luminance), so the texture stores colors at half luminance. To render the colored
 stars as bright as skySunFragment.glsl renders white ones, multiply uBrightnessScale in
 skyboxcolor.js by 1 / COLOR_LUMINANCE = 2.
 
@@ -100,9 +100,9 @@ OFFSET_RANGE = 3.0
 NEIGHBOURS = np.array([[-1, 0], [1, 0], [0, -1], [0, 1],
                        [-1, -1], [1, -1], [-1, 1], [1, 1]])
 
-# Colour texture.
+# color texture.
 BV_MIN, BV_MAX = -0.4, 2.0   # B-V clamp before converting to temperature
-COLOR_LUMINANCE = 0.5        # luminance every stored colour is scaled to
+COLOR_LUMINANCE = 0.5        # luminance every stored color is scaled to
 
 # CIE XYZ -> linear sRGB (IEC 61966-2-1, D65).
 XYZ_TO_LINEAR_SRGB = np.array([[3.2404542, -1.5371385, -0.4985314],
@@ -116,7 +116,7 @@ def load_stars(catalog, mag_limit):
     """Read HYG and return (ra_deg, dec_deg, vmag, b_minus_v) sorted brightest first."""
     df = pd.read_csv(catalog, usecols=["id", "ra", "dec", "mag", "ci"])
     df = df[(df["id"] != 0)            # row 0 is the Sun
-            & df["ci"].notna()         # B-V needed for the colour texture
+            & df["ci"].notna()         # B-V needed for the color texture
             & (df["mag"] < mag_limit)]
     # A stable sort keeps the output identical on every machine. The original used
     # pandas' default (unstable) sort, which only changes the order of equal-magnitude
@@ -156,7 +156,7 @@ def place_stars(sx, sy, size):
             alt[alt >= size] -= size
             alt[alt < 0] += size
             # Kept from the original for bit-compatibility: the distance is measured to
-            # (index - 0.5) rather than to the texel centre (index + 0.5). It only affects
+            # (index - 0.5) rather than to the texel center (index + 0.5). It only affects
             # which free neighbour is chosen; the stored offset is still exact.
             dist = np.hypot(sx[i] - (alt[:, 0] - 0.5), sy[i] - (alt[:, 1] - 0.5))
             for k in np.argsort(dist):
@@ -194,10 +194,10 @@ def build_datapack(rows, cols, sx, sy, vmag, size):
     return img
 
 
-# -------------------------------------------------------------------------- colour
+# -------------------------------------------------------------------------- color
 
 def bv_to_temperature(bv):
-    """Temperature (K) of the blackbody with this B-V colour (Ballesteros 2012)."""
+    """Temperature (K) of the blackbody with this B-V color (Ballesteros 2012)."""
     bv = np.clip(bv, BV_MIN, BV_MAX)
     return 4600.0 * (1.0 / (0.92 * bv + 1.7) + 1.0 / (0.92 * bv + 0.62))
 
@@ -208,9 +208,9 @@ def _lobe(lam, mu, s_left, s_right):
 
 
 def cie1931_cmf(lam):
-    """CIE 1931 2-degree colour-matching functions, multi-lobe Gaussian fit from
+    """CIE 1931 2-degree color-matching functions, multi-lobe Gaussian fit from
     Wyman, Sloan & Shirley (2013), JCGT 2(2). Within ~1% of the tabulated CIE data for
-    blackbody colours, which is below 8-bit resolution here."""
+    blackbody colors, which is below 8-bit resolution here."""
     x = (1.056 * _lobe(lam, 599.8, 37.9, 31.0) + 0.362 * _lobe(lam, 442.0, 16.0, 26.7)
          - 0.065 * _lobe(lam, 501.1, 20.4, 26.2))
     y = 0.821 * _lobe(lam, 568.8, 46.9, 40.5) + 0.286 * _lobe(lam, 530.9, 16.3, 31.1)
@@ -219,7 +219,7 @@ def cie1931_cmf(lam):
 
 
 def blackbody_linear_srgb(temps):
-    """Linear sRGB colour of a blackbody at each temperature, scaled to luminance 1."""
+    """Linear sRGB color of a blackbody at each temperature, scaled to luminance 1."""
     lam_nm = np.arange(360.0, 831.0, 1.0)
     lam = lam_nm * 1e-9
     c2 = 1.4387768775e-2  # second radiation constant hc/k, m K
@@ -275,12 +275,12 @@ def compare(img, ref_path):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Build the star datapack and star colour textures used by the skybox shaders.")
+        description="Build the star datapack and star color textures used by the skybox shaders.")
     ap.add_argument("--catalog", default=HYG_URL,
                     help="HYG v3.x CSV (.csv or .csv.gz), local path or URL (default: HYG v3.8 on GitHub)")
     ap.add_argument("--out", default="StarData_1024x1024_16bit.png", help="datapack PNG path")
     ap.add_argument("--color-out", default="2_Tmap8bit.png",
-                    help='colour texture PNG path; pass "" to skip it')
+                    help='color texture PNG path; pass "" to skip it')
     ap.add_argument("--size", type=int, default=1024,
                     help="texture width/height; must equal uPixelSize in skybox.js (default 1024)")
     ap.add_argument("--mag-limit", type=float, default=MAG_FAINTEST,
@@ -306,7 +306,7 @@ def main():
 
     if args.color_out:
         write_png(args.color_out, build_color_texture(rows, cols, bv, args.size))
-        print(f"colours from B-V clamped to [{BV_MIN}, {BV_MAX}] "
+        print(f"colors from B-V clamped to [{BV_MIN}, {BV_MAX}] "
               f"({bv_to_temperature(BV_MAX):.0f} K to {bv_to_temperature(BV_MIN):.0f} K) "
               f"-> {args.color_out}; set uBrightnessScale in skyboxcolor.js to "
               f"{1 / COLOR_LUMINANCE:g}x the white shader's value")

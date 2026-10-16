@@ -1,9 +1,9 @@
-/* albedo.js - turns GIBS Cloud Optical Thickness colours back into optical thickness, and
+/* albedo.js - turns GIBS Cloud Optical Thickness colors back into optical thickness, and
  * optical thickness into the cloud's visible reflectance (its albedo).
  *
- * The colormap XML says which optical thickness range each colour stands for and whether it
- * is an ice or water cloud. Tiles use exactly those colours, so each palette entry maps to
- * one reflectance before any resampling blends neighbouring colours together.
+ * The colormap XML says which optical thickness range each color stands for and whether it
+ * is an ice or water cloud. Tiles use exactly those colors, so each palette entry maps to
+ * one reflectance before any resampling blends neighbouring colors together.
  *
  * Reflectance of a non-absorbing cloud over a dark surface, two-stream approximation
  * (e.g. Bohren 1987, "Multiple scattering of light and some of its observable consequences"):
@@ -12,7 +12,7 @@
  *
  * with g the asymmetry parameter of the cloud particles at visible wavelengths. It gives
  * R ~ 0.07 at tau = 1 (thin haze), 0.43 at tau = 10 and 0.8 at tau = 50, close to the
- * nadir reflectances seen in true colour imagery. Transmission through the cloud is 1 - R.
+ * nadir reflectances seen in true color imagery. Transmission through the cloud is 1 - R.
  */
 import { UpstreamError, fetchBytes } from './gibs.js';
 
@@ -20,8 +20,8 @@ import { UpstreamError, fetchBytes } from './gibs.js';
 // particles assumed by the MODIS/VIIRS cloud retrievals.
 export const ASYMMETRY = { water: 0.86, ice: 0.75 };
 
-// Colours within this distance (sum of |dR| + |dG| + |dB|) of a colormap entry match it.
-// GIBS palettes use the colormap colours exactly; this only absorbs rounding elsewhere.
+// colors within this distance (sum of |dR| + |dG| + |dB|) of a colormap entry match it.
+// GIBS palettes use the colormap colors exactly; this only absorbs rounding elsewhere.
 const MATCH_TOLERANCE = 6;
 
 export function cloudReflectance(tau, phase) {
@@ -67,12 +67,12 @@ export function parseColormap(xml) {
     return entries;
 }
 
-/** Maps tile colours (palette entries or RGBA pixels) to cloud reflectance. */
+/** Maps tile colors (palette entries or RGBA pixels) to cloud reflectance. */
 export class AlbedoMapper {
     constructor(entries) {
         this.entries = entries;
         this.exact = new Map(entries.map((e) => [(e.rgb[0] << 16) | (e.rgb[1] << 8) | e.rgb[2], e.reflectance]));
-        this.unmatched = 0; // distinct colours that matched no entry (they map to clear sky)
+        this.unmatched = 0; // distinct colors that matched no entry (they map to clear sky)
     }
 
     colorValue(r, g, b, a = 255, { quiet = false } = {}) {
@@ -95,14 +95,14 @@ export class AlbedoMapper {
                     console.warn(JSON.stringify({ event: 'unmatched_color', rgb: [r, g, b], note: 'not in the GIBS colormap; treated as clear sky' }));
                 }
             }
-            if (!quiet) this.exact.set(key, value); // remember, so each colour is searched once
+            if (!quiet) this.exact.set(key, value); // remember, so each color is searched once
         }
         return value;
     }
 
     /**
      * Reflectance for each entry of a PNG palette (PLTE and optional tRNS chunks). Palettes
-     * are often padded with unused entries, so colours that match nothing are not reported.
+     * are often padded with unused entries, so colors that match nothing are not reported.
      */
     paletteValues(palette, transparency) {
         const lut = new Float32Array(256);

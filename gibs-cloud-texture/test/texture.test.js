@@ -48,13 +48,13 @@ test('tiles land at the right longitudes, and the antimeridian blends across the
     const gibs = fakeGibs((level, row, col) => solidTile(col === 0 ? 1 : 3));
     const { image } = await build({ tileMatrix: 0, outputRes: '1k' }, gibs);
     assert.equal(gibs.requests.length, 2);
-    assert.deepEqual(image.pixel(400, 256), [184, 0, 185, 255]);  // 39W: ice colour
-    assert.deepEqual(image.pixel(900, 10), [255, 255, 0, 255]);   // 136E: water colour
+    assert.deepEqual(image.pixel(400, 256), [184, 0, 185, 255]);  // 39W: ice color
+    assert.deepEqual(image.pixel(900, 10), [255, 255, 0, 255]);   // 136E: water color
     // x = 0 is 0.8125 tile 0 + 0.1875 of the last source column (which belongs to tile 1)
     assert.deepEqual(image.pixel(0, 256), [197, 48, 150, 255]);
 });
 
-test('cloud edges fade in alpha without picking up the no-data colour', async () => {
+test('cloud edges fade in alpha without picking up the no-data color', async () => {
     const gibs = fakeGibs((level, row, col) => solidTile(col === 0 ? 0 : 4)); // transparent | red
     const { image } = await build({ tileMatrix: 0, outputRes: '1k' }, gibs);
     assert.deepEqual(image.pixel(400, 256), [0, 0, 0, 0]);

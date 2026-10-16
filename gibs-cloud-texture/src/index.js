@@ -11,9 +11,9 @@
  * product     optional  colormap (default) | albedo
  *
  * The texture is a 2:1 equirectangular PNG: west edge at 180 W, north at the top.
- *   colormap  RGBA with the exact GIBS colormap colours, transparent where there is no data
+ *   colormap  RGBA with the exact GIBS colormap colors, transparent where there is no data
  *   albedo    greyscale cloud reflectance (0 = clear) stored as sqrt(reflectance) * 255,
- *             worked out from the optical thickness each colour stands for (albedo.js)
+ *             worked out from the optical thickness each color stands for (albedo.js)
  * Results are cached at the edge (Cache API) and in browsers via Cache-Control.
  */
 import { TILE_MATRIX_SET_MAX_LEVEL, UpstreamError, tileGrid } from './gibs.js';
@@ -180,7 +180,7 @@ function apiDescription(origin, config) {
             product: {
                 default: DEFAULT_PRODUCT,
                 values: {
-                    colormap: 'RGBA PNG with the GIBS colormap colours',
+                    colormap: 'RGBA PNG with the GIBS colormap colors',
                     albedo: 'greyscale PNG of cloud reflectance, stored as sqrt(reflectance) * 255'
                 }
             }

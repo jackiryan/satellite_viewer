@@ -1,9 +1,12 @@
 /* earth.js - Earth globe rendering for Satellite Demo */
 import * as THREE from 'three';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import gstime from './gstime.js';
 import getSunPointingAngle from './sunangle.js';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
+import nightGlowVertexShader from './shaders/earth/nightGlowVertex.glsl';
+import nightGlowFragmentShader from './shaders/earth/nightGlowFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
 
@@ -44,8 +47,13 @@ export class Earth {
             cloudShadowHeight: 30,
             // shading of cloud tops by their slope toward or away from the sun (0 = flat)
             cloudRelief: 0.6,
-            // reddening of cloud tops near the terminator (0 = none, 1 = full sunset colour)
+            // reddening of cloud tops near the terminator (0 = none, 1 = full sunset color)
             cloudTwilightTint: 0.2,
+            // how far city light spreads sideways inside cloud before it escapes (km, one standard
+            // deviation of the glow). Real cloud spreads it over a few km to ten, which is about a
+            // pixel at globe scale, so this is a little exaggerated; much more and neighbouring
+            // cities run together
+            cityLightSpread: 12,
             // sea surface wind speed (m/s): calmer seas give a smaller, sharper sun glint
             windSpeed: 5,
             glintBrightness: 1.5,
@@ -57,6 +65,9 @@ export class Earth {
             // 8 km would be under a pixel, so this is exaggerated)
             haloScaleHeight: 0.02
         };
+
+        // Whether the viewer wants clouds shown (the settings menu); they appear once loaded
+        this.cloudsVisible = true;
 
         // Calculate initial rotation based on sidereal time
         this.gmst = gstime(this.initialDate);
@@ -208,7 +219,7 @@ export class Earth {
             // premultiplyAlpha must be passed explicitly: setOptions replaces ImageBitmapLoader's defaults
             const cloudTexture = await this.loadTexture(url, { premultiplyAlpha: 'none' }, 2, 1000);
 
-            // The texture is data, not colour: sqrt(reflectance) in a single channel. RedFormat
+            // The texture is data, not color: sqrt(reflectance) in a single channel. RedFormat
             // keeps it at one byte per texel on the GPU (32 MB at 8k instead of 128 MB as RGBA).
             cloudTexture.format = THREE.RedFormat;
             cloudTexture.colorSpace = THREE.NoColorSpace;
@@ -221,7 +232,8 @@ export class Earth {
             const uniforms = this.earthMaterial.uniforms;
             const previous = uniforms.cloudTexture.value;
             uniforms.cloudTexture.value = cloudTexture;
-            uniforms.showClouds.value = true;
+            // unless the viewer hid the clouds while they were loading
+            uniforms.showClouds.value = this.cloudsVisible;
             previous?.dispose();
             return cloudTexture;
         } catch (error) {
@@ -231,23 +243,18 @@ export class Earth {
         }
     }
 
-    // Function to toggle cloud visibility
+    // Show or hide the clouds (null flips them). This is the viewer's choice, so it also holds
+    // for clouds still loading: they appear when they arrive only if clouds are on. Returns
+    // whether clouds are on.
     toggleClouds(visible = null) {
-        if (!this.earthMaterial || !this.earthMaterial.uniforms.showClouds) {
-            console.warn('Earth material or cloud uniform not available');
-            return false;
+        this.cloudsVisible = visible === null ? !this.cloudsVisible : Boolean(visible);
+        const uniforms = this.earthMaterial?.uniforms;
+        if (uniforms) {
+            uniforms.showClouds.value = this.cloudsVisible && uniforms.cloudTexture.value !== null;
         }
 
-        // If visible is null, toggle the current state
-        if (visible === null) {
-            this.earthMaterial.uniforms.showClouds.value = !this.earthMaterial.uniforms.showClouds.value;
-        } else {
-            // Otherwise, set to the specified value
-            this.earthMaterial.uniforms.showClouds.value = Boolean(visible);
-        }
-
-        console.log(`Clouds are now ${this.earthMaterial.uniforms.showClouds.value ? 'visible' : 'hidden'}`);
-        return this.earthMaterial.uniforms.showClouds.value;
+        console.log(`Clouds are now ${this.cloudsVisible ? 'visible' : 'hidden'}`);
+        return this.cloudsVisible;
     }
 
     // Main initialization function for the globe
@@ -268,6 +275,8 @@ export class Earth {
             }
 
             const [blueMarble, blackMarble, earthSpec] = textures;
+            // the night glow blur reads across the antimeridian
+            blackMarble.wrapS = THREE.RepeatWrapping;
 
             // Civil, Nautical, and Astronomical Twilight account for sun angles up to
             // about 18 degrees past the horizon
@@ -326,11 +335,15 @@ export class Earth {
                 atmosphereBrightness: new THREE.Uniform(this.parameters.atmosphereBrightness),
                 time: new THREE.Uniform(0.0),
                 // set in onBeforeRender below
-                retinaStrength: new THREE.Uniform(0.0)
+                retinaStrength: new THREE.Uniform(0.0),
+                // made from the night texture the first time the globe is drawn (bakeNightGlow)
+                nightGlowTexture: new THREE.Uniform(null)
             },
             vertexShader: earthVertexShader,
             fragmentShader: earthFragmentShader
         });
+
+        this.createNightGlow();
 
         this.earth = new THREE.Mesh(earthGeometry, this.earthMaterial);
         this.scene.add(this.earth);
@@ -343,6 +356,9 @@ export class Earth {
         const { smoothstep } = THREE.MathUtils;
         this.earth.onBeforeRender = (renderer, scene, camera) => {
             const uniforms = this.earthMaterial.uniforms;
+            if (this.nightGlow?.needsUpdate) {
+                this.bakeNightGlow(renderer);
+            }
             cameraPosition.setFromMatrixPosition(camera.matrixWorld);
             sunToCamera.copy(uniforms.sunDirection.value).multiplyScalar(-1000).add(cameraPosition).normalize();
             const b = 2 * sunToCamera.dot(cameraPosition);
@@ -361,6 +377,87 @@ export class Earth {
         }
 
         return this.earth;
+    }
+
+    // City lights under cloud become soft glows (see nightGlowFragment.glsl). The glow is the
+    // night texture blurred by cityLightSpread, which never changes, so it is drawn once, the first
+    // time the globe is rendered, and the Earth shader reads one texel of it per pixel under cloud.
+    // Set this.nightGlow.needsUpdate = true after changing cityLightSpread to redraw it.
+    createNightGlow() {
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                source: new THREE.Uniform(null),
+                spread: new THREE.Uniform(0),
+                eastWest: new THREE.Uniform(true),
+                sourceLod: new THREE.Uniform(0),
+                targetWidth: new THREE.Uniform(1)
+            },
+            vertexShader: nightGlowVertexShader,
+            fragmentShader: nightGlowFragmentShader,
+            depthTest: false,
+            depthWrite: false
+        });
+        this.nightGlow = { quad: new FullScreenQuad(material), target: null, needsUpdate: true };
+    }
+
+    // Draws the glow. Called from the globe's onBeforeRender, so it runs inside the frame's render
+    // (as three's Reflector does) and needs no renderer of its own.
+    bakeNightGlow(renderer) {
+        const glow = this.nightGlow;
+        const night = this.earthMaterial.uniforms.nightTexture.value;
+        const nightWidth = night?.image?.width;
+        if (!nightWidth) return;
+
+        // Enough resolution for about 1.25 texels per standard deviation, which bilinear
+        // filtering turns into smooth round glows: 4096 x 2048 (45 MB with mipmaps) at the default
+        // 12 km, or 2048 x 1024 (11 MB) for spreads of 20 km and up and wherever the night
+        // texture itself is 2048 wide
+        const spread = this.parameters.cityLightSpread / 6371;
+        const ideal = 1.25 * 2 * Math.PI / spread;
+        const width = Math.min(Math.max(2 ** Math.round(Math.log2(ideal)), 256), 4096, nightWidth);
+        const height = width / 2;
+
+        // The glow is stored sRGB-encoded in 8 bits, like the night texture itself, which keeps the
+        // dim edges of the glows free of banding. The first pass's output is only needed briefly.
+        const options = {
+            depthBuffer: false,
+            colorSpace: THREE.SRGBColorSpace,
+            magFilter: THREE.LinearFilter,
+            wrapS: THREE.RepeatWrapping
+        };
+        const eastWest = new THREE.WebGLRenderTarget(width, height, { ...options, minFilter: THREE.LinearFilter });
+        if (!glow.target || glow.target.width !== width) {
+            glow.target?.dispose();
+            glow.target = new THREE.WebGLRenderTarget(width, height, {
+                ...options,
+                generateMipmaps: true,
+                minFilter: THREE.LinearMipmapLinearFilter
+            });
+        }
+
+        const uniforms = glow.quad.material.uniforms;
+        uniforms.spread.value = spread;
+        uniforms.targetWidth.value = width;
+        const previousTarget = renderer.getRenderTarget();
+
+        uniforms.source.value = night;
+        uniforms.eastWest.value = true;
+        uniforms.sourceLod.value = Math.max(Math.log2(nightWidth / width), 0);
+        renderer.setRenderTarget(eastWest);
+        glow.quad.render(renderer);
+
+        uniforms.source.value = eastWest.texture;
+        uniforms.eastWest.value = false;
+        uniforms.sourceLod.value = 0;
+        renderer.setRenderTarget(glow.target);
+        glow.quad.render(renderer); // three makes the mipmaps afterwards
+
+        renderer.setRenderTarget(previousTarget);
+        uniforms.source.value = null;
+        eastWest.dispose();
+
+        this.earthMaterial.uniforms.nightGlowTexture.value = glow.target.texture;
+        glow.needsUpdate = false;
     }
 
     async createAtmosphere(twilightAngle) {
@@ -448,6 +545,13 @@ export class Earth {
         if (this.sunHelper) {
             this.scene.remove(this.sunHelper);
             this.sunHelper = null;
+        }
+
+        if (this.nightGlow) {
+            this.nightGlow.target?.dispose();
+            this.nightGlow.quad.material.dispose();
+            this.nightGlow.quad.dispose();
+            this.nightGlow = null;
         }
     }
 }
