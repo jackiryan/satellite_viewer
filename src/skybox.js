@@ -69,6 +69,8 @@ export class Sky extends THREE.Mesh {
                 'uScaleFactor': { type: 'f', value: 0.0 },
                 'uBrightnessScale': { type: 'f', value: 20.0 },
                 'uSunDirection': { type: 'v3', value: new THREE.Vector3(0.0, 0.0, 0.0) },
+                // radius of the globe (earth.js), which hides the sun and its glare (0 for no globe)
+                'uEarthRadius': { type: 'f', value: 5.0 },
                 'uSkybox': { type: 't', value: textures[1] },
                 'uMwBright': { type: 'f', value: 0.05 },
             };

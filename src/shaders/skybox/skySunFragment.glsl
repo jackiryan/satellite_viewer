@@ -25,6 +25,7 @@ uniform float uScaleFactor;
 uniform float uBrightnessScale;
 
 uniform vec3 uSunDirection;
+uniform float uEarthRadius;  // the globe hides the sun, and with it the glare
 
 uniform sampler2D uSkybox;
 // uniform float uRotX;
@@ -147,65 +148,115 @@ mat4 rotationMatrix(float y, float x, float z) {
     return rotMatrix;
 }
 
-// mix noise for alive animation, full source
-vec4 hash4( vec4 n ) { return fract(sin(n)*1399763.5453123); }
-vec3 hash3( vec3 n ) { return fract(sin(n)*1399763.5453123); }
-vec3 hpos( vec3 n ) { return hash3(vec3(dot(n,vec3(157.0,113.0,271.0)),dot(n,vec3(271.0,157.0,113.0)),dot(n,vec3(113.0,271.0,157.0)))); }
-float noise4q(vec4 x)
-{
-	vec4 n3 = vec4(0,0.25,0.5,0.75);
-	vec4 p2 = floor(x.wwww+n3);
-	vec4 b = floor(x.xxxx+n3) + floor(x.yyyy+n3)*157.0 + floor(x.zzzz +n3)*113.0;
-	vec4 p1 = b + fract(p2*0.00390625)*vec4(164352.0, -164352.0, 163840.0, -163840.0);
-	p2 = b + fract((p2+1.0)*0.00390625)*vec4(164352.0, -164352.0, 163840.0, -163840.0);
-	vec4 f1 = fract(x.xxxx+n3);
-	vec4 f2 = fract(x.yyyy+n3);
-	f1=f1*f1*(3.0-2.0*f1);
-	f2=f2*f2*(3.0-2.0*f2);
-	vec4 n1 = vec4(0,1.0,157.0,158.0);
-	vec4 n2 = vec4(113.0,114.0,270.0,271.0);
-	vec4 vs1 = mix(hash4(p1), hash4(n1.yyyy+p1), f1);
-	vec4 vs2 = mix(hash4(n1.zzzz+p1), hash4(n1.wwww+p1), f1);
-	vec4 vs3 = mix(hash4(p2), hash4(n1.yyyy+p2), f1);
-	vec4 vs4 = mix(hash4(n1.zzzz+p2), hash4(n1.wwww+p2), f1);
-	vs1 = mix(vs1, vs2, f2);
-	vs3 = mix(vs3, vs4, f2);
-	vs2 = mix(hash4(n2.xxxx+p1), hash4(n2.yyyy+p1), f1);
-	vs4 = mix(hash4(n2.zzzz+p1), hash4(n2.wwww+p1), f1);
-	vs2 = mix(vs2, vs4, f2);
-	vs4 = mix(hash4(n2.xxxx+p2), hash4(n2.yyyy+p2), f1);
-	vec4 vs5 = mix(hash4(n2.zzzz+p2), hash4(n2.wwww+p2), f1);
-	vs4 = mix(vs4, vs5, f2);
-	f1 = fract(x.zzzz+n3);
-	f2 = fract(x.wwww+n3);
-	f1=f1*f1*(3.0-2.0*f1);
-	f2=f2*f2*(3.0-2.0*f2);
-	vs1 = mix(vs1, vs2, f1);
-	vs3 = mix(vs3, vs4, f1);
-	vs1 = mix(vs1, vs3, f2);
-	float r=dot(vs1,vec4(0.25));
-	//r=r*r*(3.0-2.0*r);
-	return r * r * (3.0-2.0*r);
+// Sun glare, the way the eye sees a light far too bright to look at (after Spencer et al. 1995,
+// "Physically-based glare effects for digital images", and Ritschel et al. 2009, "Temporal
+// glare"). Light scattered inside the eye spreads around the sun as a bloom, and diffraction by
+// the fibres of the eye's lens fans it out into the ciliary corona: a dense burst of fine needles
+// of uneven length, whose tips run slightly red because red light diffracts further than blue.
+// Both happen in the eye rather than in the sky, so they follow the view:
+//   - the needles keep their direction on screen however the camera turns;
+//   - they shimmer as the eye moves (here, as the sun moves across the view), each needle
+//     brightening, fading and changing length on its own;
+//   - the glare is largest looking straight at the sun and shrinks into peripheral vision;
+//   - it goes out as the Earth covers the sun.
+const float SUN_ANGULAR_RADIUS = 0.00296; // radians; the disk drawn by the SDF in sunDisk()
+const float GLARE_REACH = 0.12;           // longest needles, looking straight at the sun (radians, ~7 degrees)
+const float PERIPHERAL_GLARE = 0.4;       // size and brightness of the glare at the edge of vision, relative to straight on
+const float GAZE_FALLOFF = 0.35;          // tan of the angle off the view center where the glare is halfway there (~19 degrees)
+const float SHIMMER_PERIOD = 0.12;        // how far the sun moves across the view (tan of the angle, ~7 degrees) for a needle to brighten and fade
+const float NEEDLE_WIDTH = 0.0005;        // radians; needles are never drawn thinner than a pixel
+// Needle length for red, green and blue relative to green (diffraction angle grows with wavelength)
+const vec3 NEEDLE_DISPERSION = vec3(1.12, 1.0, 0.86);
+
+// Hash without sine (Dave Hoskins), stable across GPUs
+float hash11(float p) {
+    p = fract(p * 0.1031);
+    p *= p + 33.33;
+    p *= p + p;
+    return fract(p);
 }
 
-float ringRayNoise(vec3 sunDirection, vec3 pos, float r, float size) {
-    vec3 ps = pos - sunDirection;
-    float c = length(ps);
-    float s = max(0.0, (1.0 - size * (c - r)));
+// One ring of needles around the sun, one per angular cell, each with its own direction jitter,
+// length and brightness. u: angle around the sun in cells (0 to count), dist: angular distance
+// from the sun (radians), width: needle half-width (radians), reach: the longest needle,
+// shimmer: the sun's position in the view in units of SHIMMER_PERIOD. A needle can lie anywhere
+// in its cell, so the cells either side are checked too.
+vec3 needleRing(float u, float count, float dist, float width, float reach, vec2 shimmer, float seed) {
+    float cellAngle = 6.2831853 / count;
+    float home = floor(u);
+    vec3 sum = vec3(0.0);
+    for (int k = -1; k <= 1; k++) {
+        float cell = home + float(k);
+        float id = mod(cell, count) + seed;           // wraps around the circle
+        float offset = hash11(id);
+        float size = hash11(id + 0.37);
+        float phase = hash11(id + 0.71);
+        float heading = 6.2831853 * hash11(id + 0.13);
+        float strength = hash11(id + 0.53);
+        // Each needle swings between dim and bright as the sun moves across the view, along a
+        // direction of its own, so moving the camera reshuffles which ones stand out
+        float swing = 0.5 + 0.5 * sin(6.2831853 * (dot(shimmer, vec2(cos(heading), sin(heading))) + phase));
+        // A few long, bright needles and many short, faint ones
+        float needleLength = reach * (0.15 + 0.85 * size * size) * (0.6 + 0.4 * swing);
+        float across = (u - cell - offset) * cellAngle * dist;   // distance from the needle's center line
+        vec3 along = max(1.0 - dist / (needleLength * NEEDLE_DISPERSION), 0.0);
+        sum += (0.15 + strength * strength) * (0.25 + 0.75 * swing)
+             * exp(-across * across / (width * width)) * along * along;
+    }
+    return sum;
+}
+
+// The sun's disk: a signed distance to its edge, sharpened into a bright core
+float sunDisk(float dist) {
+    float s = max(0.0, (1.0 - 1.5 * (dist - SUN_ANGULAR_RADIUS)));
     s = pow(s, 50.0);
-    // pow(s, 5) + n * s * s with n <= 4 is below 1e-4 here (about 4 degrees from the sun),
-    // so skip the two noise4q() calls (128 sin) everywhere else in the sky
-    if (s < 0.005) return 0.0;
-    ps /= c;
+    return pow(s, 5.0);
+}
 
-    // multiple of ps controls the frequency of the noise
-    float n = noise4q(vec4(ps * 1.0, c * 2.0));
-    float ns = noise4q(vec4(ps * 10.0, c * 2.0)) * 2.0;
-    n = pow(ns, 2.0) * pow(n, 2.0);
+// Disk and glare at sky direction dir, for a sun in direction sun (both unit vectors).
+// pixelAngle: the angle one pixel covers, so needles stay at least a pixel wide.
+vec3 sunLight(vec3 dir, vec3 sun, float pixelAngle) {
+    vec3 offset = dir - sun;
+    float dist = length(offset);                 // the chord, which is the angle from the sun this close
+    if (dist > GLARE_REACH) return vec3(0.0);    // the rest of the sky
+    vec3 disk = vec3(sunDisk(dist));
 
-    // this power of s controls the amount the noise is pushed in towards
-    // the radius
-    return pow(s, 5.0) + n * s * s;
+    // Where the sun is in the view: x and y are the tangents of its angle off the view center
+    // along the screen axes. The sun behind the camera can't dazzle.
+    mat3 toView = mat3(viewMatrix);
+    vec3 sunView = toView * sun;
+    if (sunView.z > -1e-3) return disk;
+    vec2 sunInView = sunView.xy / -sunView.z;
+    float gaze = mix(PERIPHERAL_GLARE, 1.0, 1.0 / (1.0 + dot(sunInView, sunInView) / (GAZE_FALLOFF * GAZE_FALLOFF)));
+
+    // How much of the sun the Earth leaves showing (the Earth is at the origin)
+    float cameraDistance = length(cameraPosition);
+    float earthAngle = asin(min(uEarthRadius / cameraDistance, 1.0));
+    float sunFromEarth = acos(clamp(dot(sun, -cameraPosition) / cameraDistance, -1.0, 1.0));
+    float visible = smoothstep(earthAngle - SUN_ANGULAR_RADIUS, earthAngle + 3.0 * SUN_ANGULAR_RADIUS, sunFromEarth);
+    if (visible <= 0.0) return disk;
+
+    // Direction away from the sun on screen. A straight line through the sun on screen is a great
+    // circle through it on the sky, so this stays the same all along each needle.
+    vec3 offsetView = toView * offset;
+    vec2 onScreen = offsetView.xy * -sunView.z + sunView.xy * offsetView.z;
+    float around = atan(onScreen.y, onScreen.x + 1e-12) / 6.2831853 + 0.5;
+
+    // Ciliary corona: a ring of long needles and a denser ring of short ones, brightest near the sun
+    float reach = GLARE_REACH * gaze;
+    vec2 shimmer = sunInView / SHIMMER_PERIOD;
+    float width = max(NEEDLE_WIDTH, pixelAngle);
+    vec3 needles = needleRing(around * 64.0, 64.0, dist, width, reach, shimmer, 0.0)
+                 + 0.7 * needleRing(around * 233.0, 233.0, dist, width, 0.5 * reach, shimmer, 97.0);
+    needles *= 1.1 * 0.012 / (dist + 0.012);
+
+    // Bloom: a hot core and a glow falling off as a power of the angle, as scattering in the eye
+    // does, so it has no edge; it still fades out before GLARE_REACH
+    float glowSize = 0.008 * gaze;
+    float bloom = 1.2 * exp(-dist / (0.004 * gaze)) + 0.3 * pow(glowSize / (dist + glowSize), 2.0);
+    bloom *= 1.0 - smoothstep(0.5 * GLARE_REACH, GLARE_REACH, dist);
+
+    return disk + visible * gaze * (bloom + needles);
 }
 
 vec4 desaturate(vec4 color, float saturation) {
@@ -236,13 +287,15 @@ void main() {
         starColor += getPixInfo(homeCenter, viewDir, offsets[i]);
     }
 
-    vec3 sunDistance = normalize(vNormal) - uSunDirection;
-    float sunRays = ringRayNoise(normalize(uSunDirection), normalize(vNormal), 0.00296, 1.5);
+    // The sky direction of this pixel, and the angle a pixel covers (taken here, outside any branch)
+    vec3 skyDirection = normalize(vNormal);
+    float pixelAngle = length(dFdx(skyDirection));
+    vec3 sunRays = sunLight(skyDirection, normalize(uSunDirection), pixelAngle);
     // Sorry, everyone... the sun is white actually. Approximating the spectral irradiance of
     // the sun as a 6500k blackbody (observed at the top of the atmosphere), the sRGB value
     // would be (255, 255, 255). This is rather boring to look at, so I've made it a bit more
     // yellow than real life (~5100k) to make things interesting.
-    vec4 sunColor = vec4(1.0, 0.98, 0.65, 1.0) * sunRays;
+    vec4 sunColor = vec4(vec3(1.0, 0.98, 0.65) * sunRays, 1.0);
 
     // bake in -90 degree rotation about X axis for UV coordinate
     vec4 skyColor = desaturate(texture(uSkybox, vec2(1.0 - vUv.x, vUv.y)) * uMwBright, 0.9);
