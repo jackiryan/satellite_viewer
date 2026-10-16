@@ -1,5 +1,6 @@
 uniform sampler2D dayTexture;
 uniform sampler2D nightTexture;
+uniform sampler2D nightGlowTexture; // the night texture blurred into the glow lights make under cloud (nightGlowFragment.glsl)
 uniform sampler2D specularMapTexture;
 uniform sampler2D cloudTexture;   // sqrt(cloud reflectance) in red, from the gibs-cloud-texture worker
 uniform bool showClouds;
@@ -28,6 +29,19 @@ vec3 gammaCorrection(vec3 color, float gamma) {
 
 // Clouds faintly visible on the night side (moonlight, airglow), as a reflectance multiplier
 const vec3 nightCloudColor = vec3(0.012, 0.014, 0.02);
+
+// Asymmetry parameter of cloud droplets at visible wavelengths, as in the cloud texture worker
+// (gibs-cloud-texture/src/albedo.js), which made the reflectance R from the optical thickness tau
+// with R = (1 - g) tau / (2 + (1 - g) tau)
+const float CLOUD_ASYMMETRY = 0.86;
+
+// Optical thickness of a cloud of reflectance R for light it scatters out of a straight path.
+// Droplets scatter mostly forward, and light turned by only a few degrees still arrives about
+// where it was going, so this counts only scattering at larger angles: the delta-M scaled
+// thickness (1 - g^2) tau, which with tau from R above is 2 (1 + g) R / (1 - R).
+float scatteringDepth(float reflectance) {
+    return 2.0 * (1.0 + CLOUD_ASYMMETRY) * reflectance / (1.0 - reflectance);
+}
 
 #include ../common/atmosphere.glsl;
 
@@ -223,8 +237,20 @@ void main() {
             animatedNightTexColor = min(animatedNightTexColor * 1.2, vec3(1.0));
         }
 
-        // At night city lights shine up through the cloud once, and the cloud tops are barely lit
-        vec3 nightCloudy = animatedNightTexColor * viewTransmission + cloudReflectance * nightCloudColor;
+        // At night city lights shine up through the cloud once, and the cloud tops are barely lit.
+        // The cloud passes 1 - R of the light on. The part that crosses it without being scattered
+        // aside keeps the lights sharp; the rest spreads out sideways inside the cloud and leaves it
+        // as a soft glow (nightGlowTexture). Thin cloud leaves most lights sharp, and only the glow
+        // gets through thick cloud, or along the slanting view toward the limb. Clear sky skips
+        // the glow lookup altogether.
+        vec3 cityLights = animatedNightTexColor * viewTransmission;
+        if (cloudReflectance > 0.0) {
+            float directTransmission = exp(-scatteringDepth(cloudReflectance) / max(muView, 0.1));
+            vec3 glow = textureGrad(nightGlowTexture, vUv, uvDx, uvDy).rgb;
+            cityLights = animatedNightTexColor * directTransmission
+                + glow * max(viewTransmission - directTransmission, 0.0);
+        }
+        vec3 nightCloudy = cityLights + cloudReflectance * nightCloudColor;
         color = nightCloudy * (1.0 - dayMix);
     }
 
