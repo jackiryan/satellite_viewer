@@ -8,12 +8,12 @@
  *                      134 MB raw, more than a Worker's 128 MB limit).
  *
  * Premultiplied alpha: decoded pixels are (r*a/255, g*a/255, b*a/255, a) with every channel
- * on a 0-255 scale. Resampling in this form keeps the colour of fully transparent pixels
+ * on a 0-255 scale. Resampling in this form keeps the color of fully transparent pixels
  * (GIBS stores no-data as a transparent light lavender) from bleeding into cloud edges.
  */
 
 const SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-const CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }; // samples per pixel by colour type
+const CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }; // samples per pixel by color type
 const VALID_BIT_DEPTHS = { 0: [1, 2, 4, 8, 16], 2: [8, 16], 3: [1, 2, 4, 8], 4: [8, 16], 6: [8, 16] };
 
 export class PngError extends Error {
@@ -100,7 +100,7 @@ export async function decodePng(bytes) {
     if (!header) throw new PngError('missing IHDR chunk');
     const { width, height, bitDepth, colorType, interlace } = header;
     if (!(colorType in CHANNELS) || !VALID_BIT_DEPTHS[colorType].includes(bitDepth)) {
-        throw new PngError(`unsupported colour type ${colorType} / bit depth ${bitDepth}`);
+        throw new PngError(`unsupported color type ${colorType} / bit depth ${bitDepth}`);
     }
     if (interlace !== 0) throw new PngError('interlaced PNGs are not supported');
     if (colorType === 3 && !palette) throw new PngError('palette image without a PLTE chunk');
@@ -142,13 +142,13 @@ export class PngRowReader {
         this.palette = palette;
         this.transparency = transparency;
 
-        // Lookup table of premultiplied colours for palette and low-bit-depth grey images
+        // Lookup table of premultiplied colors for palette and low-bit-depth grey images
         if (this.colorType === 3) {
             this.lut = paletteLut(palette, transparency);
         } else if (this.colorType === 0 && this.bitDepth <= 8) {
             this.lut = greyLut(this.bitDepth, transparency);
         }
-        // tRNS colour key (16-bit sample values) for grey and RGB images
+        // tRNS color key (16-bit sample values) for grey and RGB images
         if (transparency && (this.colorType === 0 || this.colorType === 2)) {
             const d = new DataView(transparency.buffer, transparency.byteOffset, transparency.byteLength);
             this.key = this.colorType === 0
@@ -166,7 +166,7 @@ export class PngRowReader {
     }
 
     /**
-     * Like readRow, but writes one float per pixel, mapped from its colour by `mapper`
+     * Like readRow, but writes one float per pixel, mapped from its color by `mapper`
      * (an AlbedoMapper). Palette images are mapped once per palette entry, so the pixel
      * loop is a table lookup.
      */
@@ -190,7 +190,7 @@ export class PngRowReader {
             }
             return;
         }
-        // Other colour types: decode to RGBA, then map each colour (cached per colour)
+        // Other color types: decode to RGBA, then map each color (cached per color)
         const rgba = this.scratch ?? (this.scratch = new Float32Array(this.width * 4));
         this.convert(row, rgba, 0, count);
         for (let x = 0, i = 0; x < count; x++, i += 4) {

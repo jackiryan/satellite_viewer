@@ -1,4 +1,4 @@
-// Atmosphere helpers shared by the Earth and atmosphere shaders, so that the colour of sunlight
+// Atmosphere helpers shared by the Earth and atmosphere shaders, so that the color of sunlight
 // and of the sky is worked out the same way everywhere.
 
 // Vertical optical depth of the atmosphere at about 650, 550 and 450 nm (Rayleigh scattering
@@ -16,7 +16,7 @@ float airMass(float mu) {
     return sqrt(r * r * mu * mu + 2.0 * r + 1.0) - r * mu;
 }
 
-// Colour of sunlight that has come down through the atmosphere with the sun at cos(zenith) mu,
+// color of sunlight that has come down through the atmosphere with the sun at cos(zenith) mu,
 // relative to sunlight from straight overhead. The hue takes hueStrength times the reddening
 // and the brightness dimStrength times the dimming of the red channel: the sky also scatters
 // light into long low paths, so taking all of the dimming darkens twilight far too much.

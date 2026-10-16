@@ -2,8 +2,8 @@
  * streamed out as it is produced.
  *
  * Two products:
- *   colormap  RGBA, the GIBS colours as they are
- *   albedo    greyscale, the cloud's visible reflectance worked out from each tile colour
+ *   colormap  RGBA, the GIBS colors as they are
+ *   albedo    greyscale, the cloud's visible reflectance worked out from each tile color
  *             (see albedo.js), stored as sqrt(reflectance)
  *
  * Pipeline, one output row at a time:

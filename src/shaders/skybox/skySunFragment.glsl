@@ -151,7 +151,7 @@ mat4 rotationMatrix(float y, float x, float z) {
 // Sun glare, the way the eye sees a light far too bright to look at (after Spencer et al. 1995,
 // "Physically-based glare effects for digital images", and Ritschel et al. 2009, "Temporal
 // glare"). Light scattered inside the eye spreads around the sun as a bloom, and diffraction by
-// the fibres of the eye's lens fans it out into the ciliary corona: a dense burst of fine needles
+// the fibers of the eye's lens fans it out into the ciliary corona: a dense burst of fine needles
 // of uneven length, whose tips run slightly red because red light diffracts further than blue.
 // Both happen in the eye rather than in the sky, so they follow the view:
 //   - the needles keep their direction on screen however the camera turns;

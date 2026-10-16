@@ -47,7 +47,7 @@ export class Earth {
             cloudShadowHeight: 30,
             // shading of cloud tops by their slope toward or away from the sun (0 = flat)
             cloudRelief: 0.6,
-            // reddening of cloud tops near the terminator (0 = none, 1 = full sunset colour)
+            // reddening of cloud tops near the terminator (0 = none, 1 = full sunset color)
             cloudTwilightTint: 0.2,
             // how far city light spreads sideways inside cloud before it escapes (km, one standard
             // deviation of the glow). Real cloud spreads it over a few km to ten, which is about a
@@ -219,7 +219,7 @@ export class Earth {
             // premultiplyAlpha must be passed explicitly: setOptions replaces ImageBitmapLoader's defaults
             const cloudTexture = await this.loadTexture(url, { premultiplyAlpha: 'none' }, 2, 1000);
 
-            // The texture is data, not colour: sqrt(reflectance) in a single channel. RedFormat
+            // The texture is data, not color: sqrt(reflectance) in a single channel. RedFormat
             // keeps it at one byte per texel on the GPU (32 MB at 8k instead of 128 MB as RGBA).
             cloudTexture.format = THREE.RedFormat;
             cloudTexture.colorSpace = THREE.NoColorSpace;

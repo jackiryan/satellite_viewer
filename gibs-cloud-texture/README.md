@@ -11,7 +11,7 @@ GET /global-texture?date=2026-10-12&tileMatrix=3&outputRes=8k&product=albedo
 | `date`       | required | `YYYY-MM-DD`. A timestamp such as `2026-10-12T00:00:00Z` is also accepted and the time of day is ignored, so the URLs `earth.js` already builds work unchanged. |
 | `tileMatrix` | `3`      | `0` to `MAX_TILE_MATRIX` (5 by default) |
 | `outputRes`  | `8k`     | `1k` (1024x512), `2k` (2048x1024), `4k` (4096x2048), `8k` (8192x4096) |
-| `product`    | `colormap` | `colormap`: the GIBS colours as RGBA. `albedo`: greyscale cloud reflectance, used by the satellite viewer. |
+| `product`    | `colormap` | `colormap`: the GIBS colors as RGBA. `albedo`: greyscale cloud reflectance, used by the satellite viewer. |
 
 `GET /` returns a JSON description of the API.
 
@@ -23,14 +23,14 @@ Both products are 2:1 equirectangular PNGs: the left edge is 180°W, north is at
 
 A greyscale PNG of how much visible light the clouds reflect, ready to composite over the globe:
 
-- Each tile colour is matched to its entry in the layer's colormap (fetched from `GIBS_COLORMAP_URL` and kept per isolate), which gives an optical thickness range and a phase. The middle of that range (geometric mean, bins are log-spaced; `< 1` counts as 0.5) becomes a reflectance with the two-stream formula for non-absorbing clouds, `R = (1 - g) τ / (2 + (1 - g) τ)`, with asymmetry parameter g = 0.86 for water and 0.75 for ice. That gives R ≈ 0.07 at τ = 1, 0.43 at τ = 10 and 0.8 at τ = 50. No data and clear sky are 0.
-- Reflectance is worked out per source pixel before resampling, so neighbouring colours are never blended into colours that aren't in the colormap, and averaging reflectance is physically right for a pixel that is partly cloudy.
+- Each tile color is matched to its entry in the layer's colormap (fetched from `GIBS_COLORMAP_URL` and kept per isolate), which gives an optical thickness range and a phase. The middle of that range (geometric mean, bins are log-spaced; `< 1` counts as 0.5) becomes a reflectance with the two-stream formula for non-absorbing clouds, `R = (1 - g) τ / (2 + (1 - g) τ)`, with asymmetry parameter g = 0.86 for water and 0.75 for ice. That gives R ≈ 0.07 at τ = 1, 0.43 at τ = 10 and 0.8 at τ = 50. No data and clear sky are 0.
+- Reflectance is worked out per source pixel before resampling, so neighbouring colors are never blended into colors that aren't in the colormap, and averaging reflectance is physically right for a pixel that is partly cloudy.
 - Stored as `sqrt(R) * 255`, which gives thin clouds more of the 256 levels. Decode with `v * v`.
 
 ### `product=colormap`
 
-- Colours are the GIBS colormap colours (ice phase magenta → blue → green, water phase yellow → orange → dark red). Pixels with no data (clear sky, night, gaps between orbits) are fully transparent.
-- Resampling is bilinear when enlarging (level 3 is 5120x2560, so 8k is a 1.6x enlargement) and area-averaged when shrinking. It wraps across the antimeridian and is done in premultiplied alpha, so cloud edges fade out in alpha without picking up the transparent light-lavender colour GIBS stores for no-data.
+- colors are the GIBS colormap colors (ice phase magenta → blue → green, water phase yellow → orange → dark red). Pixels with no data (clear sky, night, gaps between orbits) are fully transparent.
+- Resampling is bilinear when enlarging (level 3 is 5120x2560, so 8k is a 1.6x enlargement) and area-averaged when shrinking. It wraps across the antimeridian and is done in premultiplied alpha, so cloud edges fade out in alpha without picking up the transparent light-lavender color GIBS stores for no-data.
 
 Response headers describe the source: `X-Source-Date`, `X-Source-Tile-Matrix`, `X-Source-Size` (e.g. `5120x2560`), `X-Texture-Size`, `X-Texture-Product`, `X-Cache` (`HIT`/`MISS`). They are exposed to browser code through CORS.
 
@@ -54,7 +54,7 @@ A texture is built once and then served from Cloudflare's cache (the Cache API) 
 - dates in the last 4 days: 1 hour, because GIBS keeps adding data for a day after it ends;
 - older dates: 30 days.
 
-Browsers get the same `Cache-Control`. The Cache API cache is per data centre, and Cloudflare only documents it as working for Workers on a custom domain. Two ways to get that:
+Browsers get the same `Cache-Control`. The Cache API cache is per data center, and Cloudflare only documents it as working for Workers on a custom domain. Two ways to get that:
 
 1. Serve the Worker from a hostname on a domain that uses Cloudflare DNS: uncomment the `routes` entry in `wrangler.jsonc`.
 2. Keep the `workers.dev` URL and proxy it from your VPS, which also keeps the texture same-origin (no CORS involved):
@@ -97,7 +97,7 @@ Any other daily layer in the EPSG:4326 "best" endpoint that serves PNG tiles sho
 
 The globe requests `/cloud-texture?date=…&tileMatrix=3&outputRes=…&product=albedo`, with the date two days before the scene time. It asks for 2k on mobile, Safari and the landing page, and 8k elsewhere (4k if the GPU can't hold 8192-pixel textures). nginx proxies `/cloud-texture` to this Worker in production, and Vite does the same in development (`vite.config.js`). To work on the Worker itself, run `npm run dev` here (port 8787) and point that Vite proxy at `http://localhost:8787`.
 
-The texture is uploaded as a single-channel (`RedFormat`) texture, 32 MB of GPU memory at 8k. `earthFragment.glsl` turns it into true-colour-like clouds. For cloud reflectance R, the day side shows `R + A T_sun T_view / (1 - R A)` over a surface of albedo A:
+The texture is uploaded as a single-channel (`RedFormat`) texture, 32 MB of GPU memory at 8k. `earthFragment.glsl` turns it into true-color-like clouds. For cloud reflectance R, the day side shows `R + A T_sun T_view / (1 - R A)` over a surface of albedo A:
 - light the cloud reflects;
 - the ground, lit through the cloud between it and the sun (`T_sun`, read from the texture a little way toward the sun, which casts the shadows) and seen through the cloud above it (`T_view`);
 - light bouncing between the ground and the cloud base.
@@ -123,8 +123,8 @@ Most of the time is zlib compressing the pixels; `albedo` has a quarter as many 
 
 - `src/gibs.js`: the tile grid (every GIBS EPSG:4326 set starts at 0.5625° per pixel at level 0 with 512 px tiles: level 3 is 10x5 tiles, level 4 20x10), tile requests with retries for 429/5xx, and a reader that presents a whole level as one image, row by row.
 - `src/resample.js`: separable triangle-filter resampling (Pillow's BILINEAR scheme), wrapping in longitude.
-- `src/png.js`: a PNG decoder (all colour types, bit depths and filters) and a streaming RGBA or greyscale encoder on the runtime's `CompressionStream`.
-- `src/albedo.js`: colormap parsing and the colour → optical thickness → reflectance mapping.
+- `src/png.js`: a PNG decoder (all color types, bit depths and filters) and a streaming RGBA or greyscale encoder on the runtime's `CompressionStream`.
+- `src/albedo.js`: colormap parsing and the color → optical thickness → reflectance mapping.
 - `src/texture.js`: the pipeline. Only one tile row is inflated at a time and the output is streamed, so memory stays flat even though an 8k RGBA image is 134 MB raw.
 - `src/index.js`: request handling, validation, CORS and caching.
 

@@ -16,7 +16,7 @@ test('reflectance grows with optical thickness and saturates', () => {
     for (let tau = 1; tau < 150; tau *= 1.5) assert.ok(cloudReflectance(tau * 1.5, 'water') > cloudReflectance(tau, 'water'));
 });
 
-test('parses GIBS colormap XML into reflectance per colour', () => {
+test('parses GIBS colormap XML into reflectance per color', () => {
     const entries = parseColormap(COLORMAP_XML);
     assert.equal(entries.length, 5); // LegendEntry elements are not colormap entries
     const by = Object.fromEntries(entries.map((e) => [e.rgb.join(','), e]));
@@ -34,7 +34,7 @@ test('maps palette entries exactly, near misses to the closest entry, and others
     assert.equal(lut[0], 0);
     close(lut[4], cloudReflectance(Math.sqrt(45.845 * 47.58), 'water'));
     close(mapper.colorValue(254, 1, 0), lut[4]);              // within tolerance
-    assert.equal(mapper.colorValue(10, 200, 10), 0);          // not a colormap colour
+    assert.equal(mapper.colorValue(10, 200, 10), 0);          // not a colormap color
     assert.equal(mapper.colorValue(255, 0, 0, 0), 0);         // transparent pixel
 });
 
@@ -46,7 +46,7 @@ test('albedo product: greyscale PNG of sqrt(reflectance)', async () => {
     });
     const png = new Uint8Array(await new Response(texture.stream).arrayBuffer());
     await texture.done;
-    assert.equal(png[25], 0); // IHDR colour type: greyscale
+    assert.equal(png[25], 0); // IHDR color type: greyscale
     const image = await readRgba(png, decodePng);
     const expected = Math.round(Math.sqrt(cloudReflectance(Math.sqrt(45.845 * 47.58), 'water')) * 255);
     assert.deepEqual(image.pixel(400, 256), [expected, expected, expected, 255]);

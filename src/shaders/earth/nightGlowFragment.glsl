@@ -15,7 +15,7 @@ uniform float targetWidth;    // texels
 
 varying vec2 vUv;
 
-// Taps each side of the centre, half a standard deviation apart, out to three standard deviations
+// Taps each side of the center, half a standard deviation apart, out to three standard deviations
 const int TAPS = 6;
 
 void main() {

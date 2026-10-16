@@ -79,7 +79,7 @@ export function resampleRow(src, dst, taps) {
 /**
  * Blend horizontally resampled rows into one output row and convert it to straight-alpha
  * 8-bit RGBA. `rows[k]` is the row for tap k and `weights[k]` its weight. Rows hold
- * premultiplied floats (colour already multiplied by alpha/255, everything on a 0-255
+ * premultiplied floats (color already multiplied by alpha/255, everything on a 0-255
  * scale). `out` should be a Uint8ClampedArray, so values are rounded and clamped on
  * assignment. Pixels whose alpha rounds to 0 become 0,0,0,0.
  */
