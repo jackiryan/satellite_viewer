@@ -78,14 +78,12 @@ vec2 lookDirToTetrahedralUV(vec3 dir) {
     );
 }
 
-vec4 getPixInfo(vec3 dir, vec2 offset) {
-    vec2 uv = lookDirToTetrahedralUV(dir);
-
-    vec2 pixelSpaceUV = uv * uPixelSize;
-    vec2 pixelCenter = (ceil(pixelSpaceUV) - 0.5) + offset;
-    vec2 uvCenter = pixelCenter / uPixelSize;
+vec4 getPixInfo(vec2 homeCenter, vec3 viewDir, vec2 offset) {
+    vec2 uvCenter = (homeCenter + offset) / uPixelSize;
 
     vec3 starData = texture(uStarData, uvCenter).rgb;
+    // ~89% of texels hold no star; neighbouring pixels read the same texels, so this branch is coherent
+    if (starData.b < 1e-6) return vec4(0.0);
     vec3 tempData = texture(uTempData, uvCenter).rgb;
     float xData = starData.r;
     float yData = starData.g;
@@ -113,7 +111,7 @@ vec4 getPixInfo(vec3 dir, vec2 offset) {
 
     vec3 p = normalize(Pprime1); // This normalization assumes Pprime was a direction vector.
 
-    float vecDist = length((p - normalize(vec3(-1.0 * dir.x, dir.yz)))) * 206265.0;
+    float vecDist = length(p - viewDir) * 206265.0;
 
     float intensity = drawStar(vecDist, uSigma);
 
@@ -190,8 +188,10 @@ void main() {
         vec2(-1, 2), vec2(-2, -2), vec2(2, -2), vec2(-2, 2), vec2(2, 2)
     );
     vec4 starColor = vec4(0.0, 0.0, 0.0, 0.0);
+    vec2 homeCenter = ceil(lookDirToTetrahedralUV(dir) * uPixelSize) - 0.5;
+    vec3 viewDir = normalize(vec3(-dir.x, dir.yz));
     for (int i = 0; i < 25; i++) {
-        starColor += getPixInfo(dir, offsets[i]);
+        starColor += getPixInfo(homeCenter, viewDir, offsets[i]);
     }
 
     // bake in -90 degree rotation about X axis for UV coordinate

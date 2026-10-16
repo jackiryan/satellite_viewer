@@ -324,7 +324,9 @@ export class Earth {
                 glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
                 atmosphereHaze: new THREE.Uniform(this.parameters.atmosphereHaze),
                 atmosphereBrightness: new THREE.Uniform(this.parameters.atmosphereBrightness),
-                time: new THREE.Uniform(0.0)
+                time: new THREE.Uniform(0.0),
+                // set in onBeforeRender below
+                retinaStrength: new THREE.Uniform(0.0)
             },
             vertexShader: earthVertexShader,
             fragmentShader: earthFragmentShader
@@ -333,6 +335,21 @@ export class Earth {
         this.earth = new THREE.Mesh(earthGeometry, this.earthMaterial);
         this.scene.add(this.earth);
         this.earth.name = 'earth';
+
+        // The retina effect only depends on the camera and the sun, so work it out once per
+        // frame here instead of in every fragment (this was retinaEffect() in the shader)
+        const cameraPosition = new THREE.Vector3();
+        const sunToCamera = new THREE.Vector3();
+        const { smoothstep } = THREE.MathUtils;
+        this.earth.onBeforeRender = (renderer, scene, camera) => {
+            const uniforms = this.earthMaterial.uniforms;
+            cameraPosition.setFromMatrixPosition(camera.matrixWorld);
+            sunToCamera.copy(uniforms.sunDirection.value).multiplyScalar(-1000).add(cameraPosition).normalize();
+            const b = 2 * sunToCamera.dot(cameraPosition);
+            const c = cameraPosition.lengthSq() - this.parameters.radius * this.parameters.radius;
+            const disc = (b * b - 4 * c) * smoothstep(b, 0, 2);
+            uniforms.retinaStrength.value = smoothstep(disc, 10, 100);
+        };
 
         // Set initial rotation based on sidereal time
         this.earth.rotation.y = this.gmst;

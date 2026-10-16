@@ -79,14 +79,12 @@ vec2 lookDirToTetrahedralUV(vec3 dir) {
     );
 }
 
-vec4 getPixInfo(vec3 dir, vec2 offset) {
-    vec2 uv = lookDirToTetrahedralUV(dir);
-
-    vec2 pixelSpaceUV = uv * uPixelSize;
-    vec2 pixelCenter = (ceil(pixelSpaceUV) - 0.5) + offset;
-    vec2 uvCenter = pixelCenter / uPixelSize;
+vec4 getPixInfo(vec2 homeCenter, vec3 viewDir, vec2 offset) {
+    vec2 uvCenter = (homeCenter + offset) / uPixelSize;
 
     vec3 starData = texture(uStarData, uvCenter).rgb;
+    // ~89% of texels hold no star; neighbouring pixels read the same texels, so this branch is coherent
+    if (starData.b < 1e-6) return vec4(0.0);
     float xData = starData.r;
     float yData = starData.g;
     float magData = starData.b;
@@ -113,7 +111,7 @@ vec4 getPixInfo(vec3 dir, vec2 offset) {
 
     vec3 p = normalize(Pprime1); // This normalization assumes Pprime was a direction vector.
 
-    float vecDist = length((p - normalize(vec3(-1.0 * dir.x, dir.yz)))) * 206265.0;
+    float vecDist = length(p - viewDir) * 206265.0;
 
     float intensity = drawStar(vecDist, uSigma);
 
@@ -193,10 +191,12 @@ float noise4q(vec4 x)
 float ringRayNoise(vec3 sunDirection, vec3 pos, float r, float size) {
     vec3 ps = pos - sunDirection;
     float c = length(ps);
-    ps = normalize(ps);
-
     float s = max(0.0, (1.0 - size * (c - r)));
     s = pow(s, 50.0);
+    // pow(s, 5) + n * s * s with n <= 4 is below 1e-4 here (about 4 degrees from the sun),
+    // so skip the two noise4q() calls (128 sin) everywhere else in the sky
+    if (s < 0.005) return 0.0;
+    ps /= c;
 
     // multiple of ps controls the frequency of the noise
     float n = noise4q(vec4(ps * 1.0, c * 2.0));
@@ -230,8 +230,10 @@ void main() {
         vec2(-1, 2), vec2(-2, -2), vec2(2, -2), vec2(-2, 2), vec2(2, 2)
     );
     vec4 starColor = vec4(0.0, 0.0, 0.0, 0.0);
+    vec2 homeCenter = ceil(lookDirToTetrahedralUV(dir) * uPixelSize) - 0.5;
+    vec3 viewDir = normalize(vec3(-dir.x, dir.yz));
     for (int i = 0; i < 9; i++) {
-        starColor += getPixInfo(dir, offsets[i]);
+        starColor += getPixInfo(homeCenter, viewDir, offsets[i]);
     }
 
     vec3 sunDistance = normalize(vNormal) - uSunDirection;
