@@ -191,6 +191,7 @@ function initSettingsMenu() {
     const dayForwardButton = document.getElementById('day-forward');
 
     const starsButton = document.getElementById('stars');
+    const cloudsButton = document.getElementById('clouds');
     const showAllButton = document.getElementById('show-all');
     const hideAllButton = document.getElementById('hide-all');
 
@@ -279,6 +280,13 @@ function initSettingsMenu() {
             } else {
                 starsButton.innerHTML = 'Show Stars';
             }
+        }
+    });
+
+    cloudsButton.addEventListener('click', () => {
+        if (earth !== undefined) {
+            const visible = earth.toggleClouds();
+            cloudsButton.innerHTML = visible ? 'Hide Clouds' : 'Show Clouds';
         }
     });
 

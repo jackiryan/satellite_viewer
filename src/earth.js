@@ -66,6 +66,9 @@ export class Earth {
             haloScaleHeight: 0.02
         };
 
+        // Whether the viewer wants clouds shown (the settings menu); they appear once loaded
+        this.cloudsVisible = true;
+
         // Calculate initial rotation based on sidereal time
         this.gmst = gstime(this.initialDate);
 
@@ -229,7 +232,8 @@ export class Earth {
             const uniforms = this.earthMaterial.uniforms;
             const previous = uniforms.cloudTexture.value;
             uniforms.cloudTexture.value = cloudTexture;
-            uniforms.showClouds.value = true;
+            // unless the viewer hid the clouds while they were loading
+            uniforms.showClouds.value = this.cloudsVisible;
             previous?.dispose();
             return cloudTexture;
         } catch (error) {
@@ -239,23 +243,18 @@ export class Earth {
         }
     }
 
-    // Function to toggle cloud visibility
+    // Show or hide the clouds (null flips them). This is the viewer's choice, so it also holds
+    // for clouds still loading: they appear when they arrive only if clouds are on. Returns
+    // whether clouds are on.
     toggleClouds(visible = null) {
-        if (!this.earthMaterial || !this.earthMaterial.uniforms.showClouds) {
-            console.warn('Earth material or cloud uniform not available');
-            return false;
+        this.cloudsVisible = visible === null ? !this.cloudsVisible : Boolean(visible);
+        const uniforms = this.earthMaterial?.uniforms;
+        if (uniforms) {
+            uniforms.showClouds.value = this.cloudsVisible && uniforms.cloudTexture.value !== null;
         }
 
-        // If visible is null, toggle the current state
-        if (visible === null) {
-            this.earthMaterial.uniforms.showClouds.value = !this.earthMaterial.uniforms.showClouds.value;
-        } else {
-            // Otherwise, set to the specified value
-            this.earthMaterial.uniforms.showClouds.value = Boolean(visible);
-        }
-
-        console.log(`Clouds are now ${this.earthMaterial.uniforms.showClouds.value ? 'visible' : 'hidden'}`);
-        return this.earthMaterial.uniforms.showClouds.value;
+        console.log(`Clouds are now ${this.cloudsVisible ? 'visible' : 'hidden'}`);
+        return this.cloudsVisible;
     }
 
     // Main initialization function for the globe
