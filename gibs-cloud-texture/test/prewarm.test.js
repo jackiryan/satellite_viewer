@@ -2,7 +2,7 @@ import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 import { clearAvailabilityMemo } from '../src/availability.js';
-import { STORE_VERSION } from '../src/store.js';
+import { STORE_NAMESPACE, STORE_VERSION } from '../src/store.js';
 import { fakeGibsWithColormap, fakeR2, solidTile } from './helpers.js';
 
 const HOUR = 3_600_000;
@@ -43,8 +43,8 @@ test('makes the textures the site will ask for, for the newest published date', 
     assert.equal(summary.generated.length, 2);
     const keys = [...r2.objects.keys()].sort();
     assert.deepEqual(keys, [
-        `v${STORE_VERSION}/VIIRS_NOAA20_Cloud_Optical_Thickness/1km/albedo/tm0/1k/${daysAgo(2)}.png`,
-        `v${STORE_VERSION}/VIIRS_NOAA20_Cloud_Optical_Thickness/1km/albedo/tm0/2k/${daysAgo(2)}.png`
+        `${STORE_NAMESPACE}v${STORE_VERSION}/VIIRS_NOAA20_Cloud_Optical_Thickness/1km/albedo/tm0/1k/${daysAgo(2)}.png`,
+        `${STORE_NAMESPACE}v${STORE_VERSION}/VIIRS_NOAA20_Cloud_Optical_Thickness/1km/albedo/tm0/2k/${daysAgo(2)}.png`
     ]);
 
     // the page's request is then served straight from R2, with no GIBS tile requests
@@ -70,14 +70,18 @@ test('skips fresh textures, remakes recent ones after the refresh interval, and 
     // seven hours later the textures are past the six-hour refresh interval
     for (const key of r2.objects.keys()) r2.setUploaded(key, new Date(Date.now() - 7 * HOUR));
     // plus an old texture and one from an earlier store version
-    await r2.put(`v${STORE_VERSION}/VIIRS_NOAA20_Cloud_Optical_Thickness/1km/albedo/tm0/1k/2025-01-01.png`, new Uint8Array(1));
-    r2.setUploaded(`v${STORE_VERSION}/VIIRS_NOAA20_Cloud_Optical_Thickness/1km/albedo/tm0/1k/2025-01-01.png`, new Date(Date.now() - 40 * 86_400_000));
-    await r2.put('v2/old.png', new Uint8Array(1));
+    await r2.put(`${STORE_NAMESPACE}v${STORE_VERSION}/VIIRS_NOAA20_Cloud_Optical_Thickness/1km/albedo/tm0/1k/2025-01-01.png`, new Uint8Array(1));
+    r2.setUploaded(`${STORE_NAMESPACE}v${STORE_VERSION}/VIIRS_NOAA20_Cloud_Optical_Thickness/1km/albedo/tm0/1k/2025-01-01.png`, new Date(Date.now() - 40 * 86_400_000));
+    await r2.put(`${STORE_NAMESPACE}v2/old.png`, new Uint8Array(1));
+    // and other data sharing the bucket, which must be left alone
+    await r2.put('other-layer/2025-01-01.png', new Uint8Array(1));
+    r2.setUploaded('other-layer/2025-01-01.png', new Date(Date.now() - 400 * 86_400_000));
     clearAvailabilityMemo();
     summary = await runCron();
     assert.equal(summary.generated.length, 4);
     assert.equal(summary.pruned, 2);
-    assert.equal(r2.objects.size, 4);
+    assert.equal(r2.objects.size, 5);
+    assert.ok(r2.objects.has('other-layer/2025-01-01.png'));
 });
 
 test('a texture that fails is reported, and the others are still made', async () => {

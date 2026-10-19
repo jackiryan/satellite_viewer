@@ -10,15 +10,19 @@
  * texture is never stored.
  */
 
+// Everything this Worker stores is under this folder, so the bucket can also hold other data:
+// the scheduled clean-up (prewarm.js) only ever lists and deletes objects under it.
+export const STORE_NAMESPACE = 'cloud-texture/';
+
 // Bump to set aside every stored texture after changing how textures are made. Objects under
-// other versions are deleted by the scheduled clean-up (prewarm.js).
+// other versions are deleted by the scheduled clean-up.
 export const STORE_VERSION = '3';
 
 // R2 multipart parts must all be the same size (at least 5 MiB) except the last one
 const PART_SIZE = 8 * 1024 * 1024;
 
 export function storePrefix(config) {
-    return `v${STORE_VERSION}/${config.layer}/${config.tileMatrixSet}/`;
+    return `${STORE_NAMESPACE}v${STORE_VERSION}/${config.layer}/${config.tileMatrixSet}/`;
 }
 
 export function textureKey(config, { date, tileMatrix, outputRes, product }) {

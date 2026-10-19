@@ -9,13 +9,14 @@
  *      and remakes ones for recent dates that are older than the refresh interval, in case GIBS
  *      has filled in more of that day since;
  *   3. deletes stored textures older than the retention period, and any left over from an
- *      older STORE_VERSION or another layer. The bucket should be used only by this Worker.
+ *      older STORE_VERSION or another layer. Only objects under STORE_NAMESPACE are touched,
+ *      so the bucket can hold other data too.
  *
  * Textures are made one at a time to keep memory use down.
  */
 import { resolveDate } from './availability.js';
 import { DAY_MS, isRecent, maxAgeFor, todayUtc, addDays } from './dates.js';
-import { storePrefix, storeStream, textureKey, textureMetadata } from './store.js';
+import { STORE_NAMESPACE, storePrefix, storeStream, textureKey, textureMetadata } from './store.js';
 import { createTexture } from './texture.js';
 
 /**
@@ -68,13 +69,13 @@ export async function prewarm({ config, bucket, now = Date.now(), fetchImpl = fe
     return summary;
 }
 
-/** Delete objects uploaded before `cutoff`, or not under the current prefix. */
+/** Delete this Worker's objects uploaded before `cutoff`, or not under the current prefix. */
 async function prune(config, bucket, cutoff) {
     const prefix = storePrefix(config);
     const doomed = [];
     let cursor;
     do {
-        const page = await bucket.list({ cursor, limit: 1000 });
+        const page = await bucket.list({ prefix: STORE_NAMESPACE, cursor, limit: 1000 });
         for (const object of page.objects) {
             if (!object.key.startsWith(prefix) || object.uploaded.getTime() < cutoff) doomed.push(object.key);
         }

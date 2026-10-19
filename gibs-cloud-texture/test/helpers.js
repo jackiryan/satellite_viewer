@@ -183,8 +183,8 @@ export function fakeR2() {
                 }
             };
         },
-        async list({ cursor, limit = 1000 } = {}) {
-            const keys = [...objects.keys()].sort();
+        async list({ prefix = '', cursor, limit = 1000 } = {}) {
+            const keys = [...objects.keys()].filter((k) => k.startsWith(prefix)).sort();
             const start = cursor ? Number(cursor) : 0;
             const page = keys.slice(start, start + limit);
             const truncated = start + limit < keys.length;

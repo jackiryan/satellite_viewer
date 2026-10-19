@@ -56,7 +56,7 @@ Finished textures are stored in an R2 bucket (binding `TEXTURES`) and served fro
 
 - It works out the dates pages will request (UTC, 1 and 2 days back; the globe asks for 2 days back, and 1 day back becomes that at the next UTC midnight).
 - For each, it asks GIBS for the newest published date at or before it, and makes any missing textures at 2k, 4k and 8k. Textures for dates under 4 days old are remade after 6 hours, in case GIBS has filled in more of that day.
-- It deletes textures stored more than 30 days ago. The bucket should be used only by this Worker, since the job also deletes objects it doesn't recognise.
+- It deletes textures stored more than 30 days ago, and ones left over from an older version of the Worker. Everything it stores is under `cloud-texture/` in the bucket, and the clean-up only touches that folder, so the bucket can hold other data too.
 - The settings are the `PREWARM_*` and `STORE_RETAIN_DAYS` vars below.
 
 **Unpublished dates.** GIBS publishes this layer about two days late, so early in the UTC day the date the globe asks for often isn't out yet. For dates under 4 days old, the Worker serves the newest published date at or before the one asked for, with `X-Source-Date` saying which. It checks with GIBS's list of published dates (WMTS DescribeDomains), remembered for 10 minutes. That fallback is sent with a 15-minute `Cache-Control`, so caches pick up the right date soon after GIBS publishes it.

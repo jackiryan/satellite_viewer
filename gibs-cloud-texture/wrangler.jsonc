@@ -16,8 +16,9 @@
   },
 
   // Finished textures are kept here and served from it (create the bucket once with
-  // `npx wrangler r2 bucket create gibs-textures`). The bucket should be used only by
-  // this Worker: the scheduled clean-up deletes anything it doesn't recognise.
+  // `npx wrangler r2 bucket create gibs-textures`). This Worker keeps everything under
+  // cloud-texture/ and its scheduled clean-up only touches that folder, so the bucket can
+  // hold other data too.
   "r2_buckets": [
     { "binding": "TEXTURES", "bucket_name": "gibs-textures" }
   ],
