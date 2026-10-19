@@ -5,10 +5,13 @@ import gstime from './gstime.js';
 import getSunPointingAngle from './sunangle.js';
 import earthVertexShader from './shaders/earth/earthVertex.glsl';
 import earthFragmentShader from './shaders/earth/earthFragment.glsl';
-import nightGlowVertexShader from './shaders/earth/nightGlowVertex.glsl';
+import bakeVertexShader from './shaders/earth/bakeVertex.glsl';
 import nightGlowFragmentShader from './shaders/earth/nightGlowFragment.glsl';
+import cloudLightFragmentShader from './shaders/earth/cloudLightFragment.glsl';
 import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
+
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 // Taken from this very popular stackoverflow thread: https://stackoverflow.com/questions/11381673/detecting-a-mobile-browser
 // no I do not intend to support iemobile or blackberry, but it doesn't hurt anything to have them in there.
@@ -49,6 +52,10 @@ export class Earth {
             cloudRelief: 0.6,
             // reddening of cloud tops near the terminator (0 = none, 1 = full sunset color)
             cloudTwilightTint: 0.2,
+            // cloud shadows and cloud-top shading are baked into a texture (see updateCloudLighting)
+            // and redrawn when the sun has moved this many degrees relative to the ground: about
+            // every 25 s at 1 sec/s, every frame at 30 min/s and up
+            cloudLightUpdateAngle: 0.1,
             // how far city light spreads sideways inside cloud before it escapes (km, one standard
             // deviation of the glow). Real cloud spreads it over a few km to ten, which is about a
             // pixel at globe scale, so this is a little exaggerated; much more and neighbouring
@@ -326,8 +333,11 @@ export class Earth {
                 cloudTexture: new THREE.Uniform(null),
                 showClouds: new THREE.Uniform(false),
                 cloudBrightness: new THREE.Uniform(this.parameters.cloudBrightness),
+                // used by the cloud lighting bake (createCloudLighting), not the Earth shader itself
                 cloudShadowHeight: new THREE.Uniform(this.parameters.cloudShadowHeight * this.parameters.radius / 6371),
                 cloudRelief: new THREE.Uniform(this.parameters.cloudRelief),
+                // the baked cloud shadows; updateCloudLighting swaps in the render target's texture
+                cloudLightTexture: new THREE.Uniform(null),
                 cloudTwilightTint: new THREE.Uniform(this.parameters.cloudTwilightTint),
                 windSpeed: new THREE.Uniform(this.parameters.windSpeed),
                 glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
@@ -344,13 +354,16 @@ export class Earth {
         });
 
         this.createNightGlow();
+        this.createCloudLighting();
 
         this.earth = new THREE.Mesh(earthGeometry, this.earthMaterial);
         this.scene.add(this.earth);
         this.earth.name = 'earth';
 
         // The retina effect only depends on the camera and the sun, so work it out once per
-        // frame here instead of in every fragment (this was retinaEffect() in the shader)
+        // frame here instead of in every fragment (this was retinaEffect() in the shader).
+        // The texture bakes run here too, after update() has turned the globe and moved the sun
+        // for this frame: the night glow once, the cloud lighting whenever the sun has moved.
         const cameraPosition = new THREE.Vector3();
         const sunToCamera = new THREE.Vector3();
         const { smoothstep } = THREE.MathUtils;
@@ -359,6 +372,7 @@ export class Earth {
             if (this.nightGlow?.needsUpdate) {
                 this.bakeNightGlow(renderer);
             }
+            this.updateCloudLighting(renderer);
             cameraPosition.setFromMatrixPosition(camera.matrixWorld);
             sunToCamera.copy(uniforms.sunDirection.value).multiplyScalar(-1000).add(cameraPosition).normalize();
             const b = 2 * sunToCamera.dot(cameraPosition);
@@ -392,7 +406,7 @@ export class Earth {
                 sourceLod: new THREE.Uniform(0),
                 targetWidth: new THREE.Uniform(1)
             },
-            vertexShader: nightGlowVertexShader,
+            vertexShader: bakeVertexShader,
             fragmentShader: nightGlowFragmentShader,
             depthTest: false,
             depthWrite: false
@@ -458,6 +472,104 @@ export class Earth {
 
         this.earthMaterial.uniforms.nightGlowTexture.value = glow.target.texture;
         glow.needsUpdate = false;
+    }
+
+    // Cloud shadows and the slope shading of cloud tops don't depend on the camera, only on the
+    // clouds and on where the sun is relative to the ground. So instead of marching toward the sun
+    // for every pixel of every frame, a full-screen pass (cloudLightFragment.glsl) bakes them into
+    // a texture laid out like the cloud texture, and updateCloudLighting redraws it only when
+    // something it depends on has changed. The render target is made once the clouds arrive.
+    // This is kept apart from the night glow: that is a color image baked once, while this is
+    // data that is redrawn as the sun moves, so the two share only the full-screen vertex shader.
+    createCloudLighting() {
+        const earthUniforms = this.earthMaterial.uniforms;
+
+        // Until the first bake (or if it never runs), read as "no shadows, flat cloud tops"
+        const unlit = new THREE.DataTexture(new Uint8Array([0, 0, 153, 255]), 1, 1);
+        unlit.needsUpdate = true;
+        earthUniforms.cloudLightTexture.value = unlit;
+
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                // shared with the Earth material, so changing them there reaches the bake too
+                cloudTexture: earthUniforms.cloudTexture,
+                cloudBrightness: earthUniforms.cloudBrightness,
+                cloudShadowHeight: earthUniforms.cloudShadowHeight,
+                cloudRelief: earthUniforms.cloudRelief,
+                twilightAngle: earthUniforms.twilightAngle,
+                sunDirectionLocal: new THREE.Uniform(new THREE.Vector3()),
+                earthRadius: new THREE.Uniform(this.parameters.radius),
+                bakeLod: new THREE.Uniform(1)
+            },
+            vertexShader: bakeVertexShader,
+            fragmentShader: cloudLightFragmentShader,
+            depthTest: false,
+            depthWrite: false
+        });
+
+        this.cloudLight = {
+            quad: new FullScreenQuad(material),
+            target: null,
+            unlit,
+            // what the current bake was drawn with
+            bakedTexture: null,
+            bakedSun: new THREE.Vector3(),
+            bakedSettings: []
+        };
+    }
+
+    // Redraw the baked cloud lighting if the clouds, their settings or the sun's direction relative
+    // to the ground have changed since the last bake. Called from the globe's onBeforeRender every
+    // frame, like bakeNightGlow; most frames it returns straight away.
+    updateCloudLighting(renderer) {
+        const uniforms = this.earthMaterial.uniforms;
+        const cloudTexture = uniforms.cloudTexture.value;
+        const image = cloudTexture?.image;
+        if (!this.cloudLight || !uniforms.showClouds.value || !image?.width) return;
+
+        const light = this.cloudLight;
+        const bakeUniforms = light.quad.material.uniforms;
+
+        // Half the cloud texture's resolution: the shadows are soft, and it keeps the bake cheap
+        const width = Math.max(1, Math.round(image.width / 2));
+        const height = Math.max(1, Math.round(image.height / 2));
+        if (!light.target || light.target.width !== width || light.target.height !== height) {
+            light.target?.dispose();
+            light.target = new THREE.WebGLRenderTarget(width, height, {
+                depthBuffer: false,
+                generateMipmaps: true,
+                minFilter: THREE.LinearMipmapLinearFilter,
+                magFilter: THREE.LinearFilter,
+                wrapS: THREE.RepeatWrapping,
+                anisotropy: cloudTexture.anisotropy
+            });
+            light.bakedTexture = null;
+        }
+
+        // The bake is laid out like the textures, which turn with the globe, so it needs the sun in
+        // the Earth's own frame
+        const sunLocal = bakeUniforms.sunDirectionLocal.value
+            .copy(uniforms.sunDirection.value)
+            .applyAxisAngle(Y_AXIS, -this.earth.rotation.y);
+        const settings = [uniforms.cloudBrightness.value, uniforms.cloudShadowHeight.value,
+            uniforms.cloudRelief.value, uniforms.twilightAngle.value];
+        const minCos = Math.cos(THREE.MathUtils.degToRad(this.parameters.cloudLightUpdateAngle));
+        if (light.bakedTexture === cloudTexture
+            && settings.every((value, i) => value === light.bakedSettings[i])
+            && sunLocal.dot(light.bakedSun) >= minCos) {
+            return;
+        }
+
+        bakeUniforms.bakeLod.value = Math.log2(image.width / width);
+        const previousTarget = renderer.getRenderTarget();
+        renderer.setRenderTarget(light.target);
+        light.quad.render(renderer); // three regenerates the target's mipmaps afterwards
+        renderer.setRenderTarget(previousTarget);
+
+        uniforms.cloudLightTexture.value = light.target.texture;
+        light.bakedTexture = cloudTexture;
+        light.bakedSun.copy(sunLocal);
+        light.bakedSettings = settings;
     }
 
     async createAtmosphere(twilightAngle) {
@@ -552,6 +664,14 @@ export class Earth {
             this.nightGlow.quad.material.dispose();
             this.nightGlow.quad.dispose();
             this.nightGlow = null;
+        }
+
+        if (this.cloudLight) {
+            this.cloudLight.target?.dispose();
+            this.cloudLight.quad.material.dispose();
+            this.cloudLight.quad.dispose();
+            this.cloudLight.unlit.dispose();
+            this.cloudLight = null;
         }
     }
 }
