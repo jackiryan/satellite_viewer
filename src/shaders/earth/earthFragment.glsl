@@ -110,8 +110,8 @@ void main() {
         // overhead, at full resolution), y at the top of the cloud here, z the brightening of the
         // cloud top by its slope. Normally the shadow march is baked into cloudLightTexture by
         // cloudLightFragment.glsl whenever the sun has moved. When the sun moves so fast that the
-        // bake would be redrawn every frame, Earth.updateCloudLighting sets liveCloudLight and the
-        // march runs here per pixel instead, which costs less than marching the whole texture.
+        // bake would be redrawn nearly every frame, Earth.setSimulationSpeed sets liveCloudLight and
+        // the march runs here per pixel instead, which costs less than marching the whole texture.
         // Both are uniform, so neither branch diverges.
         vec3 blocked;   // the bake's layout: ground and cloud-top light blocked, slope light - 0.4
         if (liveCloudLight) {

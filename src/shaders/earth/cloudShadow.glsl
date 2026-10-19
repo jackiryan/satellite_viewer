@@ -1,7 +1,7 @@
 // Cloud shadows and cloud-top shading: a short march toward the sun over the cloud tops. Shared by
 // the bake (cloudLightFragment.glsl), which runs it once per texel whenever the sun has moved,
-// and earthFragment.glsl, which runs it per pixel instead while the sun moves so fast that the
-// bake would be redrawn every frame (see Earth.updateCloudLighting).
+// and earthFragment.glsl, which runs it per pixel instead while the simulation runs so fast that
+// the bake would be redrawn nearly every frame (see Earth.setSimulationSpeed).
 //
 // The including shader declares these uniforms:
 //   sampler2D cloudTexture;   sqrt(cloud reflectance) in red, from the gibs-cloud-texture worker

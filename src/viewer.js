@@ -216,6 +216,7 @@ function initSettingsMenu() {
 
     function updateSpeed(currentIndex) {
         groupMap.setSpeed(renderParameters.speedFactor);
+        earth.setSimulationSpeed(renderParameters.speedFactor);
         const speedText = speedStates.get(renderParameters.speedFactor);
         speedIndicator.innerHTML = speedText;
 
