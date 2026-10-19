@@ -14,25 +14,29 @@
  *   colormap  RGBA with the exact GIBS colormap colors, transparent where there is no data
  *   albedo    greyscale cloud reflectance (0 = clear) stored as sqrt(reflectance) * 255,
  *             worked out from the optical thickness each color stands for (albedo.js)
- * Results are cached at the edge (Cache API) and in browsers via Cache-Control.
+ *
+ * Finished textures are kept in R2 (binding TEXTURES, see store.js) and served from there.
+ * For recent dates, the newest date GIBS has published at or before the one asked for is
+ * served (availability.js); X-Source-Date says which. A Cron Trigger keeps the textures the
+ * site asks for ready ahead of time (prewarm.js).
  */
+import { resolveDate } from './availability.js';
+import { maxAgeFor, todayUtc } from './dates.js';
 import { TILE_MATRIX_SET_MAX_LEVEL, UpstreamError, tileGrid } from './gibs.js';
+import { prewarm } from './prewarm.js';
+import { storeStream, textureKey, textureMetadata } from './store.js';
 import { OUTPUT_SIZES, PRODUCTS, createTexture } from './texture.js';
 
 const TEXTURE_PATH = '/global-texture';
 const DEFAULT_TILE_MATRIX = 3;
 const DEFAULT_OUTPUT_RES = '8k';
 const DEFAULT_PRODUCT = 'colormap';
-// GIBS publishes a day's data over the following couple of days, so recent textures are
-// only cached briefly; older ones are treated as final.
-const RECENT_DAYS = 4;
-const RECENT_MAX_AGE = 60 * 60;            // 1 hour
-const FINAL_MAX_AGE = 30 * 24 * 60 * 60;   // 30 days
-// Bump to invalidate every cached texture after changing how textures are made
-const CACHE_VERSION = '2';
+// Cache lifetime of a texture for an older date than the one asked for (because the asked-for
+// date wasn't published yet), so caches pick up the right one soon after it is published
+const FALLBACK_MAX_AGE = 15 * 60;
 
-const EXPOSED_HEADERS = ['X-Cache', 'X-Source-Layer', 'X-Source-Date', 'X-Source-Tile-Matrix', 'X-Source-Size',
-    'X-Texture-Size', 'X-Texture-Product'];
+const EXPOSED_HEADERS = ['X-Cache', 'X-Requested-Date', 'X-Source-Layer', 'X-Source-Date', 'X-Source-Tile-Matrix',
+    'X-Source-Size', 'X-Texture-Size', 'X-Texture-Product'];
 
 class RequestError extends Error {
     constructor(status, message) {
@@ -54,17 +58,25 @@ function readConfig(env) {
             Number.isFinite(configuredMax) ? configuredMax : 5,
             TILE_MATRIX_SET_MAX_LEVEL[tileMatrixSet] ?? Infinity
         ),
-        allowedOrigins: (env.ALLOWED_ORIGINS || '*').split(',').map((s) => s.trim()).filter(Boolean)
+        allowedOrigins: (env.ALLOWED_ORIGINS || '*').split(',').map((s) => s.trim()).filter(Boolean),
+        prewarm: {
+            daysBack: listOf(env.PREWARM_DAYS_BACK, '1,2').map(Number).filter(Number.isFinite),
+            resolutions: listOf(env.PREWARM_RESOLUTIONS, '2k,4k,8k').filter((r) => r in OUTPUT_SIZES),
+            product: PRODUCTS.includes(env.PREWARM_PRODUCT) ? env.PREWARM_PRODUCT : 'albedo',
+            tileMatrix: Number.parseInt(env.PREWARM_TILE_MATRIX ?? '3', 10),
+            refreshHours: Number(env.PREWARM_REFRESH_HOURS ?? 6),
+            retainDays: Number(env.STORE_RETAIN_DAYS ?? 30)
+        }
     };
+}
+
+function listOf(value, fallback) {
+    return (value || fallback).split(',').map((s) => s.trim()).filter(Boolean);
 }
 
 /* ---------------------------------------------------------------------------- params */
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
-
-function todayUtc() {
-    return new Date().toISOString().slice(0, 10);
-}
 
 function parseDate(value, config) {
     if (!value) throw new RequestError(400, 'Missing required parameter "date" (YYYY-MM-DD)');
@@ -125,11 +137,6 @@ function parseParams(searchParams, config) {
     };
 }
 
-function maxAgeFor(date) {
-    const ageDays = (Date.now() - Date.parse(`${date}T00:00:00Z`)) / 86_400_000;
-    return ageDays < RECENT_DAYS ? RECENT_MAX_AGE : FINAL_MAX_AGE;
-}
-
 /* --------------------------------------------------------------------------- responses */
 
 function corsHeaders(request, config) {
@@ -171,7 +178,12 @@ function apiDescription(origin, config) {
         source: { layer: config.layer, tileMatrixSet: config.tileMatrixSet, service: config.gibsBaseUrl },
         endpoint: `${origin}${TEXTURE_PATH}`,
         parameters: {
-            date: { required: true, format: 'YYYY-MM-DD (a time of day is accepted and ignored)', earliest: config.earliestDate },
+            date: {
+                required: true,
+                format: 'YYYY-MM-DD (a time of day is accepted and ignored)',
+                earliest: config.earliestDate,
+                note: 'for recent dates, the newest date GIBS has published at or before it is served (X-Source-Date)'
+            },
             tileMatrix: { default: DEFAULT_TILE_MATRIX, min: 0, max: config.maxTileMatrix },
             outputRes: {
                 default: DEFAULT_OUTPUT_RES,
@@ -220,30 +232,44 @@ export default {
             if (error instanceof RequestError) return json({ error: error.message }, error.status, cors);
             throw error;
         }
-        const { date, tileMatrix, outputRes, product } = params;
 
-        // One cache entry per distinct texture, whatever order or spelling the query used,
-        // plus a small marker written only after the texture was fully produced. Without the
-        // marker a cached texture is not trusted: if a stream fails part way, the runtime
-        // may still end the response normally, and the cache can keep the truncated copy.
-        const key = new URL(TEXTURE_PATH, url.origin);
-        key.search = new URLSearchParams({
-            date, tileMatrix: String(tileMatrix), outputRes, product,
-            layer: config.layer, tms: config.tileMatrixSet, v: CACHE_VERSION
-        }).toString();
-        const cacheKey = new Request(key.toString());
-        const markerKey = new Request(`${key}&complete=1`);
-        const cache = caches.default;
+        const requestedDate = params.date;
+        const { date, fallback } = await resolveDate(config, requestedDate);
+        const { tileMatrix, outputRes, product } = params;
+        const texture = { date, tileMatrix, outputRes, product };
+        const key = textureKey(config, texture);
+        const bucket = env.TEXTURES;
+        const maxAge = fallback ? FALLBACK_MAX_AGE : maxAgeFor(date);
+        const headers = (sourceSize, textureSize) => ({
+            ...cors,
+            'Content-Type': 'image/png',
+            'Cache-Control': `public, max-age=${maxAge}`,
+            'Content-Disposition': `inline; filename="clouds_${date}_tm${tileMatrix}_${outputRes}_${product}.png"`,
+            'X-Requested-Date': requestedDate,
+            'X-Source-Layer': `${config.layer} (${config.tileMatrixSet})`,
+            'X-Source-Date': date,
+            'X-Source-Tile-Matrix': String(tileMatrix),
+            'X-Source-Size': sourceSize,
+            'X-Texture-Size': textureSize,
+            'X-Texture-Product': product
+        });
 
-        const [cached, marker] = await Promise.all([cache.match(cacheKey), cache.match(markerKey)]);
-        marker?.body?.cancel();
-        if (cached && marker) return withHeaders(cached, { ...cors, 'X-Cache': 'HIT' });
-        cached?.body?.cancel();
+        const stored = bucket ? await bucket.get(key) : null;
+        if (stored) {
+            const meta = stored.customMetadata ?? {};
+            return new Response(stored.body, {
+                headers: {
+                    ...headers(meta.sourceSize, meta.textureSize),
+                    'Content-Length': String(stored.size),
+                    ETag: stored.httpEtag,
+                    'X-Cache': 'HIT'
+                }
+            });
+        }
 
-        const maxAge = maxAgeFor(date);
-        let texture;
+        let made;
         try {
-            texture = await createTexture({ date, tileMatrix, outputRes, product, config, cacheTtl: maxAge });
+            made = await createTexture({ ...texture, config, cacheTtl: maxAgeFor(date) });
         } catch (error) {
             if (error instanceof UpstreamError) {
                 console.error(JSON.stringify({ event: 'upstream_error', date, tileMatrix, message: error.message, detail: error.detail }));
@@ -252,49 +278,49 @@ export default {
             throw error;
         }
 
-        // The PNG streams from here on. If it still fails (only possible above level 3,
-        // where tiles are fetched as the texture is written) the body is cut short.
-        const cacheControl = `public, max-age=${maxAge}`;
-        const response = new Response(texture.stream, {
-            headers: {
-                'Content-Type': 'image/png',
-                'Cache-Control': cacheControl,
-                'Content-Disposition': `inline; filename="clouds_${date}_tm${tileMatrix}_${outputRes}_${product}.png"`,
-                'X-Source-Layer': `${config.layer} (${config.tileMatrixSet})`,
-                'X-Source-Date': date,
-                'X-Source-Tile-Matrix': String(tileMatrix),
-                'X-Source-Size': `${texture.grid.width}x${texture.grid.height}`,
-                'X-Texture-Size': `${texture.width}x${texture.height}`,
-                'X-Texture-Product': product
-            }
-        });
+        // The PNG streams from here on. If it still fails (only possible above level 3, where
+        // tiles are fetched as the texture is written) the body is cut short, and nothing is
+        // stored: the R2 upload only completes once the whole texture has been written.
+        const log = { date, requestedDate, tileMatrix, outputRes, product };
+        let body = made.stream;
+        let storing = Promise.resolve();
+        if (bucket) {
+            const [toClient, toStore] = made.stream.tee();
+            body = toClient;
+            storing = storeStream(bucket, key, toStore, textureMetadata(texture, made)).then(
+                () => console.log(JSON.stringify({ event: 'stored', key })),
+                (error) => console.warn(JSON.stringify({ event: 'store_failed', key, message: error.message }))
+            );
+        }
+        ctx.waitUntil(Promise.all([
+            made.done.then(
+                (stats) => console.log(JSON.stringify({ event: 'texture', ...log, ...stats })),
+                (error) => console.error(JSON.stringify({ event: 'texture_failed', ...log, message: error.message, detail: error.detail }))
+            ),
+            storing
+        ]));
 
-        // The cached copy carries no CORS headers; they are added per request on the way out
-        const log = { date, tileMatrix, outputRes, product };
-        const stored = cache.put(cacheKey, response.clone()).then(() => true, (error) => {
-            console.warn(JSON.stringify({ event: 'cache_put_failed', ...log, message: error.message }));
-            return false;
-        });
-        ctx.waitUntil((async () => {
-            let stats;
-            try {
-                stats = await texture.done;
-            } catch (error) {
-                console.error(JSON.stringify({ event: 'texture_failed', ...log, message: error.message, detail: error.detail }));
-                return;
-            }
-            console.log(JSON.stringify({ event: 'texture', ...log, ...stats }));
-            if (await stored) {
-                await cache.put(markerKey, new Response('1', { headers: { 'Cache-Control': cacheControl } }))
-                    .catch((error) => console.warn(JSON.stringify({ event: 'cache_put_failed', ...log, message: error.message })));
-            }
-        })());
+        const responseHeaders = {
+            ...headers(`${made.grid.width}x${made.grid.height}`, `${made.width}x${made.height}`),
+            'X-Cache': 'MISS'
+        };
+        // A browser can't tell a cut-short PNG from a whole one, so a response that could still
+        // fail is not stored by the browser. Later requests are served from R2.
+        if (!made.complete) responseHeaders['Cache-Control'] = 'no-store';
+        return new Response(body, { headers: responseHeaders });
+    },
 
-        // A browser can't tell a cut-short PNG from a whole one, so a response that could
-        // still fail is not stored by the browser. Later requests are served from the edge
-        // cache with the normal Cache-Control.
-        const clientHeaders = { ...cors, 'X-Cache': 'MISS' };
-        if (!texture.complete) clientHeaders['Cache-Control'] = 'no-store';
-        return withHeaders(response, clientHeaders);
+    // Cron Trigger: keep the textures the site asks for ready in R2 (prewarm.js)
+    async scheduled(controller, env, ctx) {
+        const config = readConfig(env);
+        if (!env.TEXTURES) {
+            console.warn(JSON.stringify({ event: 'prewarm_skipped', reason: 'no TEXTURES R2 binding' }));
+            return;
+        }
+        const summary = await prewarm({ config, bucket: env.TEXTURES, now: controller.scheduledTime });
+        console.log(JSON.stringify({ event: 'prewarm', ...summary }));
+        if (summary.failed.length) {
+            console.warn(JSON.stringify({ event: 'prewarm_failures', failed: summary.failed }));
+        }
     }
 };

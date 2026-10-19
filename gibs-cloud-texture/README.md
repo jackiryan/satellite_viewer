@@ -8,7 +8,7 @@ GET /global-texture?date=2026-10-12&tileMatrix=3&outputRes=8k&product=albedo
 
 | Parameter    | Default  | Values |
 |--------------|----------|--------|
-| `date`       | required | `YYYY-MM-DD`. A timestamp such as `2026-10-12T00:00:00Z` is also accepted and the time of day is ignored, so the URLs `earth.js` already builds work unchanged. |
+| `date`       | required | `YYYY-MM-DD`. A timestamp such as `2026-10-12T00:00:00Z` is also accepted and the time of day is ignored. For dates in the last 4 days, the newest date GIBS has published at or before it is served (see [Caching](#caching)). |
 | `tileMatrix` | `3`      | `0` to `MAX_TILE_MATRIX` (5 by default) |
 | `outputRes`  | `8k`     | `1k` (1024x512), `2k` (2048x1024), `4k` (4096x2048), `8k` (8192x4096) |
 | `product`    | `colormap` | `colormap`: the GIBS colors as RGBA. `albedo`: greyscale cloud reflectance, used by the satellite viewer. |
@@ -32,31 +32,42 @@ A greyscale PNG of how much visible light the clouds reflect, ready to composite
 - colors are the GIBS colormap colors (ice phase magenta → blue → green, water phase yellow → orange → dark red). Pixels with no data (clear sky, night, gaps between orbits) are fully transparent.
 - Resampling is bilinear when enlarging (level 3 is 5120x2560, so 8k is a 1.6x enlargement) and area-averaged when shrinking. It wraps across the antimeridian and is done in premultiplied alpha, so cloud edges fade out in alpha without picking up the transparent light-lavender color GIBS stores for no-data.
 
-Response headers describe the source: `X-Source-Date`, `X-Source-Tile-Matrix`, `X-Source-Size` (e.g. `5120x2560`), `X-Texture-Size`, `X-Texture-Product`, `X-Cache` (`HIT`/`MISS`). They are exposed to browser code through CORS.
+Response headers describe the source: `X-Requested-Date`, `X-Source-Date` (the date actually shown), `X-Source-Tile-Matrix`, `X-Source-Size` (e.g. `5120x2560`), `X-Texture-Size`, `X-Texture-Product`, `X-Cache` (`HIT` from R2, `MISS` when made for this request). They are exposed to browser code through CORS.
 
 Errors come back as JSON with a status: `400` for bad parameters, `404` for dates outside the layer's range (before 2018-02-17 or after today UTC), and `502`/`504` when GIBS fails or returns something that is not a PNG. The GIBS error text is included in `detail`.
 
 ## Deploying
 
-The Worker needs the **Workers Paid plan**. A level 3 texture is 50 tile requests plus cache lookups, over the Free plan's 50-subrequest cap, and it takes seconds of CPU time rather than the Free plan's 10 ms. `wrangler.jsonc` raises the CPU limit to 60 s; the slowest case measured is about 14 s.
+The Worker needs the **Workers Paid plan**. A level 3 texture is 50 tile requests, over the Free plan's 50-subrequest cap, and it takes seconds of CPU time rather than the Free plan's 10 ms. `wrangler.jsonc` raises the CPU limit to 60 s; the slowest case measured is about 14 s.
 
 ```bash
 npm install
 npx wrangler login
-npm run deploy        # prints the workers.dev URL
-npm run tail          # live logs, one line per texture built
+npx wrangler r2 bucket create gibs-textures   # once, for stored textures
+npm run deploy        # prints the workers.dev URL and the hourly schedule
+npm run tail          # live logs: one line per texture made, one per hourly run
 ```
 
 ### Caching
 
-A texture is built once and then served from Cloudflare's cache (the Cache API) until it expires:
+Finished textures are stored in an R2 bucket (binding `TEXTURES`) and served from there in a few milliseconds. Unlike Cloudflare's cache, R2 keeps them until they are deleted, however little traffic the site gets. A texture is only stored once it has been made in full.
 
-- dates in the last 4 days: 1 hour, because GIBS keeps adding data for a day after it ends;
-- older dates: 30 days.
+**Hourly job.** A Cron Trigger (`7 * * * *`, `prewarm.js`) makes the textures the site will ask for before anyone does:
 
-Browsers get the same `Cache-Control`. The Cache API cache is per data center, and Cloudflare only documents it as working for Workers on a custom domain. Two ways to get that:
+- It works out the dates pages will request (UTC, 1 and 2 days back; the globe asks for 2 days back, and 1 day back becomes that at the next UTC midnight).
+- For each, it asks GIBS for the newest published date at or before it, and makes any missing textures at 2k, 4k and 8k. Textures for dates under 4 days old are remade after 6 hours, in case GIBS has filled in more of that day.
+- It deletes textures stored more than 30 days ago. The bucket should be used only by this Worker, since the job also deletes objects it doesn't recognise.
+- The settings are the `PREWARM_*` and `STORE_RETAIN_DAYS` vars below.
 
-1. Serve the Worker from a hostname on a domain that uses Cloudflare DNS: uncomment the `routes` entry in `wrangler.jsonc`.
+**Unpublished dates.** GIBS publishes this layer about two days late, so early in the UTC day the date the globe asks for often isn't out yet. For dates under 4 days old, the Worker serves the newest published date at or before the one asked for, with `X-Source-Date` saying which. It checks with GIBS's list of published dates (WMTS DescribeDomains), remembered for 10 minutes. That fallback is sent with a 15-minute `Cache-Control`, so caches pick up the right date soon after GIBS publishes it.
+
+**Cache lifetimes.** Responses tell browsers and proxies to keep a texture for 1 hour if its date is under 4 days old, and for 30 days otherwise.
+
+**Testing the job locally.** It doesn't run by itself under `npm run dev`. Trigger it with `curl "http://localhost:8787/cdn-cgi/local/scheduled?cron=7+*+*+*+*"`.
+
+**From your own domain.** To serve the Worker from your own domain, either:
+
+1. Uncomment the `routes` entry in `wrangler.jsonc`, for a domain that uses Cloudflare DNS.
 2. Keep the `workers.dev` URL and proxy it from your VPS, which also keeps the texture same-origin (no CORS involved):
 
    ```nginx
@@ -90,6 +101,12 @@ Browsers get the same `Cache-Control`. The Cache API cache is per data center, a
 | `GIBS_COLORMAP_URL`    | `https://gibs.earthdata.nasa.gov/colormaps/v1.3/MODIS_VIIRS_Cloud_Optical_Thickness.xml` (used by `product=albedo`) |
 | `MAX_TILE_MATRIX`      | `5`. Level 4 (200 tiles) already has more pixels than an 8k texture; level 5 is 800 tiles. |
 | `ALLOWED_ORIGINS`      | `*`, or a comma-separated list such as `https://jackiepi.xyz,http://localhost:5173` |
+| `PREWARM_DAYS_BACK`    | `1,2`: days before today (UTC) the hourly job keeps textures ready for |
+| `PREWARM_RESOLUTIONS`  | `2k,4k,8k` |
+| `PREWARM_PRODUCT`      | `albedo` |
+| `PREWARM_TILE_MATRIX`  | `3` |
+| `PREWARM_REFRESH_HOURS`| `6`: remake textures for dates under 4 days old once they are this old |
+| `STORE_RETAIN_DAYS`    | `30`: delete stored textures this long after they were made |
 
 Any other daily layer in the EPSG:4326 "best" endpoint that serves PNG tiles should work by changing these.
 
@@ -126,9 +143,12 @@ Most of the time is zlib compressing the pixels; `albedo` has a quarter as many 
 - `src/png.js`: a PNG decoder (all color types, bit depths and filters) and a streaming RGBA or greyscale encoder on the runtime's `CompressionStream`.
 - `src/albedo.js`: colormap parsing and the color → optical thickness → reflectance mapping.
 - `src/texture.js`: the pipeline. Only one tile row is inflated at a time and the output is streamed, so memory stays flat even though an 8k RGBA image is 134 MB raw.
-- `src/index.js`: request handling, validation, CORS and caching.
+- `src/store.js`: R2 keys, metadata, and a streaming multipart upload that only completes once the whole texture has been written.
+- `src/availability.js`: the dates GIBS has published (WMTS DescribeDomains), and which one to serve for a request.
+- `src/prewarm.js`: the hourly job.
+- `src/index.js`: request handling, validation, CORS, serving from R2, and the scheduled entry point.
 
-**Failure handling.** For levels up to 3 (at most 64 tiles), every tile is downloaded and checked before the response starts, so any GIBS failure becomes a proper `502`. Larger levels stream tile rows as the texture is written, so a tile that still fails after retries cuts the PNG short. A cut-short PNG can't be told apart from a complete one, so that first response is sent with `Cache-Control: no-store`, and a cached texture is only served once a completion marker has been written after it.
+**Failure handling.** For levels up to 3 (at most 64 tiles), every tile is downloaded and checked before the response starts, so any GIBS failure becomes a proper `502`. Larger levels stream tile rows as the texture is written, so a tile that still fails after retries cuts the PNG short. A cut-short PNG can't be told apart from a complete one, so that first response is sent with `Cache-Control: no-store`, and nothing is stored: the R2 upload is aborted.
 
 ## Tests
 
@@ -136,6 +156,6 @@ Most of the time is zlib compressing the pixels; `albedo` has a quarter as many 
 npm test
 ```
 
-This covers the PNG decoder and encoder, the colormap → reflectance mapping, the tile geometry (including where tiles land and the antimeridian blend), retries and errors, and the Worker's validation, caching and CORS. GIBS and the Cache API are faked.
+This covers the PNG decoder and encoder, the colormap → reflectance mapping, the tile geometry (including where tiles land and the antimeridian blend), retries and errors, the Worker's validation, R2 storage, date fallback, hourly job and CORS. GIBS and R2 are faked.
 
 Imagery: NASA Global Imagery Browse Services (GIBS), part of NASA's Earth Science Data and Information System (ESDIS).

@@ -4,14 +4,28 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
 
-  // Needs the Workers Paid plan: a level 3 texture is 50 tile requests plus the cache
-  // lookup, over the Free plan's 50-subrequest cap, and takes seconds of CPU, not 10 ms.
+  // Needs the Workers Paid plan: a level 3 texture is 50 tile requests, over the Free plan's
+  // 50-subrequest cap, and takes seconds of CPU, not 10 ms. The hourly job makes up to six
+  // textures in one run (about 10-15 s of CPU), well inside this limit.
   "limits": {
     "cpu_ms": 60000
   },
 
   "observability": {
     "enabled": true
+  },
+
+  // Finished textures are kept here and served from it (create the bucket once with
+  // `npx wrangler r2 bucket create gibs-textures`). The bucket should be used only by
+  // this Worker: the scheduled clean-up deletes anything it doesn't recognise.
+  "r2_buckets": [
+    { "binding": "TEXTURES", "bucket_name": "gibs-textures" }
+  ],
+
+  // Hourly job that makes the textures the site will ask for before anyone does (prewarm.js).
+  // Minute 7 rather than 0, since many scheduled jobs start on the hour.
+  "triggers": {
+    "crons": ["7 * * * *"]
   },
 
   "vars": {
@@ -24,7 +38,19 @@
     // Highest tileMatrix callers may ask for. Level 4 (200 tiles) already has more pixels
     // than an 8k texture; level 5 is 800 tiles and the 1km set stops at 6 (3,200 tiles).
     "MAX_TILE_MATRIX": "5",
-    "ALLOWED_ORIGINS": "https://jackiepi.xyz,https://www.jackiepi.xyz,http://localhost:5173"
+    "ALLOWED_ORIGINS": "https://jackiepi.xyz,https://www.jackiepi.xyz,http://localhost:5173",
+
+    // What the hourly job keeps ready: textures for these days back (UTC; the globe asks for
+    // 2, and 1 becomes 2 at the next UTC midnight), at these resolutions, product and level,
+    // matching what earth.js requests
+    "PREWARM_DAYS_BACK": "1,2",
+    "PREWARM_RESOLUTIONS": "2k,4k,8k",
+    "PREWARM_PRODUCT": "albedo",
+    "PREWARM_TILE_MATRIX": "3",
+    // Remake textures for recent dates once they are this old, as GIBS may have filled in more
+    "PREWARM_REFRESH_HOURS": "6",
+    // Delete stored textures this many days after they were made (any date can be remade on demand)
+    "STORE_RETAIN_DAYS": "30"
   }
 
   //"routes": [{ "pattern": "www.jackiepi.xyz/cloud-texture/*", "zone_name": "jackiepi.xyz", "custom_domain": true }]
