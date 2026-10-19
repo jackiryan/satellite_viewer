@@ -2,11 +2,11 @@
  * WMTS layer (by default NOAA-20 VIIRS Cloud Optical Thickness) into one equirectangular
  * PNG texture for three.js.
  *
- *   GET /global-texture?date=2026-10-12&tileMatrix=3&outputRes=8k
+ *   GET /global-texture?date=2026-10-12&tileMatrix=4&outputRes=8k
  *
  * date        required  YYYY-MM-DD; a full timestamp such as 2026-10-12T00:00:00Z is
  *                       accepted and its time of day ignored (the layer is daily)
- * tileMatrix  optional  GIBS TileMatrix (zoom level) to read, default 3
+ * tileMatrix  optional  GIBS TileMatrix (zoom level) to read; by default 4 for 8k, 3 otherwise
  * outputRes   optional  1k | 2k | 4k | 8k -> 1024x512 ... 8192x4096, default 8k
  * product     optional  colormap (default) | albedo
  *
@@ -28,7 +28,10 @@ import { storeStream, textureKey, textureMetadata } from './store.js';
 import { OUTPUT_SIZES, PRODUCTS, createTexture } from './texture.js';
 
 const TEXTURE_PATH = '/global-texture';
-const DEFAULT_TILE_MATRIX = 3;
+// TileMatrix used when a request doesn't name one, by outputRes: the lowest level with at least
+// as many pixels as the texture, so it is made by shrinking the tiles rather than enlarging them.
+// Level 3 is 5120x2560 and level 4 10240x5120 (4x the tiles: 200 rather than 50).
+export const DEFAULT_TILE_MATRIX = { '1k': 3, '2k': 3, '4k': 3, '8k': 4 };
 const DEFAULT_OUTPUT_RES = '8k';
 const DEFAULT_PRODUCT = 'colormap';
 // Cache lifetime of a texture for an older date than the one asked for (because the asked-for
@@ -43,6 +46,22 @@ class RequestError extends Error {
         super(message);
         this.status = status;
     }
+}
+
+// PREWARM_TILE_MATRIX: a level for every resolution ("3"), or levels by resolution
+// ("2k:3,4k:3,8k:4"); resolutions it leaves out use DEFAULT_TILE_MATRIX
+export function tileMatrixByResolution(value) {
+    const levels = { ...DEFAULT_TILE_MATRIX };
+    for (const entry of listOf(value, '')) {
+        const [res, level] = entry.includes(':') ? entry.split(':').map((s) => s.trim().toLowerCase()) : [null, entry];
+        if (!/^\d+$/.test(level) || (res !== null && !(res in OUTPUT_SIZES))) continue;
+        if (res === null) {
+            for (const key of Object.keys(levels)) levels[key] = Number(level);
+        } else {
+            levels[res] = Number(level);
+        }
+    }
+    return levels;
 }
 
 function readConfig(env) {
@@ -63,7 +82,7 @@ function readConfig(env) {
             daysBack: listOf(env.PREWARM_DAYS_BACK, '1,2').map(Number).filter(Number.isFinite),
             resolutions: listOf(env.PREWARM_RESOLUTIONS, '2k,4k,8k').filter((r) => r in OUTPUT_SIZES),
             product: PRODUCTS.includes(env.PREWARM_PRODUCT) ? env.PREWARM_PRODUCT : 'albedo',
-            tileMatrix: Number.parseInt(env.PREWARM_TILE_MATRIX ?? '3', 10),
+            tileMatrix: tileMatrixByResolution(env.PREWARM_TILE_MATRIX),   // by outputRes
             refreshHours: Number(env.PREWARM_REFRESH_HOURS ?? 6),
             retainDays: Number(env.STORE_RETAIN_DAYS ?? 30)
         }
@@ -97,8 +116,12 @@ function parseDate(value, config) {
     return date;
 }
 
-function parseTileMatrix(value, config) {
-    if (value === null || value === '') return DEFAULT_TILE_MATRIX;
+function defaultTileMatrix(outputRes, config) {
+    return Math.min(DEFAULT_TILE_MATRIX[outputRes], config.maxTileMatrix);
+}
+
+function parseTileMatrix(value, config, outputRes) {
+    if (value === null || value === '') return defaultTileMatrix(outputRes, config);
     if (!/^\d+$/.test(value.trim())) {
         throw new RequestError(400, `Invalid tileMatrix "${value}"; expected an integer from 0 to ${config.maxTileMatrix}`);
     }
@@ -129,10 +152,12 @@ function parseProduct(value) {
 }
 
 function parseParams(searchParams, config) {
+    const date = parseDate(searchParams.get('date'), config);
+    const outputRes = parseOutputRes(searchParams.get('outputRes'));
     return {
-        date: parseDate(searchParams.get('date'), config),
-        tileMatrix: parseTileMatrix(searchParams.get('tileMatrix'), config),
-        outputRes: parseOutputRes(searchParams.get('outputRes')),
+        date,
+        tileMatrix: parseTileMatrix(searchParams.get('tileMatrix'), config, outputRes),
+        outputRes,
         product: parseProduct(searchParams.get('product'))
     };
 }
@@ -184,7 +209,12 @@ function apiDescription(origin, config) {
                 earliest: config.earliestDate,
                 note: 'for recent dates, the newest date GIBS has published at or before it is served (X-Source-Date)'
             },
-            tileMatrix: { default: DEFAULT_TILE_MATRIX, min: 0, max: config.maxTileMatrix },
+            tileMatrix: {
+                default: Object.fromEntries(Object.keys(OUTPUT_SIZES).map((res) => [res, defaultTileMatrix(res, config)])),
+                note: 'the default depends on outputRes',
+                min: 0,
+                max: config.maxTileMatrix
+            },
             outputRes: {
                 default: DEFAULT_OUTPUT_RES,
                 values: Object.fromEntries(Object.entries(OUTPUT_SIZES).map(([k, [w, h]]) => [k, `${w}x${h}`]))

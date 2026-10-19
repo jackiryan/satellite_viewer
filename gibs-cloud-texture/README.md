@@ -3,13 +3,13 @@
 A Cloudflare Worker that downloads every tile of one TileMatrix level of a NASA GIBS WMTS layer and stitches them into a single equirectangular PNG texture for three.js. It is set up for the NOAA-20 VIIRS Cloud Optical Thickness layer (`VIIRS_NOAA20_Cloud_Optical_Thickness`, 1km tile matrix set).
 
 ```
-GET /global-texture?date=2026-10-12&tileMatrix=3&outputRes=8k&product=albedo
+GET /global-texture?date=2026-10-12&tileMatrix=4&outputRes=8k&product=albedo
 ```
 
 | Parameter    | Default  | Values |
 |--------------|----------|--------|
 | `date`       | required | `YYYY-MM-DD`. A timestamp such as `2026-10-12T00:00:00Z` is also accepted and the time of day is ignored. For dates in the last 4 days, the newest date GIBS has published at or before it is served (see [Caching](#caching)). |
-| `tileMatrix` | `3`      | `0` to `MAX_TILE_MATRIX` (5 by default) |
+| `tileMatrix` | `4` for `8k`, `3` otherwise | `0` to `MAX_TILE_MATRIX` (5 by default). The default is the lowest level with at least as many pixels as the texture: level 3 is 5120x2560, level 4 10240x5120. |
 | `outputRes`  | `8k`     | `1k` (1024x512), `2k` (2048x1024), `4k` (4096x2048), `8k` (8192x4096) |
 | `product`    | `colormap` | `colormap`: the GIBS colors as RGBA. `albedo`: greyscale cloud reflectance, used by the satellite viewer. |
 
@@ -30,7 +30,7 @@ A greyscale PNG of how much visible light the clouds reflect, ready to composite
 ### `product=colormap`
 
 - colors are the GIBS colormap colors (ice phase magenta → blue → green, water phase yellow → orange → dark red). Pixels with no data (clear sky, night, gaps between orbits) are fully transparent.
-- Resampling is bilinear when enlarging (level 3 is 5120x2560, so 8k is a 1.6x enlargement) and area-averaged when shrinking. It wraps across the antimeridian and is done in premultiplied alpha, so cloud edges fade out in alpha without picking up the transparent light-lavender color GIBS stores for no-data.
+- Resampling is bilinear when enlarging and area-averaged when shrinking (the default levels only ever shrink: level 3 is 5120x2560 and level 4, used for 8k, 10240x5120). It wraps across the antimeridian and is done in premultiplied alpha, so cloud edges fade out in alpha without picking up the transparent light-lavender color GIBS stores for no-data.
 
 Response headers describe the source: `X-Requested-Date`, `X-Source-Date` (the date actually shown), `X-Source-Tile-Matrix`, `X-Source-Size` (e.g. `5120x2560`), `X-Texture-Size`, `X-Texture-Product`, `X-Cache` (`HIT` from R2, `MISS` when made for this request). They are exposed to browser code through CORS.
 
@@ -38,7 +38,7 @@ Errors come back as JSON with a status: `400` for bad parameters, `404` for date
 
 ## Deploying
 
-The Worker needs the **Workers Paid plan**. A level 3 texture is 50 tile requests, over the Free plan's 50-subrequest cap, and it takes seconds of CPU time rather than the Free plan's 10 ms. `wrangler.jsonc` raises the CPU limit to 60 s; the slowest case measured is about 14 s.
+The Worker needs the **Workers Paid plan**. A level 3 texture is 50 tile requests (level 4, the default for 8k, is 200), over the Free plan's 50-subrequest cap, and it takes seconds of CPU time rather than the Free plan's 10 ms. `wrangler.jsonc` raises the CPU limit to 60 s; the slowest case measured is about 14 s.
 
 ```bash
 npm install
@@ -104,7 +104,7 @@ Finished textures are stored in an R2 bucket (binding `TEXTURES`) and served fro
 | `PREWARM_DAYS_BACK`    | `1,2`: days before today (UTC) the hourly job keeps textures ready for |
 | `PREWARM_RESOLUTIONS`  | `2k,4k,8k` |
 | `PREWARM_PRODUCT`      | `albedo` |
-| `PREWARM_TILE_MATRIX`  | `3` |
+| `PREWARM_TILE_MATRIX`  | `2k:3,4k:3,8k:4`: the GIBS level for each resolution. A bare number such as `3` applies to all of them; resolutions left out use the `tileMatrix` default. |
 | `PREWARM_REFRESH_HOURS`| `6`: remake textures for dates under 4 days old once they are this old |
 | `STORE_RETAIN_DAYS`    | `30`: delete stored textures this long after they were made |
 
@@ -112,7 +112,7 @@ Any other daily layer in the EPSG:4326 "best" endpoint that serves PNG tiles sho
 
 ## Using it from the satellite viewer
 
-The globe requests `/cloud-texture?date=…&tileMatrix=3&outputRes=…&product=albedo`, with the date two days before the scene time. It asks for 2k on mobile, Safari and the landing page, and 8k elsewhere (4k if the GPU can't hold 8192-pixel textures). nginx proxies `/cloud-texture` to this Worker in production, and Vite does the same in development (`vite.config.js`). To work on the Worker itself, run `npm run dev` here (port 8787) and point that Vite proxy at `http://localhost:8787`.
+The globe requests `/cloud-texture?date=…&tileMatrix=…&outputRes=…&product=albedo`, with the date two days before the scene time. It asks for 2k on mobile, Safari and the landing page, and 8k elsewhere (4k if the GPU can't hold 8192-pixel textures), from level 3 for 2k and 4k and level 4 for 8k, so the 8k texture is shrunk from 10240x5120 tiles rather than enlarged 1.6x from level 3. nginx proxies `/cloud-texture` to this Worker in production, and Vite does the same in development (`vite.config.js`). To work on the Worker itself, run `npm run dev` here (port 8787) and point that Vite proxy at `http://localhost:8787`.
 
 The texture is uploaded as a single-channel (`RedFormat`) texture, 32 MB of GPU memory at 8k. `earthFragment.glsl` turns it into true-color-like clouds. For cloud reflectance R, the day side shows `R + A T_sun T_view / (1 - R A)` over a surface of albedo A:
 - light the cloud reflects;

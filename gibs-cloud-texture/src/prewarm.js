@@ -40,7 +40,7 @@ export async function prewarm({ config, bucket, now = Date.now(), fetchImpl = fe
 
     for (const date of dates) {
         for (const outputRes of settings.resolutions) {
-            const params = { date, tileMatrix: settings.tileMatrix, outputRes, product: settings.product };
+            const params = { date, tileMatrix: settings.tileMatrix[outputRes], outputRes, product: settings.product };
             const key = textureKey(config, params);
             const existing = await bucket.head(key);
             const age = existing ? now - existing.uploaded.getTime() : Infinity;

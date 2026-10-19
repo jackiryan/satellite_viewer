@@ -201,13 +201,18 @@ export class Earth {
     // product=albedo returns a greyscale PNG of the clouds' visible reflectance, worked out from
     // NOAA-20 VIIRS cloud optical thickness. GIBS takes about two days to finish a day's data,
     // so ask for the day two days before the scene time (never later than now).
+    // The GIBS level (tileMatrix) is the lowest one with at least as many pixels as the texture,
+    // so the worker shrinks the tiles rather than enlarging them: level 3 (5120 x 2560) for 2k
+    // and 4k, level 4 (10240 x 5120) for 8k. These match what the worker's hourly job keeps ready
+    // (PREWARM_TILE_MATRIX in gibs-cloud-texture/wrangler.jsonc).
     getCloudTextureUrl(useLowRes = false) {
         const sceneTime = Math.min(this.initialDate.getTime(), Date.now());
         const date = new Date(sceneTime - 2 * 86400000).toISOString().slice(0, 10);
+        const outputRes = this.getCloudResolution(useLowRes);
         const params = new URLSearchParams({
             date,
-            tileMatrix: '3',
-            outputRes: this.getCloudResolution(useLowRes),
+            tileMatrix: outputRes === '8k' ? '4' : '3',
+            outputRes,
             product: 'albedo'
         });
         return `${window.location.origin || '.'}/cloud-texture?${params}`;
