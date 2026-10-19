@@ -82,33 +82,121 @@ export function solidTile(index) {
     });
 }
 
+/** A GIBS DescribeDomains document whose time domain is `ranges` ([start, end] pairs). */
+export function domainsXml(ranges) {
+    const domain = ranges.map(([start, end]) => `${start}/${end}/P1D`).join(',');
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Domains xmlns:ows="http://www.opengis.net/ows/1.1">
+  <SpaceDomain><BoundingBox crs="urn:ogc:def:crs:OGC:2:84">-180,-90,180,90</BoundingBox></SpaceDomain>
+  <DimensionDomain><ows:Identifier>time</ows:Identifier><Domain>${domain}</Domain><Size>${ranges.length}</Size></DimensionDomain>
+</Domains>`;
+}
+
 /**
- * Fake fetch for GIBS GetTile requests. `tileFor(level, row, col, time)` returns PNG bytes
- * or a Response; every request URL is recorded in `fake.requests`.
+ * Fake fetch for GIBS. `tileFor(level, row, col, time)` returns PNG bytes or a Response for
+ * GetTile requests. DescribeDomains requests list `fake.published` ([start, end] date pairs,
+ * by default everything up to today). Every request URL is recorded in `fake.requests`.
  */
 export function fakeGibs(tileFor) {
     const fake = async (url) => {
         fake.requests.push(url);
+        const window = new URL(url).pathname.match(/\/all\/(\d{4}-\d{2}-\d{2})--(\d{4}-\d{2}-\d{2})\.xml$/);
+        if (window) {
+            // like GIBS, list only the published dates inside the requested window
+            const [, from, to] = window;
+            const clipped = fake.published
+                .map(([start, end]) => [start < from ? from : start, end > to ? to : end])
+                .filter(([start, end]) => start <= end);
+            return new Response(domainsXml(clipped), { headers: { 'content-type': 'text/xml' } });
+        }
         const q = new URL(url).searchParams;
         const result = await tileFor(+q.get('TileMatrix'), +q.get('TileRow'), +q.get('TileCol'), q.get('TIME'));
         return result instanceof Response ? result : new Response(result, { headers: { 'content-type': 'image/png' } });
     };
     fake.requests = [];
+    fake.published = [['2018-02-17', new Date().toISOString().slice(0, 10)]];
+    fake.tileRequests = () => fake.requests.filter((u) => u.includes('GetTile'));
     return fake;
 }
 
-/** Minimal stand-in for the Workers Cache API (caches.default). */
-export function fakeCache() {
-    const store = new Map();
+/**
+ * In-memory stand-in for an R2 bucket binding: get, head, put, multipart uploads (with R2's
+ * rule that all parts but the last are the same size), list and delete. `ops` records calls.
+ */
+export function fakeR2() {
+    const objects = new Map();
+    const ops = [];
+    const describe = (key, o) => ({
+        key,
+        size: o.body.length,
+        uploaded: o.uploaded,
+        httpEtag: `"${o.body.length}-${o.uploaded.getTime()}"`,
+        httpMetadata: o.httpMetadata ?? {},
+        customMetadata: o.customMetadata ?? {}
+    });
+    const save = (key, body, options = {}) => {
+        objects.set(key, { body, uploaded: new Date(), httpMetadata: options.httpMetadata, customMetadata: options.customMetadata });
+        return describe(key, objects.get(key));
+    };
     return {
-        store,
-        async match(request) {
-            const hit = store.get(request.url);
-            return hit ? new Response(hit.body, { headers: hit.headers }) : undefined;
+        objects,
+        ops,
+        /** Pretend `key` was uploaded at `date`. */
+        setUploaded(key, date) {
+            objects.get(key).uploaded = date;
         },
-        async put(request, response) {
-            const body = new Uint8Array(await response.arrayBuffer());
-            store.set(request.url, { body, headers: [...response.headers] });
+        async head(key) {
+            const o = objects.get(key);
+            return o ? describe(key, o) : null;
+        },
+        async get(key) {
+            const o = objects.get(key);
+            return o ? { ...describe(key, o), body: new Response(o.body.slice()).body } : null;
+        },
+        async put(key, value, options) {
+            const body = new Uint8Array(value);
+            ops.push(['put', key, body.length]);
+            return save(key, body, options);
+        },
+        async createMultipartUpload(key, options) {
+            const parts = new Map();
+            ops.push(['create', key]);
+            return {
+                async uploadPart(partNumber, value) {
+                    const copy = new Uint8Array(value);
+                    parts.set(partNumber, copy);
+                    ops.push(['part', key, partNumber, copy.length]);
+                    return { partNumber, etag: String(partNumber) };
+                },
+                async complete(list) {
+                    const chunks = list.map(({ partNumber }) => parts.get(partNumber));
+                    const sizes = chunks.slice(0, -1).map((c) => c.length);
+                    if (new Set(sizes).size > 1) throw new Error('parts other than the last differ in size');
+                    const body = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+                    let offset = 0;
+                    for (const c of chunks) { body.set(c, offset); offset += c.length; }
+                    ops.push(['complete', key, chunks.length]);
+                    return save(key, body, options);
+                },
+                async abort() {
+                    ops.push(['abort', key]);
+                }
+            };
+        },
+        async list({ prefix = '', cursor, limit = 1000 } = {}) {
+            const keys = [...objects.keys()].filter((k) => k.startsWith(prefix)).sort();
+            const start = cursor ? Number(cursor) : 0;
+            const page = keys.slice(start, start + limit);
+            const truncated = start + limit < keys.length;
+            return {
+                objects: page.map((k) => describe(k, objects.get(k))),
+                truncated,
+                cursor: truncated ? String(start + limit) : undefined
+            };
+        },
+        async delete(keys) {
+            for (const k of [].concat(keys)) objects.delete(k);
+            ops.push(['delete', [].concat(keys).length]);
         }
     };
 }
@@ -163,10 +251,12 @@ export const COLORMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
 export function fakeGibsWithColormap(tileFor) {
     const tiles = fakeGibs(tileFor);
     const fake = async (url) => {
-        fake.requests.push(url);
-        if (/colormaps/.test(url)) return new Response(COLORMAP_XML, { headers: { 'content-type': 'text/xml' } });
-        return tiles(url);
+        if (!/colormaps/.test(url)) return tiles(url);
+        tiles.requests.push(url);
+        return new Response(COLORMAP_XML, { headers: { 'content-type': 'text/xml' } });
     };
     fake.requests = tiles.requests;
+    fake.tileRequests = tiles.tileRequests;
+    Object.defineProperty(fake, 'published', { get: () => tiles.published, set: (v) => { tiles.published = v; } });
     return fake;
 }
