@@ -6,6 +6,9 @@ uniform sampler2D cloudTexture;   // sqrt(cloud reflectance) in red, from the gi
 uniform bool showClouds;
 uniform float cloudBrightness;    // scales cloud reflectance (1.0 = as computed)
 uniform sampler2D cloudLightTexture; // cloud shadows and cloud-top shading, baked by cloudLightFragment.glsl
+uniform bool liveCloudLight;      // march per pixel instead of reading cloudLightTexture (sun moving fast)
+uniform float cloudShadowHeight;  // top height of the thickest clouds, in scene units
+uniform float cloudRelief;        // strength of the slope shading on cloud tops (0 = flat)
 uniform float cloudTwilightTint;  // 0 = cloud tops stay white to the terminator, 1 = full sunset color
 uniform float windSpeed;          // m/s; rougher seas spread the sun glint out
 uniform float glintBrightness;
@@ -48,6 +51,8 @@ float sampleCloudReflectance(vec2 uv, float bias) {
     float encoded = texture(cloudTexture, uv, bias).r * float(showClouds);
     return clamp(encoded * encoded * cloudBrightness, 0.0, 0.95);
 }
+
+#include cloudShadow.glsl;
 
 // Light that still reaches a shadowed cloud top from the sky and surrounding cloud
 const float CLOUD_SHADOW_AMBIENT = 0.35;
@@ -103,10 +108,24 @@ void main() {
         cloudReflectance = sampleCloudReflectance(vUv, 0.0);
         // Sunlight after the clouds between this spot and the sun: x at the ground (with the cloud
         // overhead, at full resolution), y at the top of the cloud here, z the brightening of the
-        // cloud top by its slope. The shadow march itself is baked into cloudLightTexture by
-        // cloudLightFragment.glsl whenever the sun has moved (Earth.updateCloudLighting).
-        vec3 bakedLight = textureGrad(cloudLightTexture, vUv, uvDx, uvDy).rgb;
-        sunlight = vec3(1.0 - max(cloudReflectance, bakedLight.r), 1.0 - bakedLight.g, bakedLight.b + 0.4);
+        // cloud top by its slope. Normally the shadow march is baked into cloudLightTexture by
+        // cloudLightFragment.glsl whenever the sun has moved. When the sun moves so fast that the
+        // bake would be redrawn every frame, Earth.updateCloudLighting sets liveCloudLight and the
+        // march runs here per pixel instead, which costs less than marching the whole texture.
+        // Both are uniform, so neither branch diverges.
+        vec3 blocked;   // the bake's layout: ground and cloud-top light blocked, slope light - 0.4
+        if (liveCloudLight) {
+            // Mip level for the march: the pixel's footprint on the texture, allowing for up to
+            // 4:1 stretching by foreshortening near the limb (as anisotropic filtering would)
+            vec2 cloudTexels = vec2(textureSize(cloudTexture, 0));
+            float footprintA = length(uvDx * cloudTexels), footprintB = length(uvDy * cloudTexels);
+            float pixelLod = max(log2(max(min(footprintA, footprintB), max(footprintA, footprintB) / 4.0)), 0.0);
+            vec3 light = cloudSunlight(vUv, normal, litSunDirection, length(vPosition), cloudReflectance, pixelLod);
+            blocked = vec3(1.0 - light.x, 1.0 - light.y, light.z - 0.4);
+        } else {
+            blocked = textureGrad(cloudLightTexture, vUv, uvDx, uvDy).rgb;
+        }
+        sunlight = vec3(1.0 - max(cloudReflectance, blocked.r), 1.0 - blocked.g, blocked.b + 0.4);
     }
     float viewTransmission = 1.0 - cloudReflectance;
     float sunTransmission = sunlight.x;

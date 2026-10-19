@@ -12,6 +12,9 @@ import atmosphereVertexShader from './shaders/atmosphere/atmosphereVertex.glsl';
 import atmosphereFragmentShader from './shaders/atmosphere/atmosphereFragment.glsl';
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+// Frames in a row the sun's speed has to call for the other cloud lighting mode before switching
+// (see updateCloudLightMode), so a single jump, such as skipping a day, doesn't switch
+const CLOUD_LIGHT_SWITCH_FRAMES = 3;
 
 // Taken from this very popular stackoverflow thread: https://stackoverflow.com/questions/11381673/detecting-a-mobile-browser
 // no I do not intend to support iemobile or blackberry, but it doesn't hurt anything to have them in there.
@@ -54,8 +57,13 @@ export class Earth {
             cloudTwilightTint: 0.2,
             // cloud shadows and cloud-top shading are baked into a texture (see updateCloudLighting)
             // and redrawn when the sun has moved this many degrees relative to the ground: about
-            // every 25 s at 1 sec/s, every frame at 30 min/s and up
+            // every 25 s at 1 sec/s
             cloudLightUpdateAngle: 0.1,
+            // once the sun moves fast enough that the bake would be redrawn at least once every
+            // this many frames, the globe marches the shadows per pixel instead (updateCloudLightMode).
+            // Redrawing the whole texture costs several frames' worth of per-pixel marching, so at
+            // 60 Hz this is 30 min/s and 1 hr/s; at 120 Hz, the same
+            cloudLightLiveFrames: 2,
             // how far city light spreads sideways inside cloud before it escapes (km, one standard
             // deviation of the glow). Real cloud spreads it over a few km to ten, which is about a
             // pixel at globe scale, so this is a little exaggerated; much more and neighbouring
@@ -338,11 +346,14 @@ export class Earth {
                 cloudTexture: new THREE.Uniform(null),
                 showClouds: new THREE.Uniform(false),
                 cloudBrightness: new THREE.Uniform(this.parameters.cloudBrightness),
-                // used by the cloud lighting bake (createCloudLighting), not the Earth shader itself
+                // used by the cloud lighting bake (createCloudLighting), and by the Earth shader
+                // while it marches the shadows itself (liveCloudLight)
                 cloudShadowHeight: new THREE.Uniform(this.parameters.cloudShadowHeight * this.parameters.radius / 6371),
                 cloudRelief: new THREE.Uniform(this.parameters.cloudRelief),
                 // the baked cloud shadows; updateCloudLighting swaps in the render target's texture
                 cloudLightTexture: new THREE.Uniform(null),
+                // march the shadows per pixel instead of reading the bake (updateCloudLightMode)
+                liveCloudLight: new THREE.Uniform(false),
                 cloudTwilightTint: new THREE.Uniform(this.parameters.cloudTwilightTint),
                 windSpeed: new THREE.Uniform(this.parameters.windSpeed),
                 glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
@@ -519,18 +530,51 @@ export class Earth {
             // what the current bake was drawn with
             bakedTexture: null,
             bakedSun: new THREE.Vector3(),
-            bakedSettings: []
+            bakedSettings: [],
+            // per-pixel mode (see updateCloudLightMode)
+            live: false,
+            switchVotes: 0,
+            previousSun: null
         };
+    }
+
+    // Choose between the bake and marching the shadows per pixel, from how far the sun moved
+    // relative to the ground since the last frame. One bake redraws every texel of a texture as
+    // big as 4096 x 2048, several times the pixels the globe covers on screen, so when the sun
+    // moves fast enough to need one (nearly) every frame, marching only the pixels on screen costs
+    // less and keeps the frame time even. Called from update(), once per animation frame.
+    updateCloudLightMode() {
+        const light = this.cloudLight;
+        if (!light) return;
+        const sunLocal = new THREE.Vector3()
+            .copy(this.earthMaterial.uniforms.sunDirection.value)
+            .applyAxisAngle(Y_AXIS, -this.earth.rotation.y);
+        if (light.previousSun) {
+            const step = THREE.MathUtils.radToDeg(sunLocal.angleTo(light.previousSun));
+            const fastStep = this.parameters.cloudLightUpdateAngle / this.parameters.cloudLightLiveFrames;
+            // a little hysteresis, so a speed right at the threshold doesn't flip back and forth
+            const fast = step >= (light.live ? 0.7 * fastStep : fastStep);
+            light.switchVotes = fast === light.live ? 0 : light.switchVotes + 1;
+            if (light.switchVotes >= CLOUD_LIGHT_SWITCH_FRAMES) {
+                light.live = fast;
+                light.switchVotes = 0;
+                // the last bake is out of date by now: redraw it on the next frame
+                if (!light.live) light.bakedTexture = null;
+            }
+        }
+        light.previousSun = sunLocal;
+        this.earthMaterial.uniforms.liveCloudLight.value = light.live;
     }
 
     // Redraw the baked cloud lighting if the clouds, their settings or the sun's direction relative
     // to the ground have changed since the last bake. Called from the globe's onBeforeRender every
-    // frame, like bakeNightGlow; most frames it returns straight away.
+    // frame, like bakeNightGlow; most frames it returns straight away, and it does nothing while
+    // the Earth shader marches the shadows itself (updateCloudLightMode).
     updateCloudLighting(renderer) {
         const uniforms = this.earthMaterial.uniforms;
         const cloudTexture = uniforms.cloudTexture.value;
         const image = cloudTexture?.image;
-        if (!this.cloudLight || !uniforms.showClouds.value || !image?.width) return;
+        if (!this.cloudLight || this.cloudLight.live || !uniforms.showClouds.value || !image?.width) return;
 
         const light = this.cloudLight;
         const bakeUniforms = light.quad.material.uniforms;
@@ -636,6 +680,8 @@ export class Earth {
         this.atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
 
         this.earthMaterial.uniforms.time.value = performance.now() * 0.001;
+
+        this.updateCloudLightMode();
 
         // Update sun helper if present
         if (this.sunHelper) {
