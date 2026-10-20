@@ -14,7 +14,12 @@ Caveats of the space-track-only approach:
   * "Weather" and "Science" are curated multi-operator groups on CelesTrak with
     no single defining attribute; here they are approximated by a best-effort
     union of well-known object-name patterns and will not match CelesTrak
-    exactly.
+    exactly. Science also takes the NASA A-Train and other civil-agency
+    sun-synchronous Earth-observation satellites, by NORAD id or, for series
+    that keep growing (Sentinel, Landsat, Gaofen, ...), by name plus a
+    sun-synchronous orbit check.
+  * Space stations are matched by NORAD id, since their names differ between
+    catalogs.
   * "Active" is every on-orbit PAYLOAD that does not fall into a named group;
     everything else (rocket bodies, debris, unknown) becomes "Debris".
 """
@@ -23,7 +28,9 @@ import csv
 from copy import deepcopy
 import json
 import logging
+import math
 import pathlib
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -115,10 +122,15 @@ satellite_groups = {
 
 special_colors = {}
 
-# The only two items associated with space stations that should be displayed;
-# everything else co-orbiting with a station is filtered as clutter (see below).
-# These strings must match the space-track OBJECT_NAME exactly.
-station_whitelist = ["ISS (ZARYA)", "CSS (TIANHE)"]
+# The only objects associated with space stations that should be displayed, by NORAD
+# catalog id, with the name shown in the viewer. Everything else co-orbiting with a
+# station is filtered as clutter (see below). Matched by id rather than name because
+# catalogs name the stations differently: space-track calls Tianhe "CSS (TIANHE-1)",
+# while CelesTrak calls it "CSS (TIANHE)".
+STATION_NORAD_IDS = {
+    25544: "ISS (ZARYA)",
+    48274: "CSS (TIANHE)",
+}
 
 # Objects deployed from / docking with a station clutter the view around it.
 # We drop them entirely (keeping only the whitelist above). ISS-deployed objects
@@ -132,6 +144,8 @@ STATION_CLUTTER_NAMES = [
     "SOYUZ",
     "TIANZHOU",
     "SHENZHOU",
+    "WENTIAN",   # CSS modules docked to Tianhe
+    "MENGTIAN",
     "STARLINER",
     "CST-100",
 ]
@@ -190,6 +204,70 @@ NAME_PATTERNS = {
     ],
 }
 
+# Jackie note: This is so overengineered..... they weren't kidding about Opus 5.5
+# Sun-synchronous Earth-observation satellites of the major civil space agencies, added
+# to Science by NORAD catalog id (names vary between catalogs, and short names like
+# AQUA or TERRA are too generic to match on). Ids checked against keeptrack.space.
+SCIENCE_NORAD_IDS = {
+    # NASA A-Train: OCO-2, GCOM-W1 (JAXA) and Aura fly in formation; Aqua left in 2022
+    # but is still operating. CloudSat and CALIPSO are matched by name above.
+    40059: "OCO 2",
+    38337: "GCOM-W1 (SHIZUKU)",
+    28376: "AURA",
+    27424: "AQUA",
+    # NASA, with USGS and ISRO partners (Landsat is matched by name below)
+    25994: "TERRA",
+    40376: "SMAP",
+    58928: "PACE",
+    65053: "NISAR",
+    # ESA (Sentinels are matched by name below; Sentinel-3 is in Weather)
+    36036: "SMOS",
+    59908: "EARTHCARE",
+    63772: "BIOMASS",
+    # JAXA
+    43065: "GCOM-C (SHIKISAI)",
+    39766: "ALOS-2 (DAICHI-2)",
+    60182: "ALOS-4 (DAICHI-4)",
+    33492: "GOSAT (IBUKI)",
+    43672: "GOSAT-2 (IBUKI-2)",
+    64694: "GOSAT-GW (IBUKI-GW)",
+    # ISRO
+    37387: "RESOURCESAT-2",
+    41877: "RESOURCESAT-2A",
+    51656: "EOS-04",
+    54361: "EOS-06 (OCEANSAT-3)",
+    # CSA: the RADARSAT Constellation Mission and RADARSAT-2
+    44322: "RCM-1",
+    44324: "RCM-2",
+    44323: "RCM-3",
+    32382: "RADARSAT-2",
+}
+
+# Earth-observation series that keep adding satellites, matched by name and added to
+# Science only when the orbit is sun-synchronous (which leaves out, for example, the
+# geostationary Gaofen-4 and Gaofen-13). Names are compared with everything but
+# letters and digits removed, so "SENTINEL-2A", "SENTINEL 2A" and "SENTINEL2A" match.
+SUN_SYNCHRONOUS_SCIENCE_FAMILIES = [
+    "SENTINEL1",   # ESA C-band radar
+    "SENTINEL2",   # ESA multispectral imagers
+    "SENTINEL5P",  # ESA atmospheric composition
+    "LANDSAT",     # NASA/USGS
+    "GAOFEN",      # CNSA China High-resolution Earth Observation System
+    "CBERS",       # CNSA/INPE China-Brazil Earth Resources Satellites
+    "KANOPUSV",    # Roscosmos
+    "RESURSP",     # Roscosmos
+]
+# Allowed difference between a satellite's inclination and the sun-synchronous
+# inclination for its altitude. Operational sun-synchronous satellites are within about
+# 0.1 deg; this leaves room for older satellites that no longer maintain their orbit.
+SUN_SYNCHRONOUS_TOLERANCE_DEG = 1.0
+
+EARTH_MU = 398600.4418           # km^3/s^2
+EARTH_EQUATORIAL_RADIUS = 6378.137  # km
+EARTH_J2 = 1.08262668e-3
+# Nodal precession that keeps the orbit fixed relative to the Sun: 360 deg per year
+SUN_SYNCHRONOUS_PRECESSION = 2 * math.pi / (365.2422 * 86400)  # rad/s
+
 # Operational GLONASS satellites sit in ~64.8-degree semi-synchronous MEO
 # (mean motion ~2.13 rev/day). This separates them from the many other Russian
 # "COSMOS" satellites, including the ~63.4-degree Molniya-orbit ones (mean
@@ -207,7 +285,7 @@ def _to_float(value: str | None) -> float | None:
 
 def is_station_clutter(rec: dict) -> bool:
     """True if the object is station-associated clutter that should be dropped."""
-    if rec["name"] in station_whitelist:
+    if rec["norad_id"] in STATION_NORAD_IDS:
         return False
     if rec["object_id"].startswith(STATION_CLUTTER_DESIGNATORS):
         return True
@@ -225,19 +303,48 @@ def is_glonass_orbit(rec: dict) -> bool:
     )
 
 
+def sun_synchronous_inclination(mean_motion: float) -> float | None:
+    """Inclination (deg) that makes a circular orbit with this mean motion (rev/day)
+    sun-synchronous, or None if no inclination can (orbits above ~6,000 km altitude)."""
+    n = mean_motion * 2 * math.pi / 86400  # rad/s
+    a = (EARTH_MU / (n * n)) ** (1 / 3)
+    # J2 nodal precession: dOmega/dt = -1.5 n J2 (R/a)^2 cos(i), for a circular orbit
+    cos_i = -SUN_SYNCHRONOUS_PRECESSION / (1.5 * n * EARTH_J2 * (EARTH_EQUATORIAL_RADIUS / a) ** 2)
+    if cos_i < -1:
+        return None
+    return math.degrees(math.acos(cos_i))
+
+
+def is_sun_synchronous(rec: dict) -> bool:
+    inc, mm = rec["inclination"], rec["mean_motion"]
+    if inc is None or not mm:
+        return False
+    target = sun_synchronous_inclination(mm)
+    return target is not None and abs(inc - target) <= SUN_SYNCHRONOUS_TOLERANCE_DEG
+
+
+def is_sun_synchronous_science(rec: dict) -> bool:
+    """True for a member of SUN_SYNCHRONOUS_SCIENCE_FAMILIES in a sun-synchronous orbit."""
+    compact = re.sub(r"[^A-Z0-9]", "", rec["name"].upper())
+    return any(family in compact for family in SUN_SYNCHRONOUS_SCIENCE_FAMILIES) and is_sun_synchronous(rec)
+
+
 def classify(rec: dict) -> str:
     """Return the group name a catalog record belongs to."""
-    name = rec["name"]
-    if name in station_whitelist:
+    if rec["norad_id"] in STATION_NORAD_IDS:
         return "Space Stations"
     # Only payloads belong to the named groups; rocket bodies, debris and
     # unknown objects (even if their name matches a constellation) go to Debris.
     if rec["object_type"] != "PAYLOAD":
         return "Debris"
-    upper = name.upper()
+    if rec["norad_id"] in SCIENCE_NORAD_IDS:
+        return "Science"
+    upper = rec["name"].upper()
     for group_name, tokens in NAME_PATTERNS.items():
         if any(tok in upper for tok in tokens):
             return group_name
+    if is_sun_synchronous_science(rec):
+        return "Science"
     if "COSMOS" in upper and is_glonass_orbit(rec):
         return "GLONASS"
     return "Active"
@@ -268,6 +375,7 @@ def add_satellite(rec: dict, group: str) -> None:
 def parse_catalog(catalog: pathlib.Path) -> None:
     """Read the space-track GP CSV export and sort every object into a group."""
     filtered = 0
+    found_ids = set()
     with catalog.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         required = {"OBJECT_NAME", "NORAD_CAT_ID", "TLE_LINE1", "TLE_LINE2"}
@@ -301,8 +409,18 @@ def parse_catalog(catalog: pathlib.Path) -> None:
                 logger.debug(f"Filtering station-associated object {name}")
                 filtered += 1
                 continue
+            # show the stations under a consistent name whatever the catalog calls them
+            if norad_id in STATION_NORAD_IDS:
+                rec["name"] = STATION_NORAD_IDS[norad_id]
+            found_ids.add(norad_id)
             add_satellite(rec, classify(rec))
     logger.debug(f"Filtered {filtered} station-associated objects")
+    for norad_id, name in STATION_NORAD_IDS.items():
+        if norad_id not in found_ids:
+            logger.warning(f"Space station {name} ({norad_id}) is not in the catalog")
+    for norad_id, name in SCIENCE_NORAD_IDS.items():
+        if norad_id not in found_ids:
+            logger.info(f"Science satellite {name} ({norad_id}) is not in the catalog")
 
 
 def write_group_files(workdir: pathlib.Path) -> None:
