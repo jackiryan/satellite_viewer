@@ -44,7 +44,7 @@ void main()
     // Normal alpha blending: the glow adds its scattered light and hides the stars behind it in
     // proportion to how much light the air removes (using the green channel's transmittance)
     vec3 inscatter = skyInscatter(path, sunlight, atmosphereBrightness);
-    float alpha = clamp(1.0 - exp(-atmosphereOpticalDepth.g * path), 0.0, 1.0) * dayMix;
+    float alpha = clamp(1.0 - exp(-atmosphereOpticalDepth.g * path / 15.0), 0.0, 1.0) * dayMix;
     gl_FragColor = vec4(inscatter / max(alpha, 1e-3), alpha);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>

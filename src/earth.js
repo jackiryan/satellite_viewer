@@ -55,11 +55,11 @@ export class Earth {
             // cities run together
             cityLightSpread: 12,
             // sea surface wind speed (m/s): calmer seas give a smaller, sharper sun glint
-            windSpeed: 5,
-            glintBrightness: 1.5,
+            windSpeed: 7.5,
+            glintBrightness: 0.75,
             // haze over the globe toward the limb (0 = none), and the brightness of sunlit haze where
             // it is thick; also used for the glow beyond the limb
-            atmosphereHaze: 1.0,
+            atmosphereHaze: 3.0,
             atmosphereBrightness: 0.4,
             // scene units over which the glow beyond the limb fades with height (the real atmosphere's
             // 8 km would be under a pixel, so this is exaggerated)

@@ -298,7 +298,7 @@ void main() {
         float slopeVariance = 0.003 + 0.00512 * windSpeed;
         float waterFresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(halfVector, litSunDirection), 0.0, 1.0), 5.0);
         float glint = waterFresnel  * exp(-tan2Tilt / slopeVariance)
-            / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.9));
+            / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.8));
         glint *= dayMix * step(0.0, muView);
         const float glintMax = 0.9;
         glint = glintMax * (1.0 - exp(-glint / glintMax));
