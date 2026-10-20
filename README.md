@@ -44,27 +44,33 @@ mv spacetrack-creds.gpg ~/.spacetrack-creds.gpg
 This step is handled nightly by a script (not included in this repository) that gets initiated by a systemd timer on my VPS.
 
 ```bash
+set -e
+
 CREDS=$(gpg --quiet --decrypt ~/.spacetrack-creds.gpg)
 # USER and PASS variables are retained in scope so best practice is to
 # set the variables to a blank string after running these queries
 USER=$(echo "$CREDS" | head -n1)
 PASS=$(echo "$CREDS" | tail -n1)
 
+trap 'USER=""; PASS=""; CREDS=""' EXIT
+if [ -z "$USER" ] || [ -z "$PASS" ]; then
+    echo "Error: Could not decrypt credentials"
+    exit 1
+fi
+
+CATALOG=~/full_catalog.csv
+
 wget --post-data="identity=$USER&password=$PASS" \
     --save-cookies cookies.txt \
     --keep-session-cookies \
     https://www.space-track.org/ajaxauth/login
 
-if [ $? -eq 0 ]; then
-    wget --load-cookies cookies.txt \
-        "https://www.space-track.org/basicspacedata/query/class/gp/decay_date/null-val/epoch/%3Enow-30/orderby/norad_cat_id/format/3le" \
-        -O full_catalog.txt
-    rm cookies.txt
-fi
+wget --load-cookies cookies.txt \
+    "https://www.space-track.org/basicspacedata/query/class/gp/decay_date/null-val/epoch/%3Enow-30/predicates/OBJECT_NAME,OBJECT_ID,NORAD_CAT_ID,OBJECT_TYPE,INCLINATION,MEAN_MOTION,TLE_LINE1,TLE_LINE2/orderby/norad_cat_id/format/csv" \
+    -O "$CATALOG"
+rm cookies.txt
 
-wget -O active_satellites.txt "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
-
-scripts/tle_parser.py active_satellites.txt full_catalog.txt -w static/groups
+scripts/tle_parser.py "$CATALOG" -w static/groups # In prod this is /var/www/jackiepi.xyz/html/groups/
 ```
 
 ### Dev Setup
@@ -75,4 +81,4 @@ npm run dev
 Note that because the satellite viewing application uses the Shared Array Buffer (SAB) feature of JavaScript to handle updating the satellite transformation matrices in a Web Worker, some settings have been added to the Vite config to add the required headers related to Cross Origin Opener Policy (COOP) and Cross Origin Embedder Policy (COEP). This may cause some simpler dev servers, like the live-server plugin for VsCode, to not be able to load the page on localhost.
 
 ### Building
-This project is deployed to a Virtual Private Server (VPS) as fully-built artifact, rather than deployed to a serverless cloud provider like Vercel, so it is not guaranteed to work in a serverless context. I have a separate script that is not version controlled in this repository for building and deploying, but you can preview what a built version of the site would look like by running `npm run build`.
+This project is deployed to a Virtual Private Server (VPS) as fully-built artifact, rather than deployed to a serverless cloud provider like Vercel, so it is not guaranteed to work in a serverless context. I have a deploy script specific to my VPS that I run with `npm run deploy`. You'll need to fork this repo and make your own deployment system if you want to have your own version of the satellite viewer app.

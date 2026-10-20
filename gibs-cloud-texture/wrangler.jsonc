@@ -4,9 +4,10 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
 
-  // Needs the Workers Paid plan: a level 3 texture is 50 tile requests, over the Free plan's
-  // 50-subrequest cap, and takes seconds of CPU, not 10 ms. The hourly job makes up to six
-  // textures in one run (about 10-15 s of CPU), well inside this limit.
+  // Needs the Workers Paid plan: a level 3 texture is 50 tile requests (level 4, used for 8k,
+  // is 200), over the Free plan's 50-subrequest cap, and takes seconds of CPU, not 10 ms. The
+  // hourly job makes up to six textures in one run: at most two 8k from level 4 (about 10 s of
+  // CPU each) and four smaller ones from level 3, so about 25 s, inside this limit.
   "limits": {
     "cpu_ms": 60000
   },
@@ -47,7 +48,9 @@
     "PREWARM_DAYS_BACK": "1,2",
     "PREWARM_RESOLUTIONS": "2k,4k,8k",
     "PREWARM_PRODUCT": "albedo",
-    "PREWARM_TILE_MATRIX": "3",
+    // GIBS level for each resolution: the lowest with at least as many pixels as the texture
+    // (level 3 is 5120x2560, level 4 10240x5120). A bare number applies to every resolution.
+    "PREWARM_TILE_MATRIX": "2k:3,4k:3,8k:4",
     // Remake textures for recent dates once they are this old, as GIBS may have filled in more
     "PREWARM_REFRESH_HOURS": "6",
     // Delete stored textures this many days after they were made (any date can be remade on demand)
