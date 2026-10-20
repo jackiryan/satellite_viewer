@@ -1,7 +1,12 @@
 import _ from 'lodash';
 import * as THREE from 'three';
 
-const interactiveLayer = 1;
+// Radius of a satellite's drawn "head" in model units: 0.85 for the ShootingStar model
+// (shootingstar3.gltf), 1 for the icosahedron used for debris and as a fallback.
+const SATELLITE_HEAD_RADIUS = 1;
+
+// Used if the scene has no mesh named 'earth' (see earth.js)
+const DEFAULT_EARTH_RADIUS = 5;
 
 export class HoverIntentHandler {
     constructor(renderer, scene, camera, groupMap, options = {}) {
@@ -13,15 +18,18 @@ export class HoverIntentHandler {
         // Default settings
         this.settings = {
             interval: 50,           // Time in ms to check mouse position
+            pickRadius: 10,         // A satellite this many CSS pixels from the cursor is picked
             ...options
         };
 
         // State tracking
         this.mouse = new THREE.Vector2();
-        this.raycaster = new THREE.Raycaster();
-        this.raycaster.layers.set(interactiveLayer);
         this.intentTimer = null;
         this.mousePos = { x: 0, y: 0 };
+
+        // Scratch objects reused by pick()
+        this.viewProjection = new THREE.Matrix4();
+        this.cameraPosition = new THREE.Vector3();
 
         this.tooltip = document.createElement('div');
         this.tooltip.className = 'tooltip';
@@ -62,27 +70,87 @@ export class HoverIntentHandler {
         this.mouse.x = ((event.clientX - rect.left) / (rect.right - rect.left)) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / (rect.bottom - rect.top)) * 2 + 1;
 
-        // Perform raycast
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
-        if (intersects.length > 0 && intersects[0].object.name !== 'earth') {
-            const intersectedObject = intersects[0].object;
-            const groupName = intersectedObject.name;
-            const satId = intersects[0].instanceId;
-            this.groupMap.toggleOrbit(groupName, satId);
+        const picked = this.pick();
+        if (picked !== null) {
+            this.groupMap.toggleOrbit(picked.groupName, picked.satId);
         }
     }
 
-    async checkIntent() {
-        // Perform raycast
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+    /* Find the satellite under the mouse: the one whose center is nearest the cursor on
+     * screen, within settings.pickRadius pixels or within its drawn head, whichever is larger.
+     * Satellites behind the Earth or the camera are skipped.
+     *
+     * This replaces raycasting against the satellite meshes. A satellite's head is only a few
+     * pixels across at normal zoom, so an exact ray-triangle hit needed pixel-perfect aim, and
+     * the ray test also depended on each InstancedMesh's bounding sphere, which three.js does
+     * not update as the worker moves the satellites.
+     *
+     * Returns { groupName, satId } or null.
+     */
+    pick() {
+        const camera = this.camera;
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const width = rect.width;
+        const height = rect.height;
+        // cursor in pixels from the canvas's top left corner
+        const mouseX = (this.mouse.x + 1) / 2 * width;
+        const mouseY = (1 - this.mouse.y) / 2 * height;
 
-        if (intersects.length > 0 && intersects[0].object.name !== 'earth') {
-            const intersectedObject = intersects[0].object;
+        camera.updateMatrixWorld();
+        const m = this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
+        const cam = camera.getWorldPosition(this.cameraPosition);
+        // pixels per scene unit at one unit in front of the camera
+        const focalPixels = height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / camera.zoom);
+
+        const earth = this.scene.getObjectByName('earth');
+        const earthRadius = earth?.geometry?.parameters?.radius ?? DEFAULT_EARTH_RADIUS;
+        const camDistSq = cam.lengthSq();
+
+        let best = null;
+        let bestDistSq = Infinity;
+        for (const [groupName, group] of this.groupMap.map) {
+            if (!group.displayed) continue;
+            const a = group.mesh.instanceMatrix.array;
+            for (let i = 0; i < group.mesh.count; i++) {
+                const o = i * 16;
+                const x = a[o + 12], y = a[o + 13], z = a[o + 14];
+                // the worker zeroes the matrix of a satellite with no valid position
+                if (x === 0 && y === 0 && z === 0) continue;
+
+                // project to the screen; w is the distance in front of the camera
+                const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+                if (w <= 0) continue;
+                const sx = ((m[0] * x + m[4] * y + m[8] * z + m[12]) / w + 1) / 2 * width;
+                const sy = (1 - (m[1] * x + m[5] * y + m[9] * z + m[13]) / w) / 2 * height;
+                const dx = sx - mouseX, dy = sy - mouseY;
+                const distSq = dx * dx + dy * dy;
+                if (distSq >= bestDistSq) continue;
+
+                // the third column of the matrix is the velocity direction times the scale
+                const scale = Math.hypot(a[o + 8], a[o + 9], a[o + 10]);
+                const headPixels = SATELLITE_HEAD_RADIUS * scale * focalPixels / w;
+                const radius = Math.max(this.settings.pickRadius, headPixels);
+                if (distSq > radius * radius) continue;
+
+                // skip it if the line of sight from the camera passes through the Earth
+                const vx = x - cam.x, vy = y - cam.y, vz = z - cam.z;
+                const len = Math.hypot(vx, vy, vz);
+                const along = -(cam.x * vx + cam.y * vy + cam.z * vz) / len; // closest approach to the center
+                if (along > 0 && along < len && camDistSq - along * along < earthRadius * earthRadius) continue;
+
+                best = { groupName, satId: i };
+                bestDistSq = distSq;
+            }
+        }
+        return best;
+    }
+
+    async checkIntent() {
+        const picked = this.pick();
+
+        if (picked !== null) {
             // Show tooltip with the name
-            const groupName = intersectedObject.name;
-            const satId = intersects[0].instanceId;
+            const { groupName, satId } = picked;
             const satelliteName = this.groupMap.map.get(groupName).names[satId];
             this.updateTooltip(satelliteName, this.mousePos.x, this.mousePos.y);
             this.groupMap.addOrbit(groupName, satId);

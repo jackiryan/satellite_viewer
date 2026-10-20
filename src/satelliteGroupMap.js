@@ -106,10 +106,9 @@ export class SatelliteGroupMap {
         );
         groupMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         const dummy = new THREE.Object3D();
-        // set initial positions to be random so that bounding sphere is large,
-        // avoids a race condition. It sounds weird, but I am doing this because
-        // I don't understand why the bounding sphere used for raycasting (tooltip)
-        // uses only the initial bounding sphere when determining intersections
+        // Placeholder transforms until the worker writes the real ones. Hover and click picking
+        // (HoverIntentHandler.pick) reads the instance positions directly, so it does not
+        // depend on the mesh's bounding sphere, which goes stale as the satellites move.
         for (let i = 0; i < count; i++) {
             dummy.position.set(
                 0.0,
