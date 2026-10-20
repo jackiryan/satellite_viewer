@@ -64,6 +64,7 @@ async function init() {
     renderer.toneMappingExposure = 1.3;
 
     scene = new THREE.Scene();
+    scene.renderer = renderer;
 
     // Add ambient light
     const ambientLight = new THREE.AmbientLight(0xcccccc, 1);

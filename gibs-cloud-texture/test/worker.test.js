@@ -79,12 +79,22 @@ test('makes a texture once, stores it in R2, then serves it from there', async (
     assert.equal(gibs.tileRequests().length, 2);
 });
 
-test('recent dates are cached for an hour; the default is level 3 at 8k', async () => {
-    const { response } = await call(`/global-texture?date=${daysAgo(2)}`);
+test('recent dates are cached for an hour', async () => {
+    const { response } = await call(`/global-texture?date=${daysAgo(2)}&tileMatrix=3&outputRes=1k`);
     assert.equal(response.headers.get('cache-control'), 'public, max-age=3600');
-    assert.equal(response.headers.get('x-texture-size'), '8192x4096');
-    assert.equal(response.headers.get('x-source-tile-matrix'), '3');
     assert.equal(gibs.tileRequests().length, 50);
+});
+
+test('the default is 8k from level 4, streamed as its tiles arrive', async () => {
+    const { response } = await call(`/global-texture?date=${daysAgo(2)}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('x-texture-size'), '8192x4096');
+    assert.equal(response.headers.get('x-source-tile-matrix'), '4');
+    assert.equal(gibs.tileRequests().length, 200);
+    // level 4 is past PREFETCH_ALL_MAX_TILES, so a texture made on request could still fail
+    // part way and is not kept by the browser (the stored copy in R2 is served normally)
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(r2.objects.size, 1);
 });
 
 test('a date GIBS has not published yet is served as the newest published one', async () => {
@@ -174,7 +184,7 @@ test('the root path describes the API', async () => {
     const { response, body } = await call('/');
     const info = JSON.parse(new TextDecoder().decode(body));
     assert.equal(response.status, 200);
-    assert.equal(info.parameters.tileMatrix.default, 3);
+    assert.deepEqual(info.parameters.tileMatrix.default, { '1k': 3, '2k': 3, '4k': 3, '8k': 4 });
     assert.equal(info.parameters.outputRes.values['8k'], '8192x4096');
 });
 
@@ -192,4 +202,14 @@ test('product=albedo is stored separately and labelled', async () => {
     assert.equal(again.response.headers.get('x-texture-product'), 'albedo');
     const bad = await call(`${path}&product=truecolor`);
     assert.equal(bad.response.status, 400);
+});
+
+test('without a tileMatrix, the level depends on outputRes and stays under MAX_TILE_MATRIX', async () => {
+    const { response } = await call(`/global-texture?date=${daysAgo(10)}&outputRes=1k`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('x-source-tile-matrix'), '3');
+
+    const capped = await call('/', { env: { ...ENV, MAX_TILE_MATRIX: '3' } });
+    const info = JSON.parse(new TextDecoder().decode(capped.body));
+    assert.deepEqual(info.parameters.tileMatrix.default, { '1k': 3, '2k': 3, '4k': 3, '8k': 3 });
 });

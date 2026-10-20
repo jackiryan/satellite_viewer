@@ -1,6 +1,6 @@
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../src/index.js';
+import worker, { tileMatrixByResolution } from '../src/index.js';
 import { clearAvailabilityMemo } from '../src/availability.js';
 import { STORE_NAMESPACE, STORE_VERSION } from '../src/store.js';
 import { fakeGibsWithColormap, fakeR2, solidTile } from './helpers.js';
@@ -118,4 +118,20 @@ test('does nothing without an R2 binding', async () => {
     }
     assert.match(warned, /no TEXTURES R2 binding/);
     assert.equal(gibs.requests.length, 0);
+});
+
+test('PREWARM_TILE_MATRIX can set a level per resolution', async () => {
+    gibs.published = [['2018-02-17', daysAgo(2)]];
+    env.PREWARM_TILE_MATRIX = '1k:0,2k:1';
+    await runCron();
+    const keys = [...r2.objects.keys()].map((k) => k.split('/albedo/')[1]).sort();
+    assert.deepEqual(keys, [`tm0/1k/${daysAgo(2)}.png`, `tm1/2k/${daysAgo(2)}.png`]);
+});
+
+test('tileMatrixByResolution reads a bare level, levels by resolution, or nothing', () => {
+    assert.deepEqual(tileMatrixByResolution(undefined), { '1k': 3, '2k': 3, '4k': 3, '8k': 4 });
+    assert.deepEqual(tileMatrixByResolution('3'), { '1k': 3, '2k': 3, '4k': 3, '8k': 3 });
+    assert.deepEqual(tileMatrixByResolution('2k:2, 8K:5'), { '1k': 3, '2k': 2, '4k': 3, '8k': 5 });
+    // later entries win; unknown resolutions and bad levels are ignored
+    assert.deepEqual(tileMatrixByResolution('4,8k:5,16k:6,2k:x'), { '1k': 4, '2k': 4, '4k': 4, '8k': 5 });
 });
