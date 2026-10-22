@@ -21,6 +21,22 @@ const drawerClose = document.getElementById('group-drawer-close');
 // Same as the default material in satelliteGroupMap.js, used for groups without a baseColor
 const defaultGroupColor = '#c4a484';
 
+// Sizes of the images in static/flags. Giving each <img> its size up front reserves its space,
+// so the buttons don't shift sideways when the flags arrive (a layout shift that Lighthouse
+// counts against the page). Flags not listed here get the most common size.
+const flagSizes = {
+    ca: [20, 10],
+    cn: [20, 13],
+    eu: [20, 13],
+    gb: [20, 10],
+    jp: [20, 13],
+    lu: [20, 12],
+    planet: [22, 22],
+    ru: [20, 13],
+    us: [20, 11]
+};
+const defaultFlagSize = [20, 13];
+
 
 export async function populateButtonGroup(defaultGroups) {
     const baseUrl = window.location.origin;
@@ -61,6 +77,7 @@ function populateButtons(groups, defaultGroups) {
 
         if (group.country) {
             const flag = document.createElement('img');
+            [flag.width, flag.height] = flagSizes[group.country] ?? defaultFlagSize;
             flag.src = `./flags/${group.country}.png`;
             flag.alt = `${group.country} flag`;
             button.appendChild(flag);

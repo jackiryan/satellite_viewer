@@ -1,6 +1,5 @@
 import { MessageBroker } from './messageBroker';
 import { OrbitTrack } from './orbittrack';
-import _ from 'lodash';
 
 export class OrbitManager {
     constructor(group, scene) {
