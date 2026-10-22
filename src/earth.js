@@ -54,9 +54,16 @@ export class Earth {
             // pixel at globe scale, so this is a little exaggerated; much more and neighbouring
             // cities run together
             cityLightSpread: 12,
-            // color of fully ice-covered sea (sRGB), a little greyer and bluer than the snow on the
-            // ice sheets; partly covered sea is mixed toward it by the ice concentration
-            seaIceColor: '#cbd6e0',
+            // color of sea ice (sRGB): nearly white, as snow-covered floes are. Loose floes are
+            // drawn a little greyer (thinner ice), and the sea shows between them
+            seaIceColor: '#f1f5f8',
+            // concentration from which sea ice is drawn as solid pack; below it, the ice breaks up
+            // into floes that get smaller and further apart as the concentration falls
+            seaIceFloeThreshold: 0.9,
+            // size (km) of the cells holding the large floes; small floes are a quarter of this.
+            // Real floes are mostly smaller, but these are what makes the 25 km data look like
+            // broken ice at globe scale. They show once a cell is a few pixels across.
+            seaIceFloeSize: 80,
             // sea surface wind speed (m/s): calmer seas give a smaller, sharper sun glint
             windSpeed: 7.5,
             glintBrightness: 0.75,
@@ -405,6 +412,9 @@ export class Earth {
                 seaIceTexture: new THREE.Uniform(null),
                 showSeaIce: new THREE.Uniform(false),
                 seaIceColor: new THREE.Uniform(new THREE.Color(this.parameters.seaIceColor)),
+                seaIceFloeThreshold: new THREE.Uniform(this.parameters.seaIceFloeThreshold),
+                // cells per unit of the shader's polar plane, which is 2 Earth radii at the pole
+                seaIceFloeScale: new THREE.Uniform(2 * 6371 / this.parameters.seaIceFloeSize),
                 windSpeed: new THREE.Uniform(this.parameters.windSpeed),
                 glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
                 atmosphereHaze: new THREE.Uniform(this.parameters.atmosphereHaze),
