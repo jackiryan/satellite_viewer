@@ -216,7 +216,7 @@ export function prepareGrid(tiff, hemisphere) {
     stats.filled = fillFromNeighbours(values, width, height, fillable, UNLIMITED, Infinity);
     stats.filled += fillFromNeighbours(values, width, height, fillable, LAND, LAND_FILL_CELLS);
 
-    // inverse geotransform: map x, y -> continuous (col, row) with cell centres on integers
+    // inverse geotransform: map x, y -> continuous (col, row) with cell centers on integers
     const [x0, a, b, y0, d, e] = gt;
     const det = a * e - b * d;
     if (!det) throw new TiffError('degenerate geotransform');

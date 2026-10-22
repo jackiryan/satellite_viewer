@@ -6,8 +6,9 @@
 
   // Needs the Workers Paid plan: a level 3 texture is 50 tile requests (level 4, used for 8k,
   // is 200), over the Free plan's 50-subrequest cap, and takes seconds of CPU, not 10 ms. The
-  // hourly job makes up to six textures in one run: at most two 8k from level 4 (about 10 s of
-  // CPU each) and four smaller ones from level 3, so about 25 s, inside this limit.
+  // hourly job makes up to six cloud textures in one run: at most two 8k from level 4 (about
+  // 10 s of CPU each) and four smaller ones from level 3, so about 25 s, inside this limit.
+  // Sea ice textures add well under a second each (8k is about 1 s).
   "limits": {
     "cpu_ms": 60000
   },
@@ -18,8 +19,8 @@
 
   // Finished textures are kept here and served from it (create the bucket once with
   // `npx wrangler r2 bucket create gibs-textures`). This Worker keeps everything under
-  // cloud-texture/ and its scheduled clean-up only touches that folder, so the bucket can
-  // hold other data too.
+  // cloud-texture/ and sea-ice-texture/, and its scheduled clean-up only touches those
+  // folders, so the bucket can hold other data too.
   "r2_buckets": [
     { "binding": "TEXTURES", "bucket_name": "gibs-textures" }
   ],
@@ -54,7 +55,19 @@
     // Remake textures for recent dates once they are this old, as GIBS may have filled in more
     "PREWARM_REFRESH_HOURS": "6",
     // Delete stored textures this many days after they were made (any date can be remade on demand)
-    "STORE_RETAIN_DAYS": "30"
+    "STORE_RETAIN_DAYS": "30",
+
+    // Sea ice textures (/sea-ice-texture, seaice.js) from the NSIDC Sea Ice Index (G02135)
+    // daily concentration GeoTIFFs: {base}/north/daily/geotiff/2026/10_Oct/N_20261017_concentration_v4.0.tif
+    "SEA_ICE_BASE_URL": "https://noaadata.apps.nsidc.org/NOAA/G02135",
+    // Version in the file names; stored sea ice textures are kept per version
+    "SEA_ICE_FILE_VERSION": "4.0",
+    // First day of the record (every other day until August 1987)
+    "SEA_ICE_EARLIEST_DATE": "1978-10-26",
+    // What the hourly job keeps ready ("none" turns it off). NSIDC publishes a day's grids the
+    // next day. Refreshing and clean-up follow PREWARM_REFRESH_HOURS and STORE_RETAIN_DAYS.
+    "SEA_ICE_PREWARM_DAYS_BACK": "1,2",
+    "SEA_ICE_PREWARM_RESOLUTIONS": "2k,4k"
   }
 
   //"routes": [{ "pattern": "www.jackiepi.xyz/cloud-texture/*", "zone_name": "jackiepi.xyz", "custom_domain": true }]

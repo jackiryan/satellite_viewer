@@ -39,7 +39,7 @@ export class ProjectionError extends Error {
 }
 
 /**
- * A polar stereographic projection centred on the north or south pole.
+ * A polar stereographic projection centered on the north or south pole.
  *
  * @param {object} p
  * @param {boolean} p.north     north or south polar aspect

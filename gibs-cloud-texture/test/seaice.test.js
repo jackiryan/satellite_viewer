@@ -27,9 +27,9 @@ function cellAt(hemisphere, lon, lat) {
 const pixelAt = (image, lon, lat) => image.pixel(
     Math.floor(((lon + 180) / 360) * image.width), Math.floor(((90 - lat) / 180) * image.height))[0];
 
-// An Arctic grid with a block of 100% ice centred on 80 N 150 W, open water elsewhere, land
+// An Arctic grid with a block of 100% ice centered on 80 N 150 W, open water elsewhere, land
 // in one corner of the grid (far from the ice) and the pole hole; an Antarctic grid with a
-// block of 60% ice centred on 65 S 60 E.
+// block of 60% ice centered on 65 S 60 E.
 const [iceCol, iceRow] = cellAt('north', -150, 80);
 const [southCol, southRow] = cellAt('south', 60, -65);
 const NORTH = nsidcTiff('north', (col, row, x, y) => {

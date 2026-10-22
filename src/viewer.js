@@ -46,8 +46,10 @@ await init().then(async () => {
     await initSky({ sceneObj: scene }).then((sky) => {
         skybox = sky;
     });
-    // Clouds load in the background and appear when ready; not awaited so they never hold up the scene
+    // Clouds and sea ice load in the background and appear when ready; not awaited so they never
+    // hold up the scene
     earth.loadCloudTexture();
+    earth.loadSeaIceTexture();
     requestAnimationFrame(animate);
 });
 
@@ -193,6 +195,7 @@ function initSettingsMenu() {
 
     const starsButton = document.getElementById('stars');
     const cloudsButton = document.getElementById('clouds');
+    const seaIceButton = document.getElementById('sea-ice');
     const showAllButton = document.getElementById('show-all');
     const hideAllButton = document.getElementById('hide-all');
 
@@ -288,6 +291,13 @@ function initSettingsMenu() {
         if (earth !== undefined) {
             const visible = earth.toggleClouds();
             cloudsButton.innerHTML = visible ? 'Hide Clouds' : 'Show Clouds';
+        }
+    });
+
+    seaIceButton.addEventListener('click', () => {
+        if (earth !== undefined) {
+            const visible = earth.toggleSeaIce();
+            seaIceButton.innerHTML = visible ? 'Hide Sea Ice' : 'Show Sea Ice';
         }
     });
 

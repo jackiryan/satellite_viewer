@@ -64,7 +64,7 @@ test('georeferencing: ModelTransformation, PixelIsPoint, and GeoKey parameters',
     }));
     assert.deepEqual(matrix.geoTransform, [-3950000, 25000, 0, 4350000, 0, -25000]);
 
-    // PixelIsPoint: the tiepoint is the centre of the top-left pixel
+    // PixelIsPoint: the tiepoint is the center of the top-left pixel
     const point = await readGeoTiff(makeTiff({
         ...base, tiepoint: [0, 0, 0, -3837500, 5837500, 0], scale: [25000, 25000, 0], geoKeys: [[1025, 2], [3072, 3411]]
     }));

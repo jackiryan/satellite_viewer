@@ -8,6 +8,9 @@ uniform float cloudBrightness;    // scales cloud reflectance (1.0 = as computed
 uniform float cloudShadowHeight;  // top height of the thickest clouds, in scene units
 uniform float cloudRelief;        // strength of the slope shading on cloud tops (0 = flat)
 uniform float cloudTwilightTint;  // 0 = cloud tops stay white to the terminator, 1 = full sunset color
+uniform sampler2D seaIceTexture;  // sea ice concentration (0-1) in red, from the gibs-cloud-texture worker
+uniform bool showSeaIce;
+uniform vec3 seaIceColor;         // albedo of fully ice-covered sea (linear)
 uniform float windSpeed;          // m/s; rougher seas spread the sun glint out
 uniform float glintBrightness;
 uniform float atmosphereHaze;       // scales the air seen toward the limb (0 = no haze)
@@ -166,6 +169,17 @@ void main() {
     uvDy.x -= floor(uvDy.x + 0.5);
 
     float oceanMask = texture(specularMapTexture, vUv).r;
+
+    // Sea ice. The texture holds the fraction of the sea covered by ice, from the NSIDC Sea Ice
+    // Index's 25 km grids (0 for open water, land, and outside the polar grids). The worker
+    // carries the ice about 50 km past the grids' coarse coastline, so the ocean mask, which is
+    // much sharper, decides where the coast is. Sampled with the corrected derivatives so the
+    // antimeridian seam doesn't drop to the smallest mip level.
+    float seaIce = 0.0;
+    if (showSeaIce) {
+        seaIce = textureGrad(seaIceTexture, vUv, uvDx, uvDy).r * oceanMask;
+    }
+
     vec3 toCamera = -viewDirection;
     float muView = dot(normal, toCamera);
 
@@ -192,8 +206,8 @@ void main() {
     }
     float viewTransmission = 1.0 - cloudReflectance;
     float sunTransmission = sunlight.x;
-    // Glint and the retina effect below only apply to water the sun reaches and we can see
-    float specularTexColor = oceanMask * sunTransmission * viewTransmission;
+    // Glint and the retina effect below only apply to open water the sun reaches and we can see
+    float specularTexColor = oceanMask * (1.0 - seaIce) * sunTransmission * viewTransmission;
 
     // Night side, skipped where the day side is fully opaque (dayMix = 1)
     if (dayMix < 1.0) {
@@ -250,13 +264,20 @@ void main() {
             cityLights = animatedNightTexColor * directTransmission
                 + glow * max(viewTransmission - directTransmission, 0.0);
         }
-        vec3 nightCloudy = cityLights + cloudReflectance * nightCloudColor;
+        // Sea ice is faintly visible at night too, like cloud, seen through any cloud above it
+        vec3 nightCloudy = cityLights + cloudReflectance * nightCloudColor
+            + seaIce * seaIceColor * nightCloudColor * viewTransmission;
         color = nightCloudy * (1.0 - dayMix);
     }
 
     // Day side, skipped where it has fully faded out (dayMix = 0)
     if (dayMix > 0.0) {
         vec3 dayTexColor = textureGrad(dayTexture, vUv, uvDx, uvDy).rgb;
+        // Sea ice covers that fraction of the sea, so it is part of the surface the clouds sit
+        // over (its albedo enters the cloud formula below). It never darkens anything: where the
+        // ice runs past the coast, or over the ice shelves (which the ocean mask counts as sea),
+        // the ground is already as bright as the ice.
+        dayTexColor = max(dayTexColor, mix(dayTexColor, seaIceColor, seaIce));
 
         float cloudTopLight = mix(CLOUD_SHADOW_AMBIENT, 1.0, sunlight.y) * sunlight.z;
         // Sunlight reddens as the sun gets low (hue only; dayMix handles the fade to night). Cloud

@@ -252,7 +252,7 @@ export function makeTiff(o) {
 /**
  * A GeoTIFF laid out like an NSIDC Sea Ice Index daily concentration file for `hemisphere`
  * (grid size, georeferencing, EPSG code, palette), with each cell's value from
- * `valueAt(col, row, x, y)` where x, y are the cell centre's map coordinates in metres.
+ * `valueAt(col, row, x, y)` where x, y are the cell center's map coordinates in metres.
  */
 export function nsidcTiff(hemisphere, valueAt, { compression = 'lzw', ...rest } = {}) {
     const g = NSIDC_GRIDS[hemisphere];

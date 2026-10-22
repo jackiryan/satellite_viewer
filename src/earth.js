@@ -54,6 +54,9 @@ export class Earth {
             // pixel at globe scale, so this is a little exaggerated; much more and neighbouring
             // cities run together
             cityLightSpread: 12,
+            // color of fully ice-covered sea (sRGB), a little greyer and bluer than the snow on the
+            // ice sheets; partly covered sea is mixed toward it by the ice concentration
+            seaIceColor: '#cbd6e0',
             // sea surface wind speed (m/s): calmer seas give a smaller, sharper sun glint
             windSpeed: 7.5,
             glintBrightness: 0.75,
@@ -66,8 +69,10 @@ export class Earth {
             haloScaleHeight: 0.02
         };
 
-        // Whether the viewer wants clouds shown (the settings menu); they appear once loaded
+        // Whether the viewer wants clouds and sea ice shown (the settings menu); each appears once
+        // its texture has loaded
         this.cloudsVisible = true;
+        this.seaIceVisible = true;
 
         // Calculate initial rotation based on sidereal time
         this.gmst = gstime(this.initialDate);
@@ -211,6 +216,22 @@ export class Earth {
         return `${window.location.origin || '.'}/cloud-texture?${params}`;
     }
 
+    // Load one of the gibs-cloud-texture worker's data textures: a greyscale PNG whose single
+    // channel holds a value per texel rather than a color. RedFormat keeps it at one byte per
+    // texel on the GPU (32 MB at 8k instead of 128 MB as RGBA).
+    async loadDataTexture(url) {
+        // premultiplyAlpha must be passed explicitly: setOptions replaces ImageBitmapLoader's defaults
+        const texture = await this.loadTexture(url, { premultiplyAlpha: 'none' }, 2, 1000);
+        texture.format = THREE.RedFormat;
+        texture.colorSpace = THREE.NoColorSpace;
+        // wrap across the antimeridian (the cloud shadow lookups step over it)
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.anisotropy = Math.min(8,
+            this.scene.renderer?.capabilities.getMaxAnisotropy() || 8);
+        texture.needsUpdate = true;
+        return texture;
+    }
+
     // Load the cloud texture in the background and switch the clouds on once it arrives.
     // The globe renders normally in the meantime, and stays cloudless if loading fails.
     async loadCloudTexture() {
@@ -221,18 +242,8 @@ export class Earth {
 
         const url = this.getCloudTextureUrl(this.useLowRes);
         try {
-            // premultiplyAlpha must be passed explicitly: setOptions replaces ImageBitmapLoader's defaults
-            const cloudTexture = await this.loadTexture(url, { premultiplyAlpha: 'none' }, 2, 1000);
-
-            // The texture is data, not color: sqrt(reflectance) in a single channel. RedFormat
-            // keeps it at one byte per texel on the GPU (32 MB at 8k instead of 128 MB as RGBA).
-            cloudTexture.format = THREE.RedFormat;
-            cloudTexture.colorSpace = THREE.NoColorSpace;
-            // wrap across the antimeridian (shadow lookups step over it)
-            cloudTexture.wrapS = THREE.RepeatWrapping;
-            cloudTexture.anisotropy = Math.min(8,
-                this.scene.renderer?.capabilities.getMaxAnisotropy() || 8);
-            cloudTexture.needsUpdate = true;
+            // sqrt(cloud reflectance) per texel
+            const cloudTexture = await this.loadDataTexture(url);
 
             const uniforms = this.earthMaterial.uniforms;
             const previous = uniforms.cloudTexture.value;
@@ -244,6 +255,49 @@ export class Earth {
         } catch (error) {
             console.error('Failed to load cloud texture:', error);
             this.earthMaterial.uniforms.showClouds.value = false;
+            return null;
+        }
+    }
+
+    // URL of the sea ice texture made by the gibs-cloud-texture worker (proxied at
+    // /sea-ice-texture): sea ice concentration (0-1) per texel from the NSIDC Sea Ice Index's
+    // daily Arctic and Antarctic grids. NSIDC publishes a day's grids the next day, so ask for
+    // the day before the scene time (never later than now); the worker serves the newest day it
+    // has at or before that. The grids are 25 km, so 4096x2048 (about 10 km per texel north to
+    // south) already shows all their detail, and 2048x1024 wherever the Earth textures drop to
+    // low resolution. Both are what the worker's hourly job keeps ready.
+    getSeaIceTextureUrl(useLowRes = false) {
+        const isMobileOrSafari = window.mobileAndSafariCheck ? window.mobileAndSafariCheck() : false;
+        const sceneTime = Math.min(this.initialDate.getTime(), Date.now());
+        const params = new URLSearchParams({
+            date: new Date(sceneTime - 86400000).toISOString().slice(0, 10),
+            outputRes: isMobileOrSafari || useLowRes ? '2k' : '4k'
+        });
+        return `${window.location.origin || '.'}/sea-ice-texture?${params}`;
+    }
+
+    // Load the sea ice texture in the background, as for clouds: the globe renders without sea
+    // ice until it arrives, and carries on without it if loading fails.
+    async loadSeaIceTexture() {
+        if (!this.earthMaterial) {
+            console.warn('Earth material not initialized, cannot load sea ice texture');
+            return null;
+        }
+
+        const url = this.getSeaIceTextureUrl(this.useLowRes);
+        try {
+            const seaIceTexture = await this.loadDataTexture(url);
+
+            const uniforms = this.earthMaterial.uniforms;
+            const previous = uniforms.seaIceTexture.value;
+            uniforms.seaIceTexture.value = seaIceTexture;
+            // unless the viewer hid the sea ice while it was loading
+            uniforms.showSeaIce.value = this.seaIceVisible;
+            previous?.dispose();
+            return seaIceTexture;
+        } catch (error) {
+            console.error('Failed to load sea ice texture:', error);
+            this.earthMaterial.uniforms.showSeaIce.value = false;
             return null;
         }
     }
@@ -260,6 +314,19 @@ export class Earth {
 
         console.log(`Clouds are now ${this.cloudsVisible ? 'visible' : 'hidden'}`);
         return this.cloudsVisible;
+    }
+
+    // Show or hide the sea ice (null flips it), the same way as toggleClouds. Returns whether
+    // sea ice is on.
+    toggleSeaIce(visible = null) {
+        this.seaIceVisible = visible === null ? !this.seaIceVisible : Boolean(visible);
+        const uniforms = this.earthMaterial?.uniforms;
+        if (uniforms) {
+            uniforms.showSeaIce.value = this.seaIceVisible && uniforms.seaIceTexture.value !== null;
+        }
+
+        console.log(`Sea ice is now ${this.seaIceVisible ? 'visible' : 'hidden'}`);
+        return this.seaIceVisible;
     }
 
     // Main initialization function for the globe
@@ -317,7 +384,7 @@ export class Earth {
     async createEarth(blueMarble, blackMarble, earthSpec, twilightAngle, interactiveLayer) {
         const earthGeometry = new THREE.SphereGeometry(this.parameters.radius, 64, 64);
 
-        // Shader material with added cloud texture uniforms
+        // Shader material with added cloud and sea ice texture uniforms
         this.earthMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 dayTexture: new THREE.Uniform(blueMarble),
@@ -334,6 +401,10 @@ export class Earth {
                 cloudShadowHeight: new THREE.Uniform(this.parameters.cloudShadowHeight * this.parameters.radius / 6371),
                 cloudRelief: new THREE.Uniform(this.parameters.cloudRelief),
                 cloudTwilightTint: new THREE.Uniform(this.parameters.cloudTwilightTint),
+                // Sea ice: set by loadSeaIceTexture() once the texture has arrived
+                seaIceTexture: new THREE.Uniform(null),
+                showSeaIce: new THREE.Uniform(false),
+                seaIceColor: new THREE.Uniform(new THREE.Color(this.parameters.seaIceColor)),
                 windSpeed: new THREE.Uniform(this.parameters.windSpeed),
                 glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
                 atmosphereHaze: new THREE.Uniform(this.parameters.atmosphereHaze),
