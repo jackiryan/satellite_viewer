@@ -1,4 +1,4 @@
-/* store.js - finished textures kept in R2.
+/* store.js - finished textures (clouds and sea ice) kept in R2.
  *
  * R2 keeps objects until they are deleted and serves them from anywhere, unlike the Cache API,
  * which holds entries per data center and drops ones that go unused (and does nothing on
@@ -10,8 +10,9 @@
  * texture is never stored.
  */
 
-// Everything this Worker stores is under this folder, so the bucket can also hold other data:
-// the scheduled clean-up (prewarm.js) only ever lists and deletes objects under it.
+// Cloud textures are stored under this folder (sea ice ones under SEA_ICE_NAMESPACE, below), so
+// the bucket can also hold other data: the scheduled clean-up (prewarm.js) only ever lists and
+// deletes objects under these two folders.
 export const STORE_NAMESPACE = 'cloud-texture/';
 
 // Bump to set aside every stored texture after changing how textures are made. Objects under
@@ -77,6 +78,38 @@ export function textureMetadata({ date, tileMatrix, outputRes, product }, textur
             outputRes,
             product,
             sourceSize: `${texture.grid.width}x${texture.grid.height}`,
+            textureSize: `${texture.width}x${texture.height}`,
+            generatedAt: new Date(now).toISOString()
+        }
+    };
+}
+
+/* -------------------------------------------------------------------------- sea ice
+ * Sea ice textures (seaice.js) live in their own folder, cleaned up separately.
+ */
+
+export const SEA_ICE_NAMESPACE = 'sea-ice-texture/';
+
+// Bump after changing how sea ice textures are made, as STORE_VERSION for clouds
+export const SEA_ICE_STORE_VERSION = '1';
+
+export function seaIcePrefix(config) {
+    return `${SEA_ICE_NAMESPACE}v${SEA_ICE_STORE_VERSION}/G02135_v${config.seaIce.fileVersion}/`;
+}
+
+export function seaIceKey(config, { date, outputRes, product = 'concentration' }) {
+    return `${seaIcePrefix(config)}${product}/${outputRes}/${date}.png`;
+}
+
+/** R2 metadata for a finished sea ice texture (createSeaIceTexture). */
+export function seaIceMetadata({ date, outputRes, product = 'concentration' }, texture, now = Date.now()) {
+    return {
+        httpMetadata: { contentType: 'image/png' },
+        customMetadata: {
+            sourceDate: date,
+            outputRes,
+            product,
+            sourceSize: texture.sourceSize,
             textureSize: `${texture.width}x${texture.height}`,
             generatedAt: new Date(now).toISOString()
         }

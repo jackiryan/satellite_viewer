@@ -56,8 +56,8 @@ export function tileUrl(config, date, level, row, col) {
     return `${config.gibsBaseUrl}/wmts.cgi?${params}`;
 }
 
-const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+export const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Pull the human-readable part out of an OGC ExceptionReport (or any short text body)
 function upstreamMessage(body) {
@@ -68,12 +68,13 @@ function upstreamMessage(body) {
 }
 
 /**
- * Fetch a GIBS resource, retrying network errors and 5xx/429 responses with backoff.
+ * Fetch a GIBS (or NSIDC) resource, retrying network errors and 5xx/429 responses with backoff.
  * Responses are cached by Cloudflare for `cacheTtl` seconds, so textures of other sizes made
- * from the same tiles don't download them again. `what` names the resource in errors.
+ * from the same tiles don't download them again. `what` names the resource in errors, and
+ * `source` the service it comes from.
  * @returns {Promise<{bytes: Uint8Array, contentType: string}>}
  */
-export async function fetchBytes(url, { fetchImpl = fetch, signal, cacheTtl, retries = 3, what = 'a file' } = {}) {
+export async function fetchBytes(url, { fetchImpl = fetch, signal, cacheTtl, retries = 3, what = 'a file', source = 'GIBS' } = {}) {
     for (let attempt = 0; ; attempt++) {
         const retry = attempt < retries;
         let response;
@@ -88,7 +89,7 @@ export async function fetchBytes(url, { fetchImpl = fetch, signal, cacheTtl, ret
         } catch (error) {
             if (signal?.aborted) throw error;
             if (!retry) {
-                throw new UpstreamError(`Could not reach GIBS: ${error.message}`, { status: 504, detail: url });
+                throw new UpstreamError(`Could not reach ${source}: ${error.message}`, { status: 504, detail: url });
             }
             await sleep(250 * 3 ** attempt);
             continue;
@@ -101,7 +102,7 @@ export async function fetchBytes(url, { fetchImpl = fetch, signal, cacheTtl, ret
             await sleep(250 * 3 ** attempt);
             continue;
         }
-        throw new UpstreamError(`GIBS returned HTTP ${response.status} for ${what}`, {
+        throw new UpstreamError(`${source} returned HTTP ${response.status} for ${what}`, {
             upstreamStatus: response.status,
             detail: `${url}: ${upstreamMessage(body)}`
         });
