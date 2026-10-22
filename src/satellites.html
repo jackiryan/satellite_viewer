@@ -14,7 +14,11 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
     <link rel="manifest" href="./site.webmanifest">
-    <link rel="prefetch" href="./fonts/AudioLinkMono-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <!--Bold (the clock) and Regular are used as soon as the page paints; preloading them saves
+        waiting for fonts.css, which loads without blocking rendering. Light is only used in
+        tooltips and the group drawer, so it's left to download when idle.-->
+    <link rel="preload" href="./fonts/AudioLinkMono-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="./fonts/AudioLinkMono-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <link rel="prefetch" href="./fonts/AudioLinkMono-Light.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <style>
         body,
@@ -67,14 +71,22 @@
             font-size: large;
         }
     </style>
-    <link rel="stylesheet" href="/css/fonts.css" media="print" onload="this.media='all'">
-    <link rel="stylesheet" href="/css/main.css" media="print" onload="this.media='all'">
-    <!--images are preloaded as fetch instead of as image to comply with ImageBitmapLoader-->
-    <link rel="preload" href="./BlueMarble_8192x4096.avif" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./BlackMarble_8192x4096.avif" as="fetch" crossorigin="anonymous">
+    <!--Loaded as ordinary (render-blocking) stylesheets: loading them with media="print" and
+        switching to "all" on load let the first paint go out without them whenever the main
+        thread was busy (it usually is, starting WebGL), and the header then jumped into place,
+        which was nearly all of the page's layout shift. They are small and found right away.-->
+    <link rel="stylesheet" href="/css/fonts.css">
+    <link rel="stylesheet" href="/css/main.css">
+    <!--images are preloaded as fetch instead of as image to comply with ImageBitmapLoader.
+        The globe always starts with the 2048 x 1024 day and night textures and loads larger ones
+        only when the screen or the zoom level needs them (Earth.updateDetail in earth.js), so
+        those aren't preloaded. The star field is the largest of these, so it is fetched at low
+        priority to leave the bandwidth to the globe and the scripts first.-->
+    <link rel="preload" href="./BlueMarble_2048x1024.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./BlackMarble_2048x1024.avif" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./EarthSpec_2048x1024.avif" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="fetch" crossorigin="anonymous" fetchpriority="low">
     <link rel="preload" href="./groups/index.json" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./groups/stations.json" as="fetch" crossorigin="anonymous">
     <link rel="preload" href="./groups/oneweb.json" as="fetch" crossorigin="anonymous">
@@ -178,7 +190,9 @@
             </span>
         </div>
         <div id="clock-frame" class="container-narrow clock">
-            <div id="clock-time" class="bold">Wed Sep 24 11:34:56 Z</div>
+            <!--placeholder in the same format as viewer.js's updateClock (and so the same width, in
+                a monospace font), so the header doesn't shift when the real time replaces it-->
+            <div id="clock-time" class="bold">24 Sep 2025 11:34:56 Z</div>
             <div class="time-indicator">
                 <span id="real-time-indicator" class="indicator-text on border-right-sep">Real-Time</span>
                 <span id="projected-indicator" class="indicator-text">Projected</span>

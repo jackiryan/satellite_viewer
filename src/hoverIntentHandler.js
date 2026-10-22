@@ -1,4 +1,3 @@
-import _ from 'lodash';
 import * as THREE from 'three';
 
 // Radius of a satellite's drawn "head" in model units: 0.85 for the ShootingStar model
@@ -7,6 +6,24 @@ const SATELLITE_HEAD_RADIUS = 1;
 
 // Used if the scene has no mesh named 'earth' (see earth.js)
 const DEFAULT_EARTH_RADIUS = 5;
+
+// Calls fn once calls have stopped for `wait` ms, with the latest arguments (the trailing-edge
+// behaviour of lodash's debounce, which was the only part of lodash the viewer used)
+function debounce(fn, wait) {
+    let timer = null;
+    const debounced = (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            timer = null;
+            fn(...args);
+        }, wait);
+    };
+    debounced.cancel = () => {
+        clearTimeout(timer);
+        timer = null;
+    };
+    return debounced;
+}
 
 export class HoverIntentHandler {
     constructor(renderer, scene, camera, groupMap, options = {}) {
@@ -42,7 +59,7 @@ export class HoverIntentHandler {
         this.checkIntent = this.checkIntent.bind(this);
 
         // Create debounced version of hover check
-        this.debouncedHoverCheck = _.debounce(this.checkIntent, this.settings.interval);
+        this.debouncedHoverCheck = debounce(this.checkIntent, this.settings.interval);
 
         // start listening for events
         this.renderer.domElement.addEventListener('mousemove', async (e) => {

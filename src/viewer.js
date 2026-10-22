@@ -3,14 +3,15 @@ import * as THREE from 'three';
 import gstime from './gstime.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { populateButtonGroup, setButtonState } from './buttonGroup.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { loadGltfGeometry } from './gltfGeometry.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
 import { initSky } from './skybox.js';
-import { initEarth } from './earth.js';
+import { Earth } from './earth.js';
 import { initMoon } from './moon.js';
 import Stats from 'three/addons/libs/stats.module.js';
 import { Timer } from 'three/addons/misc/Timer.js';
 import { HoverIntentHandler } from './hoverIntentHandler.js';
+import { markFrame } from './perfMarks.js';
 
 let camera, controls, scene, renderer, stats;
 let earth, moon, skybox, groupMap;
@@ -42,17 +43,13 @@ const secondsPerDay = 86400;
 
 const interactiveLayer = 1;
 
-await init().then(async () => {
-    await initSky({ sceneObj: scene }).then((sky) => {
-        skybox = sky;
-    });
-    // Clouds load in the background and appear when ready; not awaited so they never hold up the scene
-    earth.loadCloudTexture();
-    requestAnimationFrame(animate);
-});
+init();
+// Draw from the start: the placeholder globe and blank sky show at once, and each part of the
+// scene appears as soon as it has loaded
+requestAnimationFrame(animate);
 
 
-async function init() {
+function init() {
     /* Boilerplate */
     // The camera will be in a fixed intertial reference, so the Earth will rotate
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
@@ -95,35 +92,40 @@ async function init() {
     fitCameraToObject(camera, tempSphere, 5);
     scene.remove(tempSphere);
 
-    // Create the actual globe, loading the Moon's texture at the same time. The Moon stays
-    // off the interactive layer so the satellite raycaster never picks it up. The camera's
-    // far plane (1000) already covers the Moon, which sits about 300 scene units out.
-    const moonPromise = initMoon(scene, now);
-    earth = await initEarth(scene, now, interactiveLayer);
-    moon = await moonPromise;
-
-    // satellite data is stored in this data structure, position state is handled in a separate webworker
-    const modelName = './shootingstar3.gltf';
-    const satGeoPromise = new GLTFLoader().loadAsync(modelName, undefined);
-    let satGeo = new THREE.IcosahedronGeometry(1);
-    //groupMap = new SatelliteGroupMap(scene, satGeo);
-    satGeoPromise.then(async (gltf) => {
-        const model = gltf.scene;
-        model.traverse((node) => {
-            if (node.name === "ShootingStar") {
-                satGeo = node.geometry;
-            }
-        });
-
-        groupMap = new SatelliteGroupMap(scene, satGeo, interactiveLayer);
-        await initSatellites();
-    }).catch((error) => {
-        console.error(`Failed to load satellite model: ${error}`);
-        groupMap = new SatelliteGroupMap(scene, satGeo, interactiveLayer);
+    // Load everything at once rather than one after another; nothing waits on anything else.
+    // The Earth's textures, the star field and the default satellite groups are preloaded by
+    // satellites.html, so these mostly pick up downloads that are already under way.
+    earth = new Earth(scene, now);
+    // The clouds are the largest download, so start it now; they show once the globe is ready
+    earth.loadCloudTexture();
+    earth.initialize(interactiveLayer).catch((error) => {
+        console.error('Failed to initialize the Earth:', error);
     });
+
+    // The Moon stays off the interactive layer so the satellite raycaster never picks it up.
+    // The camera's far plane (1000) already covers the Moon, which sits about 300 scene units out.
+    initMoon(scene, now).then((m) => {
+        moon = m;
+    });
+
+    initSky({ sceneObj: scene }).then((sky) => {
+        skybox = sky;
+    });
+
+    initSatellites();
 }
 
 async function initSatellites() {
+    // satellite data is stored in this data structure, position state is handled in a separate webworker
+    let satGeo;
+    try {
+        satGeo = await loadGltfGeometry('./shootingstar3.gltf', 'ShootingStar');
+    } catch (error) {
+        console.error(`Failed to load satellite model: ${error}`);
+        satGeo = new THREE.IcosahedronGeometry(1);
+    }
+    groupMap = new SatelliteGroupMap(scene, satGeo, interactiveLayer);
+
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
 
@@ -394,6 +396,8 @@ function animate() {
 
     if (earth !== undefined) {
         earth.update(deltaNow);
+        // load larger textures if the camera has zoomed in (or the screen is high-DPI)
+        earth.updateDetail(camera);
     }
 
     if (moon !== undefined) {
@@ -415,6 +419,12 @@ function animate() {
     stats.update();
 
     renderer.render(scene, camera);
+    markFrame({
+        earthTextured: earth?.ready === true,
+        starsVisible: skybox?.isStarry() === true,
+        satellitesVisible: groupMap?.anyGroupDisplayed() === true,
+        cloudsVisible: earth?.earthMaterial?.uniforms.showClouds.value === true
+    });
     requestAnimationFrame(animate);
 }
 
