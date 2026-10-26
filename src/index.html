@@ -18,17 +18,19 @@
     <link rel="prefetch" href="./fonts/AudioLinkMono-Light.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     <link rel="stylesheet" href="/css/fonts.css">
     <link rel="stylesheet" href="/css/landing.css">
-    <!--images are preloaded as fetch instead of as image to comply with ImageBitmapLoader-->
-    <link rel="preload" href="./BlueMarble_8192x4096.avif" as="image" type="image/avif" crossorigin="anonymous">
-    <link rel="preload" href="./BlackMarble_8192x4096.avif" as="image" type="image/avif" crossorigin="anonymous">
-    <link rel="preload" href="./EarthSpec_2048x1024.avif" as="image" type="image/avif" crossorigin="anonymous">
-    <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="image" type="image/avif"
-        crossorigin="anonymous">
-    <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="image" type="image/png"
-        crossorigin="anonymous">
-    <link rel="preload" href="./groups/index.json" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./groups/stations.json" as="fetch" crossorigin="anonymous">
-    <link rel="preload" href="./groups/oneweb.json" as="fetch" crossorigin="anonymous">
+    <!--images are preloaded as fetch instead of as image to comply with ImageBitmapLoader (a
+        preload only gets used by a request of the same kind). The landing page's globe uses
+        the 2048 x 1024 textures (initEarth(..., useLowRes = true) in landing.js), which are
+        also the ones the satellite viewer starts with.-->
+    <link rel="preload" href="./BlueMarble_2048x1024.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./BlackMarble_2048x1024.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./EarthSpec_2048x1024.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./skybox/milkyway_2020_1024x512.avif" as="fetch" crossorigin="anonymous">
+    <link rel="preload" href="./skybox/StarData_1024x1024_16bit.png" as="fetch" crossorigin="anonymous">
+    <!--Not used here: fetched when idle, for a visit to the satellite viewer next-->
+    <link rel="prefetch" href="./groups/index.json" as="fetch" crossorigin="anonymous">
+    <link rel="prefetch" href="./groups/stations.json" as="fetch" crossorigin="anonymous">
+    <link rel="prefetch" href="./groups/oneweb.json" as="fetch" crossorigin="anonymous">
     <script type="module" src="./landing.js" defer></script>
     <meta property="og:title" content="Jacqueline Ryan">
     <meta property="og:description"

@@ -22,3 +22,6 @@ static/groups/starlink.json
 static/groups/stations.json
 static/groups/telesat.json
 static/groups/weather.json
+
+# Lighthouse reports from scripts/perf/lighthouse-compare.mjs
+perf-results/

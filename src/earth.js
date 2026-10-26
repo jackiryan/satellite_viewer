@@ -22,6 +22,31 @@ window.mobileAndSafariCheck = function () {
     return isSafari || isMobile;
 };
 
+// Widths of the day and night textures on the server (BlueMarble_WxH.avif and
+// BlackMarble_WxH.avif, H = W / 2). The globe starts with the smallest, which satellites.html
+// preloads, and moves up a size when the view shows more detail than the texture has.
+const EARTH_TEXTURE_WIDTHS = [2048, 4096, 8192];
+
+// Cloud texture sizes the gibs-cloud-texture worker makes. tileMatrix is the lowest GIBS level
+// with at least as many pixels as the texture, so the worker shrinks the tiles rather than
+// enlarging them; these match what its hourly job keeps ready (PREWARM_TILE_MATRIX in
+// gibs-cloud-texture/wrangler.jsonc).
+const CLOUD_RESOLUTIONS = [
+    { name: '2k', width: 2048, tileMatrix: '3' },
+    { name: '4k', width: 4096, tileMatrix: '3' },
+    { name: '8k', width: 8192, tileMatrix: '4' }
+];
+const CLOUD_WIDTHS = CLOUD_RESOLUTIONS.map((r) => r.width);
+
+// A texture has enough detail while it has at least this many texels per screen pixel where
+// the globe is closest to the camera (and more everywhere else). Slightly under 1 so that a
+// texture that is just short at the default view isn't replaced by one four times the size.
+const MIN_TEXELS_PER_PIXEL = 0.8;
+
+// Larger textures start loading once the camera's distance has held still this long (ms), so
+// that zooming in loads the size for where the zoom ends, not every size on the way there
+const DETAIL_SETTLE_MS = 250;
+
 // Earth globe class to encapsulate all earth rendering functionality
 export class Earth {
     constructor(scene, initialDate) {
@@ -80,6 +105,28 @@ export class Earth {
         // its texture has loaded
         this.cloudsVisible = true;
         this.seaIceVisible = true;
+
+        // Texture sizes in use and being loaded (see updateDetail). The upgrades stop at the
+        // largest size the device gets (getMaxTextureWidth), and skip sizes that failed to load.
+        this.isMobileOrSafari = window.mobileAndSafariCheck();
+        this.useLowRes = false;
+        this.earthTextureWidth = 0;
+        this.earthTextureLoading = null;
+        this.earthTextureFailed = new Set();
+        this.cloudResolution = null;
+        this.cloudLoading = null;
+        this.cloudFailed = new Set();
+        this.cameraDistance = 0;
+        this.cameraMovedAt = -Infinity;
+
+        // Whether the textured globe is in the scene (initialize() has finished)
+        this.ready = false;
+
+        // Resolves when the textured globe goes into the scene, so the clouds can start
+        // downloading before then (loadCloudTexture waits for it before applying them)
+        this.materialReady = new Promise((resolve) => {
+            this.resolveMaterialReady = resolve;
+        });
 
         // Calculate initial rotation based on sidereal time
         this.gmst = gstime(this.initialDate);
@@ -167,57 +214,48 @@ export class Earth {
         });
     }
 
-    getTextureUrls(useLowRes = false) {
-        const isMobileOrSafari = window.mobileAndSafariCheck ? window.mobileAndSafariCheck() : false;
+    // Day, night and specular textures at the given width of the day and night textures. The
+    // specular map (land/ocean mask) is only ever 2048 wide; it has no fine detail.
+    getTextureUrls(width = EARTH_TEXTURE_WIDTHS[0]) {
         const baseUrl = window.location.origin || '.';
-
-        // Textures - Use a low resolution version on mobile devices, also Safari because it chokes on
-        // preloading images as bitmaps. Other than the obvious benefit of improving performance, it
-        // can sometimes happen that the creation of a webgl context fails on lower-end mobile devices
-        // when decompressing 8k textures.
-        if (isMobileOrSafari || useLowRes) {
-            return [
-                `${baseUrl}/BlueMarble_2048x1024.avif`,
-                `${baseUrl}/BlackMarble_2048x1024.avif`,
-                `${baseUrl}/EarthSpec_2048x1024.avif`
-            ];
-        }
-
-        // Use high resolution for desktop browsers with good support
         return [
-            `${baseUrl}/BlueMarble_8192x4096.avif`,
-            `${baseUrl}/BlackMarble_8192x4096.avif`,
+            `${baseUrl}/BlueMarble_${width}x${width / 2}.avif`,
+            `${baseUrl}/BlackMarble_${width}x${width / 2}.avif`,
             `${baseUrl}/EarthSpec_2048x1024.avif`
         ];
     }
 
-    // Cloud texture size: 2048x1024 wherever the Earth textures drop to low resolution
-    // (mobile, Safari, the landing page), otherwise 8192x4096 if the GPU allows it.
-    getCloudResolution(useLowRes = false) {
-        const isMobileOrSafari = window.mobileAndSafariCheck ? window.mobileAndSafariCheck() : false;
-        if (isMobileOrSafari || useLowRes) {
-            return '2k';
+    // The largest day/night texture this device gets. Mobile devices and Safari stay at 2048 x 1024:
+    // Safari chokes on loading images as bitmaps, and the creation of a WebGL context can fail on
+    // lower-end mobile devices when decompressing large textures. The landing page (useLowRes)
+    // also stays at 2048.
+    getMaxTextureWidth(widths) {
+        if (this.isMobileOrSafari || this.useLowRes) {
+            return widths[0];
         }
         const maxTextureSize = this.scene.renderer?.capabilities.maxTextureSize ?? 4096;
-        return maxTextureSize >= 8192 ? '8k' : '4k';
+        return widths.filter((w) => w <= maxTextureSize).pop() ?? widths[0];
+    }
+
+    // The first cloud texture: 2048 x 1024 wherever the Earth textures are capped at 2048
+    // (mobile, Safari, the landing page), otherwise 4096 x 2048, which has more than a texel per
+    // pixel at the default view even on high-DPI screens. 8192 x 4096 (18 MB) only loads once
+    // the camera is close enough to need it (updateDetail).
+    getInitialCloudResolution() {
+        return this.getMaxTextureWidth(CLOUD_WIDTHS) > 2048 ? CLOUD_RESOLUTIONS[1] : CLOUD_RESOLUTIONS[0];
     }
 
     // URL of the cloud texture made by the gibs-cloud-texture worker (proxied at /cloud-texture).
     // product=albedo returns a greyscale PNG of the clouds' visible reflectance, worked out from
     // NOAA-20 VIIRS cloud optical thickness. GIBS takes about two days to finish a day's data,
     // so ask for the day two days before the scene time (never later than now).
-    // The GIBS level (tileMatrix) is the lowest one with at least as many pixels as the texture,
-    // so the worker shrinks the tiles rather than enlarging them: level 3 (5120 x 2560) for 2k
-    // and 4k, level 4 (10240 x 5120) for 8k. These match what the worker's hourly job keeps ready
-    // (PREWARM_TILE_MATRIX in gibs-cloud-texture/wrangler.jsonc).
-    getCloudTextureUrl(useLowRes = false) {
+    getCloudTextureUrl(resolution) {
         const sceneTime = Math.min(this.initialDate.getTime(), Date.now());
         const date = new Date(sceneTime - 2 * 86400000).toISOString().slice(0, 10);
-        const outputRes = this.getCloudResolution(useLowRes);
         const params = new URLSearchParams({
             date,
-            tileMatrix: outputRes === '8k' ? '4' : '3',
-            outputRes,
+            tileMatrix: resolution.tileMatrix,
+            outputRes: resolution.name,
             product: 'albedo'
         });
         return `${window.location.origin || '.'}/cloud-texture?${params}`;
@@ -239,30 +277,40 @@ export class Earth {
         return texture;
     }
 
-    // Load the cloud texture in the background and switch the clouds on once it arrives.
-    // The globe renders normally in the meantime, and stays cloudless if loading fails.
-    async loadCloudTexture() {
-        if (!this.earthMaterial) {
-            console.warn('Earth material not initialized, cannot load cloud texture');
-            return null;
-        }
-
-        const url = this.getCloudTextureUrl(this.useLowRes);
+    // Load the cloud texture in the background and switch the clouds on once it arrives. This
+    // can be called before initialize() has finished (the download starts right away and the
+    // texture is applied once the globe exists). The globe renders normally in the meantime, and
+    // stays cloudless if loading fails. Called again with a larger resolution, it replaces the
+    // current texture once the new one has loaded.
+    async loadCloudTexture(resolution = this.getInitialCloudResolution()) {
+        this.cloudLoading = resolution;
+        const url = this.getCloudTextureUrl(resolution);
         try {
             // sqrt(cloud reflectance) per texel
             const cloudTexture = await this.loadDataTexture(url);
+
+            await this.materialReady;
+            // Upload it now, in its own task, rather than in the middle of the next frame
+            this.scene.renderer?.initTexture(cloudTexture);
 
             const uniforms = this.earthMaterial.uniforms;
             const previous = uniforms.cloudTexture.value;
             uniforms.cloudTexture.value = cloudTexture;
             // unless the viewer hid the clouds while they were loading
             uniforms.showClouds.value = this.cloudsVisible;
-            previous?.dispose();
+            disposeTexture(previous);
+            this.cloudResolution = resolution;
             return cloudTexture;
         } catch (error) {
+            // Keep the clouds already shown, if any, and don't try this size again
             console.error('Failed to load cloud texture:', error);
-            this.earthMaterial.uniforms.showClouds.value = false;
+            this.cloudFailed.add(resolution.width);
+            if (this.cloudResolution === null && this.earthMaterial) {
+                this.earthMaterial.uniforms.showClouds.value = false;
+            }
             return null;
+        } finally {
+            this.cloudLoading = null;
         }
     }
 
@@ -274,26 +322,24 @@ export class Earth {
     // south) already shows all their detail, and 2048x1024 wherever the Earth textures drop to
     // low resolution. Both are what the worker's hourly job keeps ready.
     getSeaIceTextureUrl(useLowRes = false) {
-        const isMobileOrSafari = window.mobileAndSafariCheck ? window.mobileAndSafariCheck() : false;
         const sceneTime = Math.min(this.initialDate.getTime(), Date.now());
         const params = new URLSearchParams({
             date: new Date(sceneTime - 86400000).toISOString().slice(0, 10),
-            outputRes: isMobileOrSafari || useLowRes ? '2k' : '4k'
+            outputRes: this.isMobileOrSafari || useLowRes ? '2k' : '4k'
         });
         return `${window.location.origin || '.'}/sea-ice-texture?${params}`;
     }
 
     // Load the sea ice texture in the background, as for clouds: the globe renders without sea
-    // ice until it arrives, and carries on without it if loading fails.
+    // ice until it arrives, and carries on without it if loading fails. Can be called before
+    // initialize() has finished; the texture is applied once the globe exists.
     async loadSeaIceTexture() {
-        if (!this.earthMaterial) {
-            console.warn('Earth material not initialized, cannot load sea ice texture');
-            return null;
-        }
-
         const url = this.getSeaIceTextureUrl(this.useLowRes);
         try {
             const seaIceTexture = await this.loadDataTexture(url);
+
+            await this.materialReady;
+            this.scene.renderer?.initTexture(seaIceTexture);
 
             const uniforms = this.earthMaterial.uniforms;
             const previous = uniforms.seaIceTexture.value;
@@ -304,10 +350,120 @@ export class Earth {
             return seaIceTexture;
         } catch (error) {
             console.error('Failed to load sea ice texture:', error);
-            this.earthMaterial.uniforms.showSeaIce.value = false;
+            if (this.earthMaterial) {
+                this.earthMaterial.uniforms.showSeaIce.value = false;
+            }
             return null;
         }
     }
+
+    // Texels needed across the full width (360 degrees) of a texture for it to have
+    // MIN_TEXELS_PER_PIXEL where the globe is closest to the camera, which is where the texture
+    // is magnified the most. A degree of longitude there spans radius / (distance - radius) of
+    // the camera's view, in radians.
+    getRequiredTextureWidth(camera) {
+        const canvas = this.scene.renderer?.domElement;
+        if (!canvas || !camera?.isPerspectiveCamera) {
+            return 0;
+        }
+        const radius = this.parameters.radius;
+        const altitude = Math.max(camera.position.distanceTo(this.earth.position) - radius, 0.01 * radius);
+        const pixelsPerRadian = (radius / altitude) * camera.zoom * canvas.height /
+            (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+        return 2 * Math.PI * pixelsPerRadian * MIN_TEXELS_PER_PIXEL;
+    }
+
+    // Called every frame: starts loading larger day/night or cloud textures when the camera has
+    // come close enough to show more detail than the current ones have (and has stopped moving
+    // toward or away from the globe; see DETAIL_SETTLE_MS). Textures are never
+    // swapped for smaller ones (moving away keeps the larger texture, which the GPU's mipmaps
+    // already handle), so each size loads at most once.
+    updateDetail(camera) {
+        if (!this.ready || this.useLowRes) {
+            return;
+        }
+        const now = performance.now();
+        const distance = camera.position.distanceTo(this.earth.position);
+        if (Math.abs(distance - this.cameraDistance) > 0.002 * distance) {
+            this.cameraMovedAt = now;
+        }
+        this.cameraDistance = distance;
+        if (now - this.cameraMovedAt < DETAIL_SETTLE_MS) {
+            return;
+        }
+        const required = this.getRequiredTextureWidth(camera);
+
+        if (this.earthTextureLoading === null) {
+            const width = this.pickTextureWidth(EARTH_TEXTURE_WIDTHS, required, this.earthTextureFailed);
+            if (width > this.earthTextureWidth) {
+                this.loadEarthTextures(width);
+            }
+        }
+
+        // Upgrades start from the first cloud texture, and not while the clouds are hidden
+        if (this.cloudLoading === null && this.cloudResolution !== null && this.cloudsVisible) {
+            const width = this.pickTextureWidth(CLOUD_WIDTHS, required, this.cloudFailed);
+            if (width > this.cloudResolution.width) {
+                this.loadCloudTexture(CLOUD_RESOLUTIONS.find((r) => r.width === width));
+            }
+        }
+    }
+
+    // The smallest of the widths that is at least the required width, or else the largest,
+    // leaving out those the device doesn't get and those that failed to load
+    pickTextureWidth(widths, required, failed) {
+        const maxWidth = this.getMaxTextureWidth(widths);
+        const usable = widths.filter((w) => w <= maxWidth && !failed.has(w));
+        return usable.find((w) => w >= required) ?? usable[usable.length - 1] ?? 0;
+    }
+
+    // Replace the day and night textures with larger ones (see updateDetail)
+    async loadEarthTextures(width) {
+        this.earthTextureLoading = width;
+        try {
+            const [dayUrl, nightUrl] = this.getTextureUrls(width);
+            const [day, night] = await Promise.all(
+                [dayUrl, nightUrl].map((url) => this.loadTexture(url, {}, 1, 500))
+            );
+            this.configureEarthTextures(day, night);
+
+            // Upload them a frame apart, so neither upload lands in the same task as the other
+            // or as the night glow redraw that follows
+            const renderer = this.scene.renderer;
+            renderer?.initTexture(day);
+            await nextFrame();
+            renderer?.initTexture(night);
+            await nextFrame();
+
+            const uniforms = this.earthMaterial.uniforms;
+            const previousDay = uniforms.dayTexture.value;
+            const previousNight = uniforms.nightTexture.value;
+            uniforms.dayTexture.value = day;
+            uniforms.nightTexture.value = night;
+            // the glow is made at up to 4096 wide, limited by the night texture's width
+            this.nightGlow.needsUpdate = true;
+            disposeTexture(previousDay);
+            disposeTexture(previousNight);
+            this.earthTextureWidth = width;
+        } catch (error) {
+            // e.g. a size that isn't on the server: keep the current textures, and skip this size
+            console.warn(`Failed to load the ${width}-wide Earth textures:`, error);
+            this.earthTextureFailed.add(width);
+        } finally {
+            this.earthTextureLoading = null;
+        }
+    }
+
+    configureEarthTextures(day, night) {
+        const anisotropy = Math.min(8, this.scene.renderer?.capabilities.getMaxAnisotropy() || 8);
+        for (const texture of [day, night]) {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texture.anisotropy = anisotropy;
+        }
+        // the night glow blur reads across the antimeridian
+        night.wrapS = THREE.RepeatWrapping;
+    }
+
 
     // Show or hide the clouds (null flips them). This is the viewer's choice, so it also holds
     // for clouds still loading: they appear when they arrive only if clouds are on. Returns
@@ -339,7 +495,10 @@ export class Earth {
     // Main initialization function for the globe
     async initialize(interactiveLayer, useLowRes = false) {
         this.useLowRes = useLowRes;
-        const earthImageUrls = this.getTextureUrls(useLowRes);
+        // Always start with the smallest textures (preloaded by satellites.html): they show the
+        // globe soonest, and at the default view on a standard-DPI screen they already have a
+        // texel per pixel. updateDetail() loads larger ones when the screen or the zoom needs them.
+        const earthImageUrls = this.getTextureUrls(EARTH_TEXTURE_WIDTHS[0]);
 
         try {
             // Load all textures
@@ -347,15 +506,9 @@ export class Earth {
                 earthImageUrls.map(url => this.loadTexture(url, {}, 3, 100))
             );
 
-            for (let i = 0; i < textures.length - 1; i++) {
-                textures[i].colorSpace = THREE.SRGBColorSpace;
-                textures[i].anisotropy = Math.min(8,
-                    this.scene.renderer?.capabilities.getMaxAnisotropy() || 8);
-            }
-
             const [blueMarble, blackMarble, earthSpec] = textures;
-            // the night glow blur reads across the antimeridian
-            blackMarble.wrapS = THREE.RepeatWrapping;
+            this.configureEarthTextures(blueMarble, blackMarble);
+            this.earthTextureWidth = EARTH_TEXTURE_WIDTHS[0];
 
             // Civil, Nautical, and Astronomical Twilight account for sun angles up to
             // about 18 degrees past the horizon
@@ -369,6 +522,22 @@ export class Earth {
                 interactiveLayer
             );
             await this.createAtmosphere(twilightAngle);
+
+            // Compile the globe's shaders before showing it. Where the browser has
+            // KHR_parallel_shader_compile (Chrome, Edge, Firefox, Safari) they compile in the
+            // background, so the frame that first shows the globe doesn't stall on them.
+            // (Capped at a few seconds in case the context is lost while compiling.)
+            const renderer = this.scene.renderer;
+            if (renderer?.compileAsync && renderer.extensions.has('KHR_parallel_shader_compile')) {
+                const camera = new THREE.PerspectiveCamera();
+                const compiled = Promise.all([this.earth, this.atmosphere].map(
+                    (mesh) => renderer.compileAsync(mesh, camera, this.scene)));
+                await Promise.race([compiled, new Promise((resolve) => setTimeout(resolve, 3000))]);
+            }
+            this.scene.add(this.earth);
+            this.scene.add(this.atmosphere);
+            this.ready = true;
+            this.resolveMaterialReady();
 
             // Remove temporary earth
             if (this.tempEarth) {
@@ -431,8 +600,8 @@ export class Earth {
 
         this.createNightGlow();
 
+        // added to the scene by initialize(), once its shaders are compiled
         this.earth = new THREE.Mesh(earthGeometry, this.earthMaterial);
-        this.scene.add(this.earth);
         this.earth.name = 'earth';
 
         // The retina effect only depends on the camera and the sun, so work it out once per
@@ -567,8 +736,8 @@ export class Earth {
             transparent: true
         });
 
+        // added to the scene by initialize(), once its shaders are compiled
         this.atmosphere = new THREE.Mesh(atmosphereGeometry, this.atmosphereMaterial);
-        this.scene.add(this.atmosphere);
         this.atmosphere.name = 'atm';
 
         // Set initial rotation based on sidereal time
@@ -640,6 +809,21 @@ export class Earth {
             this.nightGlow = null;
         }
     }
+}
+
+// Free a texture's GPU memory and, for one loaded with ImageBitmapLoader, its decoded image
+function disposeTexture(texture) {
+    if (!texture) {
+        return;
+    }
+    texture.dispose();
+    if (typeof ImageBitmap !== 'undefined' && texture.image instanceof ImageBitmap) {
+        texture.image.close();
+    }
+}
+
+function nextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 // Function to create and initialize an Earth instance

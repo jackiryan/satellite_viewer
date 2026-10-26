@@ -50,6 +50,15 @@ export class SatelliteGroupMap {
         }
     }
 
+    anyGroupDisplayed() {
+        for (const group of this.map.values()) {
+            if (group.displayed) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     groupDisplayed(name) {
         if (this.hasGroup(name)) {
             return this.map.get(name).displayed;
