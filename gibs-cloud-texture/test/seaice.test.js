@@ -208,38 +208,40 @@ test('the default size is 4k', async () => {
     assert.equal(response.headers.get('x-texture-size'), '4096x2048');
 });
 
-test('a date NSIDC has not published yet is served as the newest published one', async () => {
+test('a date NSIDC has not published yet falls back to the most recent R2 texture', async () => {
     published = (date) => date <= daysAgo(3);
+
+    // nothing in R2 yet → 404
+    const noCache = await call(`/sea-ice-texture?date=${daysAgo(1)}&outputRes=1k`);
+    assert.equal(noCache.response.status, 404);
+
+    // prime R2 with a texture for the most recently published date
+    const primed = await call(`/sea-ice-texture?date=${daysAgo(3)}&outputRes=1k`);
+    assert.equal(primed.response.headers.get('x-cache'), 'MISS');
+    clearSeaIceMemo();
+
+    // a newer date NSIDC hasn't published yet is served from R2
     const { response } = await call(`/sea-ice-texture?date=${daysAgo(1)}&outputRes=1k`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('x-requested-date'), daysAgo(1));
     assert.equal(response.headers.get('x-source-date'), daysAgo(3));
+    assert.equal(response.headers.get('x-cache'), 'R2-FALLBACK');
     assert.equal(response.headers.get('cache-control'), 'public, max-age=900');
-    assert.match([...r2.objects.keys()][0], new RegExp(`/${daysAgo(3)}\\.png$`));
 
-    const again = await call(`/sea-ice-texture?date=${daysAgo(1)}&outputRes=1k`);
-    assert.equal(again.response.headers.get('x-cache'), 'HIT');
-    assert.equal(again.response.headers.get('x-source-date'), daysAgo(3));
-    assert.equal(again.response.headers.get('cache-control'), 'public, max-age=900');
-
-    // once it is published, it is made and served
+    // once it is published, it is made and served fresh from NSIDC
     clearSeaIceMemo();
     published = (date) => date <= daysAgo(1);
     const later = await call(`/sea-ice-texture?date=${daysAgo(1)}&outputRes=1k`);
     assert.equal(later.response.headers.get('x-source-date'), daysAgo(1));
+    assert.equal(later.response.headers.get('x-cache'), 'MISS');
     assert.equal(later.response.headers.get('cache-control'), 'public, max-age=3600');
 });
 
-test('every other day in the early record, and 404 inside a long gap', async () => {
-    published = (date) => date === '1985-03-01';
-    const odd = await call('/sea-ice-texture?date=1985-03-02&outputRes=1k');
-    assert.equal(odd.response.headers.get('x-source-date'), '1985-03-01');
-    assert.equal(odd.response.headers.get('cache-control'), 'public, max-age=2592000'); // old data is final
-
+test('no NSIDC data for the exact date and no R2 cache returns 404', async () => {
     published = () => false;
     const gap = await call('/sea-ice-texture?date=1988-01-01&outputRes=1k');
     assert.equal(gap.response.status, 404);
-    assert.match(errorOf(gap.body).error, /No sea ice data for 1988-01-01 or the 7 days before it/);
+    assert.match(errorOf(gap.body).error, /No sea ice data available for 1988-01-01/);
 });
 
 test('rejects bad parameters with JSON errors', async () => {

@@ -29,16 +29,16 @@
  * product     optional  concentration (the only one)
  *
  * A greyscale PNG of the Arctic and Antarctic sea ice concentration from the daily G02135
- * GeoTIFFs, round(concentration * 255), 0 for open water, land and no data. The newest date
- * NSIDC has published at or before the one asked for (at most 7 days before) is served, and
- * stored in R2 under sea-ice-texture/ like the cloud textures.
+ * GeoTIFFs, round(concentration * 255), 0 for open water, land and no data. If NSIDC has
+ * published the exact date requested it is served fresh; otherwise the most recently cached
+ * texture in R2 is returned. Textures are stored in R2 under sea-ice-texture/.
  */
 import { resolveDate } from './availability.js';
 import { isRecent, maxAgeFor, todayUtc } from './dates.js';
 import { TILE_MATRIX_SET_MAX_LEVEL, UpstreamError, tileGrid } from './gibs.js';
 import { prewarm, prewarmSeaIce } from './prewarm.js';
-import { LOOKBACK_DAYS, SEA_ICE_PRODUCT, createSeaIceTexture, resolveSeaIceDate } from './seaice.js';
-import { seaIceKey, seaIceMetadata, storeStream, textureKey, textureMetadata } from './store.js';
+import { SEA_ICE_PRODUCT, createSeaIceTexture, resolveSeaIceDate } from './seaice.js';
+import { seaIceKey, seaIceMetadata, seaIcePrefix, storeStream, textureKey, textureMetadata } from './store.js';
 import { OUTPUT_SIZES, PRODUCTS, createTexture } from './texture.js';
 
 const TEXTURE_PATH = '/global-texture';
@@ -279,7 +279,7 @@ function apiDescription(origin, config) {
                     required: true,
                     format: 'YYYY-MM-DD (a time of day is accepted and ignored)',
                     earliest: config.seaIce.earliestDate,
-                    note: `the newest date NSIDC has published at or before it (at most ${LOOKBACK_DAYS} days earlier) is served (X-Source-Date)`
+                    note: `if NSIDC has published this date it is served; otherwise the most recently cached R2 texture is returned (X-Source-Date)`
                 },
                 outputRes: {
                     default: DEFAULT_SEA_ICE_OUTPUT_RES,
@@ -450,24 +450,26 @@ async function handleSeaIce({ url, env, ctx, config, cors }) {
         }
     }
 
-    // Otherwise the newest date NSIDC has published at or before it
-    const resolved = await resolveSeaIceDate(config, requestedDate);
+    // Check if NSIDC has data for the exact requested date; if not, fall back to the most recent R2 texture
+    const resolved = await resolveSeaIceDate(config, requestedDate, { maxLookback: 0 });
     if (!resolved.date) {
-        return json({ error: `No sea ice data for ${requestedDate} or the ${LOOKBACK_DAYS} days before it` }, 404, cors);
+        if (bucket) {
+            const prefix = seaIcePrefix(config) + `${SEA_ICE_PRODUCT}/${outputRes}/`;
+            const listed = await bucket.list({ prefix });
+            if (listed.objects.length > 0) {
+                const latest = listed.objects[listed.objects.length - 1];
+                const cachedDate = latest.key.match(/(\d{4}-\d{2}-\d{2})\.png$/)?.[1];
+                if (cachedDate) {
+                    const response = await serveStored(latest.key, cachedDate, FALLBACK_MAX_AGE, 'R2-FALLBACK');
+                    if (response) return response;
+                }
+            }
+        }
+        return json({ error: `No sea ice data available for ${requestedDate}` }, 404, cors);
     }
     const date = resolved.date;
-    // a stand-in for a recent date that isn't published yet is only kept briefly
-    const maxAge = resolved.fallback && isRecent(requestedDate) ? FALLBACK_MAX_AGE : maxAgeFor(date);
+    const maxAge = maxAgeFor(date);
     const key = seaIceKey(config, { date, outputRes });
-    if (bucket && resolved.fallback) {
-        const state = await seaIceState(bucket, key, date, config);
-        if (state === 'fresh') {
-            const response = await serveStored(key, date, maxAge, 'HIT');
-            if (response) return response;
-        } else if (state === 'stale') {
-            stale ??= { key, date };
-        }
-    }
 
     let made;
     try {

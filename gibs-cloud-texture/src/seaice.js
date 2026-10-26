@@ -124,13 +124,13 @@ export async function fileExists(url, { fetchImpl = fetch, retries = 2 } = {}) {
  * @returns {Promise<{date: string|null, fallback: boolean, checked: boolean}>} date is null if
  *   there is none; checked is false if NSIDC couldn't be asked (the date is then used as asked).
  */
-export async function resolveSeaIceDate(config, date, { fetchImpl = fetch, now = Date.now() } = {}) {
+export async function resolveSeaIceDate(config, date, { fetchImpl = fetch, now = Date.now(), maxLookback = LOOKBACK_DAYS } = {}) {
     const hit = memo.get(date);
     if (hit && hit.expires > now) return hit.result;
 
     let result = { date: null, fallback: false, checked: true };
     try {
-        for (let back = 0; back <= LOOKBACK_DAYS; back++) {
+        for (let back = 0; back <= maxLookback; back++) {
             const candidate = addDays(date, -back);
             if (candidate < config.seaIce.earliestDate) break;
             const found = await Promise.all(Object.keys(HEMISPHERES).map((h) =>
