@@ -1,5 +1,6 @@
 /* prewarm.js - scheduled job (Cron Trigger) that keeps the textures the site asks for ready
- * in R2, so visitors never wait for one to be made.
+ * in R2, so visitors never wait for one to be made. prewarm() does the cloud textures, as
+ * below; prewarmSeaIce() does the same for the sea ice ones.
  *
  * Each run:
  *   1. works out the dates pages will ask for (by default 1 and 2 days back, UTC; the globe asks
@@ -16,7 +17,11 @@
  */
 import { resolveDate } from './availability.js';
 import { DAY_MS, isRecent, maxAgeFor, todayUtc, addDays } from './dates.js';
-import { STORE_NAMESPACE, storePrefix, storeStream, textureKey, textureMetadata } from './store.js';
+import { createSeaIceTexture, loadSeaIceGrids, resolveSeaIceDate } from './seaice.js';
+import {
+    SEA_ICE_NAMESPACE, STORE_NAMESPACE, seaIceKey, seaIceMetadata, seaIcePrefix, storePrefix, storeStream,
+    textureKey, textureMetadata
+} from './store.js';
 import { createTexture } from './texture.js';
 
 /**
@@ -65,17 +70,77 @@ export async function prewarm({ config, bucket, now = Date.now(), fetchImpl = fe
         }
     }
 
-    summary.pruned = await prune(config, bucket, now - settings.retainDays * DAY_MS);
+    summary.pruned = await prune(bucket, STORE_NAMESPACE, storePrefix(config), now - settings.retainDays * DAY_MS);
     return summary;
 }
 
-/** Delete this Worker's objects uploaded before `cutoff`, or not under the current prefix. */
-async function prune(config, bucket, cutoff) {
-    const prefix = storePrefix(config);
+/**
+ * The same for sea ice textures (seaice.js): for each of config.seaIce.prewarm.daysBack, the
+ * newest date NSIDC has published at or before it, at each of its resolutions. Both GeoTIFFs
+ * are downloaded once per date for all the resolutions that need making.
+ */
+export async function prewarmSeaIce({ config, bucket, now = Date.now(), fetchImpl = fetch }) {
+    const { daysBack, resolutions } = config.seaIce.prewarm;
+    const { refreshHours, retainDays } = config.prewarm;
+    const summary = { dates: [], generated: [], fresh: [], failed: [], unavailable: [], pruned: 0 };
+
+    const dates = new Set();
+    for (const back of daysBack) {
+        const wanted = addDays(todayUtc(now), -back);
+        const { date } = await resolveSeaIceDate(config, wanted, { fetchImpl, now });
+        if (date) dates.add(date);
+        else summary.unavailable.push(wanted);
+    }
+    summary.dates = [...dates];
+
+    for (const date of dates) {
+        const due = [];
+        for (const outputRes of resolutions) {
+            const key = seaIceKey(config, { date, outputRes });
+            const existing = await bucket.head(key);
+            const age = existing ? now - existing.uploaded.getTime() : Infinity;
+            if (existing && !(isRecent(date, now) && age > refreshHours * 3_600_000)) summary.fresh.push(key);
+            else due.push({ outputRes, key });
+        }
+        if (!due.length) continue;
+
+        let grids;
+        try {
+            grids = await loadSeaIceGrids(config, date, { fetchImpl, cacheTtl: maxAgeFor(date, now) });
+        } catch (error) {
+            for (const { key } of due) summary.failed.push({ key, message: error.message, detail: error.detail });
+            continue;
+        }
+        for (const { outputRes, key } of due) {
+            const started = Date.now();
+            try {
+                const texture = await createSeaIceTexture({ config, date, outputRes, grids });
+                const [stored, done] = await Promise.allSettled([
+                    storeStream(bucket, key, texture.stream, seaIceMetadata({ date, outputRes }, texture, now)),
+                    texture.done
+                ]);
+                if (done.status === 'rejected') throw done.reason;
+                if (stored.status === 'rejected') throw stored.reason;
+                summary.generated.push({ key, ms: Date.now() - started });
+            } catch (error) {
+                summary.failed.push({ key, message: error.message, detail: error.detail });
+            }
+        }
+    }
+
+    summary.pruned = await prune(bucket, SEA_ICE_NAMESPACE, seaIcePrefix(config), now - retainDays * DAY_MS);
+    return summary;
+}
+
+/**
+ * Delete the objects under `namespace` uploaded before `cutoff`, or not under `prefix` (left
+ * over from an older store version or another source).
+ */
+async function prune(bucket, namespace, prefix, cutoff) {
     const doomed = [];
     let cursor;
     do {
-        const page = await bucket.list({ prefix: STORE_NAMESPACE, cursor, limit: 1000 });
+        const page = await bucket.list({ prefix: namespace, cursor, limit: 1000 });
         for (const object of page.objects) {
             if (!object.key.startsWith(prefix) || object.uploaded.getTime() < cutoff) doomed.push(object.key);
         }

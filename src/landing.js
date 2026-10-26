@@ -34,8 +34,10 @@ await init().then(async () => {
     await initSky({ sceneObj: scene }).then((sky) => {
         skybox = sky;
     });
-    // Clouds load in the background and appear when ready; not awaited so they never hold up the scene
+    // Clouds and sea ice load in the background and appear when ready; not awaited so they never
+    // hold up the scene
     earth.loadCloudTexture();
+    earth.loadSeaIceTexture();
     requestAnimationFrame(animate);
 });
 

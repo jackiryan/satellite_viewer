@@ -79,6 +79,16 @@ export class Earth {
             // pixel at globe scale, so this is a little exaggerated; much more and neighbouring
             // cities run together
             cityLightSpread: 12,
+            // color of sea ice (sRGB): nearly white, as snow-covered floes are. Loose floes are
+            // drawn a little greyer (thinner ice), and the sea shows between them
+            seaIceColor: '#f1f5f8',
+            // concentration from which sea ice is drawn as solid pack; below it, the ice breaks up
+            // into floes that get smaller and further apart as the concentration falls
+            seaIceFloeThreshold: 0.9,
+            // size (km) of the cells holding the large floes; small floes are a quarter of this.
+            // Real floes are mostly smaller, but these are what makes the 25 km data look like
+            // broken ice at globe scale. They show once a cell is a few pixels across.
+            seaIceFloeSize: 80,
             // sea surface wind speed (m/s): calmer seas give a smaller, sharper sun glint
             windSpeed: 7.5,
             glintBrightness: 0.75,
@@ -91,8 +101,10 @@ export class Earth {
             haloScaleHeight: 0.02
         };
 
-        // Whether the viewer wants clouds shown (the settings menu); they appear once loaded
+        // Whether the viewer wants clouds and sea ice shown (the settings menu); each appears once
+        // its texture has loaded
         this.cloudsVisible = true;
+        this.seaIceVisible = true;
 
         // Texture sizes in use and being loaded (see updateDetail). The upgrades stop at the
         // largest size the device gets (getMaxTextureWidth), and skip sizes that failed to load.
@@ -249,6 +261,22 @@ export class Earth {
         return `${window.location.origin || '.'}/cloud-texture?${params}`;
     }
 
+    // Load one of the gibs-cloud-texture worker's data textures: a greyscale PNG whose single
+    // channel holds a value per texel rather than a color. RedFormat keeps it at one byte per
+    // texel on the GPU (32 MB at 8k instead of 128 MB as RGBA).
+    async loadDataTexture(url) {
+        // premultiplyAlpha must be passed explicitly: setOptions replaces ImageBitmapLoader's defaults
+        const texture = await this.loadTexture(url, { premultiplyAlpha: 'none' }, 2, 1000);
+        texture.format = THREE.RedFormat;
+        texture.colorSpace = THREE.NoColorSpace;
+        // wrap across the antimeridian (the cloud shadow lookups step over it)
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.anisotropy = Math.min(8,
+            this.scene.renderer?.capabilities.getMaxAnisotropy() || 8);
+        texture.needsUpdate = true;
+        return texture;
+    }
+
     // Load the cloud texture in the background and switch the clouds on once it arrives. This
     // can be called before initialize() has finished (the download starts right away and the
     // texture is applied once the globe exists). The globe renders normally in the meantime, and
@@ -258,18 +286,8 @@ export class Earth {
         this.cloudLoading = resolution;
         const url = this.getCloudTextureUrl(resolution);
         try {
-            // premultiplyAlpha must be passed explicitly: setOptions replaces ImageBitmapLoader's defaults
-            const cloudTexture = await this.loadTexture(url, { premultiplyAlpha: 'none' }, 2, 1000);
-
-            // The texture is data, not color: sqrt(reflectance) in a single channel. RedFormat
-            // keeps it at one byte per texel on the GPU (32 MB at 8k instead of 128 MB as RGBA).
-            cloudTexture.format = THREE.RedFormat;
-            cloudTexture.colorSpace = THREE.NoColorSpace;
-            // wrap across the antimeridian (shadow lookups step over it)
-            cloudTexture.wrapS = THREE.RepeatWrapping;
-            cloudTexture.anisotropy = Math.min(8,
-                this.scene.renderer?.capabilities.getMaxAnisotropy() || 8);
-            cloudTexture.needsUpdate = true;
+            // sqrt(cloud reflectance) per texel
+            const cloudTexture = await this.loadDataTexture(url);
 
             await this.materialReady;
             // Upload it now, in its own task, rather than in the middle of the next frame
@@ -293,6 +311,49 @@ export class Earth {
             return null;
         } finally {
             this.cloudLoading = null;
+        }
+    }
+
+    // URL of the sea ice texture made by the gibs-cloud-texture worker (proxied at
+    // /sea-ice-texture): sea ice concentration (0-1) per texel from the NSIDC Sea Ice Index's
+    // daily Arctic and Antarctic grids. NSIDC publishes a day's grids the next day, so ask for
+    // the day before the scene time (never later than now); the worker serves the newest day it
+    // has at or before that. The grids are 25 km, so 4096x2048 (about 10 km per texel north to
+    // south) already shows all their detail, and 2048x1024 wherever the Earth textures drop to
+    // low resolution. Both are what the worker's hourly job keeps ready.
+    getSeaIceTextureUrl(useLowRes = false) {
+        const sceneTime = Math.min(this.initialDate.getTime(), Date.now());
+        const params = new URLSearchParams({
+            date: new Date(sceneTime - 86400000).toISOString().slice(0, 10),
+            outputRes: this.isMobileOrSafari || useLowRes ? '2k' : '4k'
+        });
+        return `${window.location.origin || '.'}/sea-ice-texture?${params}`;
+    }
+
+    // Load the sea ice texture in the background, as for clouds: the globe renders without sea
+    // ice until it arrives, and carries on without it if loading fails. Can be called before
+    // initialize() has finished; the texture is applied once the globe exists.
+    async loadSeaIceTexture() {
+        const url = this.getSeaIceTextureUrl(this.useLowRes);
+        try {
+            const seaIceTexture = await this.loadDataTexture(url);
+
+            await this.materialReady;
+            this.scene.renderer?.initTexture(seaIceTexture);
+
+            const uniforms = this.earthMaterial.uniforms;
+            const previous = uniforms.seaIceTexture.value;
+            uniforms.seaIceTexture.value = seaIceTexture;
+            // unless the viewer hid the sea ice while it was loading
+            uniforms.showSeaIce.value = this.seaIceVisible;
+            previous?.dispose();
+            return seaIceTexture;
+        } catch (error) {
+            console.error('Failed to load sea ice texture:', error);
+            if (this.earthMaterial) {
+                this.earthMaterial.uniforms.showSeaIce.value = false;
+            }
+            return null;
         }
     }
 
@@ -403,6 +464,7 @@ export class Earth {
         night.wrapS = THREE.RepeatWrapping;
     }
 
+
     // Show or hide the clouds (null flips them). This is the viewer's choice, so it also holds
     // for clouds still loading: they appear when they arrive only if clouds are on. Returns
     // whether clouds are on.
@@ -415,6 +477,19 @@ export class Earth {
 
         console.log(`Clouds are now ${this.cloudsVisible ? 'visible' : 'hidden'}`);
         return this.cloudsVisible;
+    }
+
+    // Show or hide the sea ice (null flips it), the same way as toggleClouds. Returns whether
+    // sea ice is on.
+    toggleSeaIce(visible = null) {
+        this.seaIceVisible = visible === null ? !this.seaIceVisible : Boolean(visible);
+        const uniforms = this.earthMaterial?.uniforms;
+        if (uniforms) {
+            uniforms.showSeaIce.value = this.seaIceVisible && uniforms.seaIceTexture.value !== null;
+        }
+
+        console.log(`Sea ice is now ${this.seaIceVisible ? 'visible' : 'hidden'}`);
+        return this.seaIceVisible;
     }
 
     // Main initialization function for the globe
@@ -485,7 +560,7 @@ export class Earth {
     async createEarth(blueMarble, blackMarble, earthSpec, twilightAngle, interactiveLayer) {
         const earthGeometry = new THREE.SphereGeometry(this.parameters.radius, 64, 64);
 
-        // Shader material with added cloud texture uniforms
+        // Shader material with added cloud and sea ice texture uniforms
         this.earthMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 dayTexture: new THREE.Uniform(blueMarble),
@@ -502,6 +577,13 @@ export class Earth {
                 cloudShadowHeight: new THREE.Uniform(this.parameters.cloudShadowHeight * this.parameters.radius / 6371),
                 cloudRelief: new THREE.Uniform(this.parameters.cloudRelief),
                 cloudTwilightTint: new THREE.Uniform(this.parameters.cloudTwilightTint),
+                // Sea ice: set by loadSeaIceTexture() once the texture has arrived
+                seaIceTexture: new THREE.Uniform(null),
+                showSeaIce: new THREE.Uniform(false),
+                seaIceColor: new THREE.Uniform(new THREE.Color(this.parameters.seaIceColor)),
+                seaIceFloeThreshold: new THREE.Uniform(this.parameters.seaIceFloeThreshold),
+                // cells per unit of the shader's polar plane, which is 2 Earth radii at the pole
+                seaIceFloeScale: new THREE.Uniform(2 * 6371 / this.parameters.seaIceFloeSize),
                 windSpeed: new THREE.Uniform(this.parameters.windSpeed),
                 glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
                 atmosphereHaze: new THREE.Uniform(this.parameters.atmosphereHaze),

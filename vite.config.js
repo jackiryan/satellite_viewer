@@ -22,6 +22,11 @@ export default defineConfig({
                 target: 'https://gibs-cloud-texture.jpryan104.workers.dev',
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/cloud-texture/, '/global-texture')
+            },
+            // Sea ice textures come from the same worker, at the same path
+            '/sea-ice-texture': {
+                target: 'https://gibs-cloud-texture.jpryan104.workers.dev',
+                changeOrigin: true
             }
         },
         host: true, // Open to local network and display URL

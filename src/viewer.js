@@ -96,8 +96,10 @@ function init() {
     // The Earth's textures, the star field and the default satellite groups are preloaded by
     // satellites.html, so these mostly pick up downloads that are already under way.
     earth = new Earth(scene, now);
-    // The clouds are the largest download, so start it now; they show once the globe is ready
+    // Clouds and sea ice load in the background and appear when ready; not awaited so they
+    // never hold up the scene
     earth.loadCloudTexture();
+    earth.loadSeaIceTexture();
     earth.initialize(interactiveLayer).catch((error) => {
         console.error('Failed to initialize the Earth:', error);
     });
@@ -195,6 +197,7 @@ function initSettingsMenu() {
 
     const starsButton = document.getElementById('stars');
     const cloudsButton = document.getElementById('clouds');
+    const seaIceButton = document.getElementById('sea-ice');
     const showAllButton = document.getElementById('show-all');
     const hideAllButton = document.getElementById('hide-all');
 
@@ -290,6 +293,13 @@ function initSettingsMenu() {
         if (earth !== undefined) {
             const visible = earth.toggleClouds();
             cloudsButton.innerHTML = visible ? 'Hide Clouds' : 'Show Clouds';
+        }
+    });
+
+    seaIceButton.addEventListener('click', () => {
+        if (earth !== undefined) {
+            const visible = earth.toggleSeaIce();
+            seaIceButton.innerHTML = visible ? 'Hide Sea Ice' : 'Show Sea Ice';
         }
     });
 

@@ -19,7 +19,8 @@ beforeEach(() => {
         GIBS_COLORMAP_URL: 'https://gibs.test/colormaps/cot.xml',
         TEXTURES: r2,
         PREWARM_RESOLUTIONS: '1k,2k',   // small, to keep the test quick
-        PREWARM_TILE_MATRIX: '0'
+        PREWARM_TILE_MATRIX: '0',
+        SEA_ICE_PREWARM_RESOLUTIONS: 'none' // the sea ice job has its own tests (seaice.test.js)
     };
 });
 

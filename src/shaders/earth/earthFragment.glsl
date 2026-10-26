@@ -8,6 +8,11 @@ uniform float cloudBrightness;    // scales cloud reflectance (1.0 = as computed
 uniform float cloudShadowHeight;  // top height of the thickest clouds, in scene units
 uniform float cloudRelief;        // strength of the slope shading on cloud tops (0 = flat)
 uniform float cloudTwilightTint;  // 0 = cloud tops stay white to the terminator, 1 = full sunset color
+uniform sampler2D seaIceTexture;  // sea ice concentration (0-1) in red, from the gibs-cloud-texture worker
+uniform bool showSeaIce;
+uniform vec3 seaIceColor;         // albedo of sea ice (linear)
+uniform float seaIceFloeThreshold; // concentration from which the ice is solid pack; below it, it breaks into floes
+uniform float seaIceFloeScale;     // large floe cells per unit of the polar plane (floePlane())
 uniform float windSpeed;          // m/s; rougher seas spread the sun glint out
 uniform float glintBrightness;
 uniform float atmosphereHaze;       // scales the air seen toward the limb (0 = no haze)
@@ -22,6 +27,7 @@ uniform float retinaStrength;     // the old retinaEffect(), now computed once p
 varying vec2 vUv;
 varying vec3 vPosition;
 varying vec3 vNormal;
+varying vec3 vObjectNormal;
 
 vec3 gammaCorrection(vec3 color, float gamma) {
     return pow(color, vec3(1.0 / gamma));
@@ -44,6 +50,182 @@ float scatteringDepth(float reflectance) {
 }
 
 #include ../common/atmosphere.glsl;
+
+/* Sea ice floes. The concentration grids are 25 km, far coarser than the globe, so where the
+ * pack is loose (below seaIceFloeThreshold) the ice is drawn as separate floes, made up here
+ * from Voronoi noise, with the sea showing between them. Each cell of the noise holds at most
+ * one floe: the cell itself, or the cell shrunk toward its seed. Floes come in two sizes, large
+ * ones and ones a quarter as big, and their combined area is the concentration, so the amount of
+ * ice matches the data at every zoom. Just below the threshold the pack is plates of joined
+ * floes with a few gaps; as the concentration falls the plates break up, large floes get rarer,
+ * and floes of both sizes shrink and spread apart, until at 15% the ice is mostly small, widely
+ * spaced floes, as in the marginal ice zone. When the floes would be under a few pixels across,
+ * they fade into their average, so the globe never shimmers.
+ */
+
+// Earth-fixed direction -> plane, by stereographic projection from the opposite pole. It is
+// conformal, so floes stay round, and they shrink by under 20% from the pole down to 40 degrees,
+// beyond which there is no sea ice. One unit of the plane is 12742 km at the pole.
+vec2 floePlane(vec3 p) {
+    return p.y >= 0.0 ? p.xz / (1.0 + p.y) : p.xz / (1.0 - p.y);
+}
+
+// The inverse: a point of the plane in the given hemisphere -> texture coordinates (the
+// SphereGeometry mapping: u = atan(z, -x) / 2 pi, v = 0.5 + latitude / pi)
+vec2 floePlaneToUv(vec2 plane, bool north) {
+    float rho2 = dot(plane, plane);
+    vec2 xz = 2.0 * plane / (1.0 + rho2);
+    float y = (1.0 - rho2) / (1.0 + rho2) * (north ? 1.0 : -1.0);
+    return vec2(fract(atan(xz.y, -xz.x) * 0.15915494), 0.5 + asin(clamp(y, -1.0, 1.0)) * 0.31830989);
+}
+
+// PCG hash (Jarzynski & Olano 2020): three random numbers in [0, 1) for a cell, free of the
+// banding sin()-based hashes show at large coordinates
+vec3 cellRandom(ivec2 cell, uint salt) {
+    uvec3 v = uvec3(uvec2(cell), salt) * 1664525u + 1013904223u;
+    v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+    v ^= v >> 16u;
+    v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+    return vec3(v) * (1.0 / 4294967296.0);
+}
+
+// Smooth value noise, two channels in [-0.5, 0.5], for roughening the floes' straight edges
+vec2 floeWarp(vec2 q, uint salt) {
+    ivec2 i = ivec2(floor(q));
+    vec2 f = fract(q);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    vec2 a = cellRandom(i, salt).xy, b = cellRandom(i + ivec2(1, 0), salt).xy;
+    vec2 c = cellRandom(i + ivec2(0, 1), salt).xy, d = cellRandom(i + ivec2(1, 1), salt).xy;
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) - 0.5;
+}
+
+// Pack cover: the concentration scaled so the threshold and above are 1 (solid)
+float packCover(float concentration) {
+    return min(concentration / seaIceFloeThreshold, 1.0);
+}
+
+// The share of the sea each size of floe covers, for a pack cover c: large floes cover c^2, and
+// small ones fill in around them, so the two together (1 - (1 - large)(1 - small)) cover c
+float floeShare(float c, bool large) {
+    return large ? c * c : c / (1.0 + c);
+}
+
+// One layer of floes, one seed per unit cell of q (q = plane * scale). Each floe is decided by
+// the pack cover at its seed, so it is drawn whole even where the cover changes across it. Some
+// cells are whole: their floe fills the cell and joins whole neighbours with no seam, so close
+// pack forms plates with the odd gap in them. In the rest, a share `present` hold a floe,
+// shrunk toward its seed by `size` so it covers size^2 of the cell. As the cover falls there are
+// fewer whole cells, and fewer, smaller floes. pixel: the pixel's size in cells, for
+// antialiasing; lod: the mip level for reading the cover at a seed.
+// Returns x: the part of the pixel the layer covers, y: the floe's brightness.
+vec2 floeLayer(vec2 q, float scale, bool large, bool north, float pixel, float lod, uint salt) {
+    // wobble the cells' edges a little (by up to ~0.1 cell, over a third of a cell), so floes
+    // have ragged outlines rather than straight polygon sides
+    q += 0.2 * floeWarp(q * 3.0, salt + 7u);
+    ivec2 n = ivec2(floor(q));
+    vec2 f = fract(q);
+
+    // the nearest and second-nearest seeds (offsets from q), and their cells
+    vec2 nearest = vec2(0.0), second = vec2(0.0);
+    ivec2 nearestCell = n, secondCell = n;
+    float best = 8.0, next = 8.0;
+    for (int j = -1; j <= 1; j++) {
+        for (int i = -1; i <= 1; i++) {
+            ivec2 cell = n + ivec2(i, j);
+            vec2 r = vec2(i, j) + cellRandom(cell, salt).xy - f;
+            float d = dot(r, r);
+            if (d < best) {
+                next = best; second = nearest; secondCell = nearestCell;
+                best = d; nearest = r; nearestCell = cell;
+            } else if (d < next) {
+                next = d; second = r; secondCell = cell;
+            }
+        }
+    }
+
+    float concentration = textureLod(seaIceTexture, floePlaneToUv((q + nearest) / scale, north), lod).r;
+    float cover = floeShare(packCover(concentration), large);
+    if (cover <= 0.0) return vec2(0.0, 1.0);
+    float whole = cover * smoothstep(0.3, 1.0, cover);
+    float rest = (cover - whole) / max(1.0 - whole, 1e-4); // cover needed from the other cells
+    float present = sqrt(rest);
+    float size = sqrt(present);                            // present * size^2 = rest
+
+    vec3 kind = cellRandom(nearestCell, salt + 1u);
+    vec3 look = cellRandom(nearestCell, salt + 2u);
+    // loose floes are thinner, so a little greyer
+    float brightness = 1.0 - 0.12 * look.y * (1.0 - cover);
+
+    if (kind.x < whole) {
+        // A whole cell covers all of itself, and only has an edge where it meets a cell that isn't
+        // whole. For antialiasing, the edge nearby is taken to be the one with the second-nearest
+        // seed (true over nearly all of the cell), and that cell's kind is judged by this cell's
+        // cover (close enough: a wrong guess only softens one side of a seam).
+        if (cellRandom(secondCell, salt + 1u).x < whole) return vec2(1.0, brightness);
+        vec2 across = second - nearest;
+        float edge = dot(nearest + 0.5 * across, normalize(across));
+        return vec2(smoothstep(-0.5 * pixel, 0.5 * pixel, edge), brightness);
+    }
+    if (kind.y >= present) return vec2(0.0, 1.0);
+
+    // floes vary in size, less so as the pack closes up
+    float k = min(size * (1.0 + (look.x - 0.5) * 0.5 * (1.0 - cover)), 1.0);
+    // Distance from q into the floe: its edges are the cell's edges (the bisectors with the
+    // neighbouring seeds) moved toward its seed by k, as in Inigo Quilez's exact Voronoi border
+    // distance ("Voronoi edges") with each bisector scaled. That searches the 5x5 cells around
+    // the seed; a shrunk floe only meets the bisectors of seeds close by, so the 3x3 will do.
+    float edge = 8.0;
+    for (int j = -1; j <= 1; j++) {
+        for (int i = -1; i <= 1; i++) {
+            ivec2 cell = nearestCell + ivec2(i, j);
+            if (cell == nearestCell) continue;
+            vec2 toNeighbour = vec2(cell - n) + cellRandom(cell, salt).xy - f - nearest;
+            edge = min(edge, dot(nearest + 0.5 * k * toNeighbour, normalize(toNeighbour)));
+        }
+    }
+    return vec2(smoothstep(-0.5 * pixel, 0.5 * pixel, edge), brightness);
+}
+
+// Floes are drawn in full while their cells are over ~7 pixels across (0.15 cells per pixel),
+// and have faded into their average by 2.5 pixels (0.4)
+const vec2 FLOE_FADE = vec2(0.15, 0.4);
+// The small floes' cells are this many times smaller than the large ones'
+const float SMALL_FLOE_RATIO = 4.0;
+
+// Sea ice over a pixel: x = the part covered, y = its brightness relative to seaIceColor.
+// concentration: at this pixel; direction: the Earth-fixed direction of this pixel.
+vec2 seaIceCover(float concentration, vec3 direction) {
+    // floe coordinates, and the pixel's size in large floe cells
+    vec2 plane = floePlane(direction);
+    vec2 q = plane * seaIceFloeScale;
+    float pixel = max(length(dFdx(q)), length(dFdy(q)));
+    float cover = packCover(concentration);
+
+    float showLarge = 1.0 - smoothstep(FLOE_FADE.x, FLOE_FADE.y, pixel);
+    float showSmall = 1.0 - smoothstep(FLOE_FADE.x, FLOE_FADE.y, pixel * SMALL_FLOE_RATIO);
+    if (showLarge <= 0.0 && showSmall <= 0.0) return vec2(cover, 1.0);
+    // Mip level whose texels are about a large cell across: 12742 km / scale is the cell size,
+    // and the texture spans 20015 km from pole to pole. Where there is no ice for about a cell
+    // around, no floe reaches this pixel.
+    float cellLod = log2(12742.0 / seaIceFloeScale * float(textureSize(seaIceTexture, 0).y) / 20015.0);
+    if (textureLod(seaIceTexture, vUv, cellLod).r <= 0.0) return vec2(cover, 1.0);
+
+    bool north = direction.y >= 0.0;
+    vec2 a = vec2(floeShare(cover, true), 1.0);
+    vec2 b = vec2(floeShare(cover, false), 1.0);
+    if (showLarge > 0.0) {
+        a = mix(a, floeLayer(q, seaIceFloeScale, true, north, pixel, max(cellLod - 2.0, 0.0), 0u), showLarge);
+    }
+    // small floes only show where there is sea between the large ones
+    if (showSmall > 0.0 && a.x < 1.0) {
+        b = mix(b, floeLayer(q * SMALL_FLOE_RATIO, seaIceFloeScale * SMALL_FLOE_RATIO, false, north,
+            pixel * SMALL_FLOE_RATIO, max(cellLod - 4.0, 0.0), 3u), showSmall);
+    }
+    float covered = 1.0 - (1.0 - a.x) * (1.0 - b.x);
+    // large floes lie over small ones
+    float brightness = (a.x * a.y + (1.0 - a.x) * b.x * b.y) / max(covered, 1e-4);
+    return vec2(covered, brightness);
+}
 
 float sampleCloudReflectance(vec2 uv, float bias) {
     float encoded = texture(cloudTexture, uv, bias).r * float(showClouds);
@@ -166,6 +348,24 @@ void main() {
     uvDy.x -= floor(uvDy.x + 0.5);
 
     float oceanMask = texture(specularMapTexture, vUv).r;
+
+    // Sea ice. The texture holds the fraction of the sea covered by ice, from the NSIDC Sea Ice
+    // Index's 25 km grids (0 for open water, land, and outside the polar grids). The worker
+    // carries the ice about 50 km past the grids' coarse coastline, so the ocean mask, which is
+    // much sharper, decides where the coast is. Sampled with the corrected derivatives so the
+    // antimeridian seam doesn't drop to the smallest mip level. Where the pack is loose it is
+    // broken into floes (seaIceCover()); seaIce is the part of the pixel the ice covers, and
+    // seaIceBrightness scales its albedo.
+    float seaIce = 0.0;
+    float seaIceBrightness = 1.0;
+    if (showSeaIce) {
+        float concentration = textureGrad(seaIceTexture, vUv, uvDx, uvDy).r;
+        vec2 ice = seaIceCover(concentration, normalize(vObjectNormal));
+        seaIce = ice.x * oceanMask;
+        seaIceBrightness = ice.y;
+    }
+    vec3 seaIceAlbedo = seaIceColor * seaIceBrightness;
+
     vec3 toCamera = -viewDirection;
     float muView = dot(normal, toCamera);
 
@@ -192,8 +392,8 @@ void main() {
     }
     float viewTransmission = 1.0 - cloudReflectance;
     float sunTransmission = sunlight.x;
-    // Glint and the retina effect below only apply to water the sun reaches and we can see
-    float specularTexColor = oceanMask * sunTransmission * viewTransmission;
+    // Glint and the retina effect below only apply to open water the sun reaches and we can see
+    float specularTexColor = oceanMask * (1.0 - seaIce) * sunTransmission * viewTransmission;
 
     // Night side, skipped where the day side is fully opaque (dayMix = 1)
     if (dayMix < 1.0) {
@@ -250,13 +450,20 @@ void main() {
             cityLights = animatedNightTexColor * directTransmission
                 + glow * max(viewTransmission - directTransmission, 0.0);
         }
-        vec3 nightCloudy = cityLights + cloudReflectance * nightCloudColor;
+        // Sea ice is faintly visible at night too, like cloud, seen through any cloud above it
+        vec3 nightCloudy = cityLights + cloudReflectance * nightCloudColor
+            + seaIce * seaIceAlbedo * nightCloudColor * viewTransmission;
         color = nightCloudy * (1.0 - dayMix);
     }
 
     // Day side, skipped where it has fully faded out (dayMix = 0)
     if (dayMix > 0.0) {
         vec3 dayTexColor = textureGrad(dayTexture, vUv, uvDx, uvDy).rgb;
+        // Sea ice covers that fraction of the sea, so it is part of the surface the clouds sit
+        // over (its albedo enters the cloud formula below). It never darkens anything: where the
+        // ice runs past the coast, or over the ice shelves (which the ocean mask counts as sea),
+        // the ground is already as bright as the ice.
+        dayTexColor = max(dayTexColor, mix(dayTexColor, seaIceAlbedo, seaIce));
 
         float cloudTopLight = mix(CLOUD_SHADOW_AMBIENT, 1.0, sunlight.y) * sunlight.z;
         // Sunlight reddens as the sun gets low (hue only; dayMix handles the fade to night). Cloud
