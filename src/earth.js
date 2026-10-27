@@ -119,11 +119,23 @@ export class Earth {
             // cloud's daytime reflectance; the night texture's lights are on the same scale
             nightCloudLight: 0.02,
 
-            // ---- night side ----
-            // how far below the horizon (degrees) the sun must be for the city lights to show at
-            // full brightness; they fade in from the terminator. (A real single exposure would
-            // show nothing of the night side, so this is the night side's own exposure.)
-            nightFadeAngle: 12,
+            // ---- the observer: twilight and the night side (observerAdaptation() in
+            // earthFragment.glsl) ----
+            // A single exposure shows the band either side of the terminator as black: the ground
+            // there gets under 1% of the noon sun's light. The eye adapts to the light around
+            // what it looks at, so it sees the clouds in that band, and the city lights beyond it.
+            // How far the dim ground near the terminator is brightened: 0 = one fixed exposure
+            // (the physical falloff), 1 = everything shown as in full daylight. With 0.6, clouds
+            // stay visible to about 4 degrees past the terminator, where the lights have come up.
+            twilightAdaptation: 0.6,
+            // illumination (fraction of the overhead sun's) above which the eye doesn't adapt, so
+            // the sunlit disk looks exactly as the physics gives it. 0.3 is the sun ~20 degrees up.
+            adaptationKnee: 0.3,
+            // the illumination at which the view is half day- and half night-adapted: the city
+            // lights are at half brightness here, full well below it and gone well above it. It
+            // also caps how far the twilight is brightened. 1e-3 is the sun ~2.5 degrees below the
+            // horizon; larger values bring the lights in sooner (closer to the terminator).
+            nightAdaptationLevel: 1e-3,
             // how far city light spreads sideways inside cloud before it escapes (km, one standard
             // deviation of the glow). Real cloud spreads it over a few km to ten, which is about a
             // pixel at globe scale, so this is a little exaggerated; much more and neighbouring
@@ -638,14 +650,12 @@ export class Earth {
         this.parameters[name] = value;
         const uniforms = this.earthMaterial?.uniforms;
         if (!uniforms) return;
-        const degrees = Math.PI / 180;
         const setters = {
             sunColor: () => uniforms.sunColor.value.set(value),
             rayleighDepth: () => uniforms.rayleighDepth.value.fromArray(value),
             ozoneDepth: () => uniforms.ozoneDepth.value.fromArray(value),
             seaIceColor: () => uniforms.seaIceColor.value.set(value),
-            cloudShadowHeight: () => { uniforms.cloudShadowHeight.value = value * this.parameters.radius / 6371; },
-            nightFadeAngle: () => { uniforms.nightFadeAngle.value = value * degrees; }
+            cloudShadowHeight: () => { uniforms.cloudShadowHeight.value = value * this.parameters.radius / 6371; }
         };
         if (setters[name]) {
             setters[name]();
@@ -664,7 +674,9 @@ export class Earth {
                 dayTexture: new THREE.Uniform(blueMarble),
                 nightTexture: new THREE.Uniform(blackMarble),
                 specularMapTexture: new THREE.Uniform(earthSpec),
-                nightFadeAngle: new THREE.Uniform(this.parameters.nightFadeAngle * Math.PI / 180),
+                twilightAdaptation: new THREE.Uniform(this.parameters.twilightAdaptation),
+                adaptationKnee: new THREE.Uniform(this.parameters.adaptationKnee),
+                nightAdaptationLevel: new THREE.Uniform(this.parameters.nightAdaptationLevel),
                 nightCloudLight: new THREE.Uniform(this.parameters.nightCloudLight),
                 // Clouds: set by loadCloudTexture() once the texture has arrived
                 cloudTexture: new THREE.Uniform(null),

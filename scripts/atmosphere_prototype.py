@@ -1,13 +1,14 @@
 """Numpy port of the Earth and atmosphere shaders, for checking colours without the app.
 
 Mirrors src/shaders/common/atmosphere.glsl and the lighting in earthFragment.glsl one-to-one
-(same Chapman fit, same per-segment in-scatter, same sample placement), renders the globe with
+(same Chapman fit, same per-segment in-scatter, same sample placement, the same twilight sky
+and observer adaptation; rays are traced to the true sphere, as the shaders now do), renders the globe with
 the repository's Blue Marble textures, procedural clouds (for colour only; their shapes are
 made up) and the Black Marble at night, and writes a PNG. See docs/atmosphere-shader.md.
 
 Usage:  python scripts/atmosphere_prototype.py                      # defaults -> proto.png
         python scripts/atmosphere_prototype.py '{"mieDepth": 0.15}' out.png
-        python scripts/atmosphere_prototype.py '{"old_model": true}' old.png   # the previous haze
+        python scripts/atmosphere_prototype.py '{"old_model": true}' old.png   # the original haze
 
 Parameters are the same names as in earth.js (km instead of scene units). Radiance units: a
 white Lambertian surface under the overhead sun is 1.0. Requires numpy and Pillow with AVIF.
@@ -37,8 +38,17 @@ P = dict(
     exposure=1.3,
     cloudShadowAmbient=0.3,
     glintBrightness=0.75,
-    windSpeed=7.5,
+    windSpeed=5.0,
+    nightCloudLight=0.02,
+    # the observer: how much dim, low-sun regions are brightened, the illumination above which
+    # they are not, and the illumination at which the view is half day- and half night-adapted
+    twilightAdaptation=0.6,
+    adaptationKnee=0.3,
+    nightAdaptationLevel=1e-3,
 )
+
+TWILIGHT_WIDTH = 0.02          # e-folding of the twilight sky's irradiance, in cos(sun zenith)
+LUMINANCE = np.array([0.2126, 0.7152, 0.0722])
 
 
 def chapman(h, mu, H, R):
@@ -128,6 +138,36 @@ def scatter_along(cam, direction, t0, t1, sunDir, p, samples=8, towards_end=True
     return Tview, inscatter
 
 
+def softplus_mu(mu, w=TWILIGHT_WIDTH):
+    """mu for mu >> w, decaying as w * exp(mu / w) below the horizon: the twilight sky."""
+    return np.where(mu > 0, mu + w * np.log1p(np.exp(-np.abs(mu) / w)), w * np.log1p(np.exp(mu / w)))
+
+
+def sky_irradiance(mu0, p):
+    """Diffuse skylight on the ground (per channel, relative to the overhead sun), continuing
+    into twilight past the terminator. Mirrors skyIrradiance() in atmosphere.glsl."""
+    H = p['rayleighHeight'] * p['heightScale']
+    ch = chapman(0.0, np.maximum(mu0, 0), H, p['R'])[..., None]
+    chM = chapman(0.0, np.maximum(mu0, 0), p['mieHeight'] * p['heightScale'], p['R'])[..., None]
+    scattered = 1 - np.exp(-(p['rayleighDepth'] * ch + p['mieDepth'] * p['mieAlbedo'] * chM))
+    ozone = np.exp(-0.5 * p['ozoneDepth'] * ch)
+    return p['skylight'] * 0.5 * scattered * ozone * softplus_mu(mu0)[..., None]
+
+
+def adaptation(ground, sunDir, p):
+    """Observer adaptation at a ground point: (gain for sunlit light, weight of the night lights).
+    Mirrors adaptation() in atmosphere.glsl."""
+    n = ground / np.linalg.norm(ground, axis=-1, keepdims=True)
+    mu0 = np.sum(n * sunDir, axis=-1)
+    direct = transmittance(n * p['R'], sunDir, p) * np.maximum(mu0, 0)[..., None]
+    direct = np.where(np.isfinite(direct), direct, 0)
+    E = (direct + sky_irradiance(mu0, p)) @ LUMINANCE
+    A = p['nightAdaptationLevel']
+    gain = np.maximum(((p['adaptationKnee'] + A) / (E + A)) ** p['twilightAdaptation'], 1.0)
+    night = 1 / (1 + (E / A) ** 2)
+    return gain, night
+
+
 def srgb(c):
     c = np.clip(c, 0, 1)
     return np.where(c <= 0.0031308, 12.92 * c, 1.055 * c ** (1 / 2.4) - 0.055)
@@ -151,7 +191,7 @@ def noise_clouds(lon, lat, seed=3):
 
 
 def render(width=1000, height=800, fov=45.0, cam_latlon=(10, -65), sun_latlon=(-12.7, -120),
-           distance_scale=1.0, params=P, clouds=True, out='proto.png', old_model=False):
+           distance_scale=1.0, params=P, clouds=True, out='proto.png', old_model=False, look=(0.0, 0.0)):
     """Render the globe; cam_latlon and sun_latlon are the sub-camera and subsolar points."""
     p = params
     R = p['R']
@@ -168,6 +208,12 @@ def render(width=1000, height=800, fov=45.0, cam_latlon=(10, -65), sun_latlon=(-
     cam = up_cam * dist
     fwd = -up_cam
     right = np.cross(fwd, np.array([0, 0, 1.0]))
+    right /= np.linalg.norm(right)
+    upv = np.cross(right, fwd)
+    # look: turn the camera (radians right, up) away from the Earth's centre, e.g. toward the limb
+    fwd = fwd + right * np.tan(look[0]) + upv * np.tan(look[1])
+    fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, upv)
     right /= np.linalg.norm(right)
     upv = np.cross(right, fwd)
     ys, xs = np.mgrid[0:height, 0:width]
@@ -209,10 +255,7 @@ def render(width=1000, height=800, fov=45.0, cam_latlon=(10, -65), sun_latlon=(-
 
     Tsun0 = transmittance(Ph, sunDir, p)
     Tsun0 = np.where(mu0[:, None] > 0, Tsun0, 0)
-    # sky irradiance: half the sunlight scattered out of the direct beam, times the cosine
-    scatDepth = p['rayleighDepth'] + p['mieDepth'] * p['mieAlbedo']
-    chs = chapman(0.0, np.maximum(mu0, 0), p['rayleighHeight'] * p['heightScale'], R)[:, None]
-    e_sky = p['skylight'] * 0.5 * (1 - np.exp(-scatDepth * chs)) * np.maximum(mu0, 0)[:, None]
+    e_sky = sky_irradiance(mu0, p)
     e_direct = Tsun0 * np.maximum(mu0, 0)[:, None]
 
     cloudR = noise_clouds(lon, lat) if clouds else np.zeros_like(lon)
@@ -231,11 +274,14 @@ def render(width=1000, height=800, fov=45.0, cam_latlon=(10, -65), sun_latlon=(-
     glint = fres * np.exp(-tan2 / var) / (4 * var * cosTilt ** 4 * np.maximum(muV, 0.8))
     glint = 0.9 * (1 - np.exp(-glint / 0.9)) * (mu0 > 0)
     L += (glint * ocean * p['glintBrightness'])[:, None] * Tsun0 * Tcloud * Tcloud
-    # night lights, fading in past the terminator (the Black Marble is an sRGB image)
+    # night lights (the Black Marble is an sRGB image), shown as the view adapts to the dark
     night = np.asarray(Image.open(f'{REPO}/static/BlackMarble_2048x1024.avif').convert('RGB')).astype(float) / 255
-    nightMix = 1 - np.clip((mu0 + np.sin(np.radians(12))) / np.sin(np.radians(12)), 0, 1)
-    nightMix = nightMix * nightMix * (3 - 2 * nightMix)
-    L += to_lin(night[py, px]) * Tcloud * nightMix[:, None]
+    gain, nightWeight = adaptation(Ph, sunDir, p)
+    if old_model:
+        gain = np.ones_like(gain)
+        nightWeight = 1 - np.clip((mu0 + np.sin(np.radians(12))) / np.sin(np.radians(12)), 0, 1)
+        nightWeight = nightWeight * nightWeight * (3 - 2 * nightWeight)
+    nightL = (to_lin(night[py, px]) * Tcloud + cloudR * p['nightCloudLight'] * np.array([0.6, 0.7, 1.0])) * nightWeight[:, None]
 
     if old_model:
         # the current shader's haze for comparison
@@ -247,10 +293,10 @@ def render(width=1000, height=800, fov=45.0, cam_latlon=(10, -65), sun_latlon=(-
         path = (airMass(muV) - 1)[:, None] * 3.0
         T = np.exp(-k * path)
         ins = 0.4 * (1 - np.exp(-k * path / 5))
-        img[hit] = L * T + ins
+        img[hit] = (L + nightL) * T + ins
     else:
         Tv, ins = scatter_along(camv[hit], d[hit], t_enter[hit], t_hit[hit], sunDir, p, samples=8)
-        img[hit] = L * Tv + ins
+        img[hit] = (L * gain[:, None] + nightL) * Tv + ins
 
     # ------------------------------------------------------------ limb glow
     Tv, ins = scatter_along(camv[in_shell], d[in_shell], t_enter[in_shell], t_exit[in_shell], sunDir, p,

@@ -11,7 +11,12 @@
  *   3. What leaves the surface toward the camera: Lambertian ground and cloud tops, the
  *      two-stream cloud/ground exchange, the sun glint off the sea (Cox & Munk), and on the
  *      night side the city lights (an emission that does not depend on the sun).
- *   4. The air between the surface and the camera (scatterAlong): the surface's light is
+ *   4. The observer (observerAdaptation): the eye adapts to the light around what it looks
+ *      at, so the dim ground near the terminator is shown brighter than a single exposure would
+ *      show it, and the city lights take over where it has adapted to the dark. This is the only
+ *      step that is about perception rather than physics, and it only touches the light
+ *      reflected by the surface and clouds.
+ *   5. The air between the surface and the camera (scatterAlong): the surface's light is
  *      attenuated, and sunlight scattered by that air is added. This is the haze that whitens
  *      toward the limb and the blue over the ocean. The same function draws the glow beyond the
  *      limb in atmosphereFragment.glsl, so the two match at the edge of the disk.
@@ -37,8 +42,10 @@ uniform float seaIceFloeThreshold; // concentration from which the ice is solid 
 uniform float seaIceFloeScale;     // large floe cells per unit of the polar plane (floePlane())
 uniform float windSpeed;          // m/s; rougher seas spread the sun glint out
 uniform float glintBrightness;    // scales the sun glint
-uniform float nightFadeAngle;     // radians below the horizon the sun must be for the night lights to show fully
 uniform float nightCloudLight;    // brightness of cloud on the night side (moonlight, airglow), as a reflectance multiplier
+uniform float twilightAdaptation; // how far the eye brightens dim, low-sun ground (0 = one fixed exposure)
+uniform float adaptationKnee;     // illumination (fraction of the overhead sun's) above which the eye doesn't adapt
+uniform float nightAdaptationLevel; // illumination at which the view is half day- and half night-adapted
 uniform float time;
 uniform float retinaStrength;     // the old retinaEffect(), now computed once per frame in earth.js
 
@@ -68,6 +75,51 @@ float scatteringDepth(float reflectance) {
 }
 
 #include ../common/atmosphere.glsl;
+
+// Where the view ray meets the true sphere. The mesh is a polygon: its triangles cut inside
+// the sphere, by up to ~8 km in the middle of a triangle edge with 64 segments, which is more
+// than the aerosol's scale height. Ending the view ray at the mesh point made the air in front of
+// each triangle thicker in the middle than at the edges, which showed along the limb and the
+// terminator as rows of beads, one per triangle. meshPoint is on the ray (vPosition), and the
+// sphere's surface is a little way back toward the camera from it.
+vec3 trueSurface(vec3 meshPoint, vec3 viewDirection) {
+    float b = dot(meshPoint, viewDirection);                       // < 0 on the near side
+    float r = length(meshPoint);
+    float inside = max((earthRadius - r) * (earthRadius + r), 0.0); // R^2 - |P|^2, written for precision
+    float back = -b - sqrt(b * b + inside);                         // <= 0: toward the camera
+    return meshPoint + viewDirection * back;
+}
+
+const vec3 LUMINANCE = vec3(0.2126, 0.7152, 0.0722);
+
+/* The observer. A camera with one exposure shows the Lambert falloff as it is: the ground
+ * gets 1/10 of the overhead sun's light with the sun 10 degrees up and 1/170 at sunset, so
+ * the band either side of the terminator is black. The eye adapts locally to the light around
+ * what it looks at (it sees detail in a dusk landscape and a bright sky at once), which is why
+ * the twilight band looks lit to someone in orbit. This models that as a gain on the light the
+ * surface and clouds reflect, from the illumination E falling on the ground (direct sun and
+ * sky, without cloud shadows, which the eye does not adapt to):
+ *
+ *     gain = max(((knee + A) / (E + A))^p, 1)
+ *
+ * p = twilightAdaptation (0 = a fixed exposure, 1 = everything shown as if in full daylight),
+ * knee = adaptationKnee (no adaptation above it, so the sunlit disk is unchanged), and
+ * A = nightAdaptationLevel, the darkest level the eye adapts to before it switches to the night
+ * lights, which caps the gain. The night lights are shown with weight 1 / (1 + (E / A)^2): full
+ * where E << A, half at E = A (with A = 1e-3, the sun about 2.5 degrees below the horizon), and
+ * gone in daylight. The air's own light (in-scatter) is not adapted, so the haze and the glow
+ * beyond the limb stay as the physics gives them and meet at the edge of the disk.
+ *
+ * irradiance: light falling on the ground, relative to the overhead sun, without sunColor.
+ * Returns x: the gain for reflected sunlight, y: the weight of the night lights.
+ */
+vec2 observerAdaptation(vec3 irradiance) {
+    float E = dot(irradiance, LUMINANCE);
+    float A = nightAdaptationLevel;
+    float gain = max(pow((adaptationKnee + A) / (E + A), twilightAdaptation), 1.0);
+    float ratio = E / A;
+    return vec2(gain, 1.0 / (1.0 + ratio * ratio));
+}
 
 /* Sea ice floes. The concentration grids are 25 km, far coarser than the globe, so where the
  * pack is loose (below seaIceFloeThreshold) the ice is drawn as separate floes, made up here
@@ -347,7 +399,9 @@ vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localR
 
 void main() {
     vec3 viewDirection = normalize(vPosition - cameraPosition);
-    vec3 normal = normalize(vNormal);
+    vec3 normal = normalize(vNormal);                // the mesh point's direction (lighting, textures)
+    vec3 surface = trueSurface(vPosition, viewDirection); // the true sphere along this ray (the air)
+    vec3 groundPoint = normal * earthRadius;
     vec3 toCamera = -viewDirection;
     float muSun = dot(normal, sunDirection);     // cosine of the sun's zenith angle (negative at night)
     float muView = dot(normal, toCamera);        // cosine of the view zenith angle (0 at the limb)
@@ -396,7 +450,7 @@ void main() {
         vec2 cloudTexels = vec2(textureSize(cloudTexture, 0));
         float footprintA = length(uvDx * cloudTexels), footprintB = length(uvDy * cloudTexels);
         float pixelLod = max(log2(max(min(footprintA, footprintB), max(footprintA, footprintB) / 4.0)), 0.0);
-        sunlight = cloudSunlight(vUv, normal, sunDirection, length(vPosition), cloudReflectance, pixelLod);
+        sunlight = cloudSunlight(vUv, normal, sunDirection, earthRadius, cloudReflectance, pixelLod);
     }
     float viewTransmission = 1.0 - cloudReflectance;
     float sunTransmission = sunlight.x;
@@ -406,19 +460,26 @@ void main() {
     // Light on the surface, in units of the overhead sun's irradiance:
     //   directSun  the beam itself, reddened and dimmed by the air it came down through, times
     //              the cosine of the sun's elevation; zero once the sun has set
-    //   skyLight   diffuse light from the sky, blue; small, but it is what lights shadows and
-    //              the last few degrees before the terminator
-    // The night side shows no sunlight at all: only the city lights below, which fade in as
-    // the sun goes down (nightFadeAngle).
-    vec3 directSun = sunTransmittance(vPosition) * max(muSun, 0.0) * sunColor;
-    vec3 skyLight = skyIrradiance(muSun) * sunColor;
-    float nightMix = 1.0 - smoothstep(-sin(nightFadeAngle), 0.0, muSun);
-    bool lit = muSun > 0.0;
+    //   skyLight   diffuse light from the sky, blue; small, but it is what lights shadows, and
+    //              the ground and clouds for the last degrees before the terminator and the
+    //              first few of twilight after it
+    // The observer then adapts to that light (observerAdaptation): dayGain brightens the dim
+    // ground near the terminator, and nightWeight brings in the city lights as it gets dark.
+    vec3 sunAtGround = sunTransmittance(groundPoint);
+    vec3 sky = skyIrradiance(muSun);
+    vec3 irradiance = sunAtGround * max(muSun, 0.0) + sky;
+    vec2 adaptation = observerAdaptation(irradiance);
+    float dayGain = adaptation.x;
+    float nightWeight = adaptation.y;
+    vec3 directSun = sunAtGround * max(muSun, 0.0) * sunColor;
+    vec3 skyLight = sky * sunColor;
+    // the reflected light is invisible past here (well into nautical twilight)
+    bool lit = dot(irradiance, LUMINANCE) * dayGain > 1e-5;
 
     vec3 color = vec3(0.0);
 
-    // Night side, skipped where the lights have fully faded out
-    if (nightMix > 0.0) {
+    // Night side, skipped where the lights are invisible (in daylight)
+    if (nightWeight > 1e-3) {
         vec3 nightTexColor = textureGrad(nightTexture, vUv, uvDx, uvDy).rgb;
 
         // Identify and animate city lights -- this effect is completely unrealistic but it
@@ -487,10 +548,10 @@ void main() {
             cityLights = nightSurface * directTransmission
                 + glow * max(viewTransmission - directTransmission, 0.0);
         }
-        color = (cityLights + cloudReflectance * nightCloudLight * NIGHT_CLOUD_TINT) * nightMix;
+        color = (cityLights + cloudReflectance * nightCloudLight * NIGHT_CLOUD_TINT) * nightWeight;
     }
 
-    // Day side, skipped where the sun is down (directSun and skyLight are both zero there)
+    // Day side, skipped once twilight has faded out
     if (lit) {
         vec3 dayTexColor = textureGrad(dayTexture, vUv, uvDx, uvDy).rgb;
         // Sea ice covers that fraction of the sea, so it is part of the surface the clouds sit
@@ -512,7 +573,7 @@ void main() {
         vec3 groundLight = directSun * sunTransmission + skyLight * viewTransmission;
         vec3 ground = albedo * groundLight * viewTransmission / (1.0 - cloudReflectance * albedo);
 
-        color += cloudTop + ground;
+        vec3 reflected = cloudTop + ground;
 
         // Sun glint, from the Cox & Munk (1954) model of a wind-roughened sea: wave facet slopes
         // are Gaussian with variance 0.003 + 0.00512 * wind speed, and the glint is the light off
@@ -533,8 +594,9 @@ void main() {
                 / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.8));
             const float glintMax = 0.9;
             glint = glintMax * (1.0 - exp(-glint / glintMax));
-            color += glint * glintBrightness * specularTexColor * sunTransmittance(vPosition) * sunColor;
+            reflected += glint * glintBrightness * specularTexColor * sunAtGround * sunColor;
         }
+        color += reflected * dayGain;
     }
 
     // The air between here and the camera (aerial perspective). Looking toward the limb the
@@ -543,9 +605,10 @@ void main() {
     // where it is thick, as in DSCOVR/EPIC images. The same model lights the ground above, so
     // the air's colour and the surface's agree; on the night side the air is unlit and adds
     // nothing, apart from the band of twilight air still catching the sun past the terminator.
+    // The ray ends at the true sphere (trueSurface), not at the mesh.
     float entry = atmosphereEntry(cameraPosition, viewDirection);
     vec3 airTransmittance, airLight;
-    scatterAlong(cameraPosition, viewDirection, entry, length(vPosition - cameraPosition), true,
+    scatterAlong(cameraPosition, viewDirection, entry, length(surface - cameraPosition), true,
                  airTransmittance, airLight);
     color = color * airTransmittance + airLight;
 
@@ -559,4 +622,5 @@ void main() {
     gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
+    gl_FragColor.rgb = ditherOutput(gl_FragColor.rgb);
 }

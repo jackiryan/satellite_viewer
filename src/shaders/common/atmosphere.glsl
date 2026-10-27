@@ -5,7 +5,8 @@
  * each colour. Three things are computed from it, all with the same code so they agree:
  *
  *   sunTransmittance()   how much sunlight (per colour) reaches a point, after the air above it
- *   skyIrradiance()      the diffuse skylight falling on the ground
+ *   skyIrradiance()      the diffuse skylight falling on the ground, including the twilight
+ *                        that still lights it for a few degrees after sunset
  *   scatterAlong()       for a view ray: how much of the light at its far end survives the air
  *                        in between (transmittance), and how much sunlight the air along it
  *                        scatters toward the camera (in-scatter). This is what makes the limb
@@ -99,16 +100,34 @@ vec3 sunTransmittance(vec3 position) {
     return exp(-extinction(airColumns(position, sunDirection)));
 }
 
+// How the sky's light on the ground falls off as the sun goes down: mu0 for a high sun, and
+// past sunset an exponential, e-folding every 0.02 in mu0 (about 1.1 degrees). With
+// skyIrradiance() below this gives 0.6% of the overhead sun's illuminance at sunset, 0.005% at
+// -6 degrees (the end of civil twilight) and nothing visible by -12, close to measured twilight
+// illuminance (about 500, 3 and 0.01 lux against 100,000 lux at noon). This is what still
+// lights the ground and clouds for a few degrees past the terminator.
+const float TWILIGHT_WIDTH = 0.02;
+
+float twilightMu(float mu0) {
+    // softplus: smooth, equal to mu0 well above the horizon
+    return mu0 > 0.0 ? mu0 + TWILIGHT_WIDTH * log(1.0 + exp(-mu0 / TWILIGHT_WIDTH))
+                     : TWILIGHT_WIDTH * log(1.0 + exp(mu0 / TWILIGHT_WIDTH));
+}
+
 // Diffuse skylight on a horizontal surface at the ground with the sun at cos(zenith) mu0, as a
 // fraction of the irradiance of the overhead sun (so it is on the same scale as the direct
 // term T_sun * mu0). Of the sunlight scattered out of the direct beam on its way down, about
 // half goes on downward; multiply by skylight to taste. It is blue, so shadows and the ground
-// near the terminator take on the sky's colour.
+// near the terminator take on the sky's colour. The light has also crossed the ozone layer,
+// which sits 20-30 km up and so has about half the Rayleigh air mass at sunset (17 rather than
+// 35); its red absorption is what makes twilight (the "blue hour") blue.
 vec3 skyIrradiance(float mu0) {
     float mu = max(mu0, 0.0);
-    vec3 scatteredOut = 1.0 - exp(-(rayleighDepth * chapman(0.0, mu, rayleighHeight())
+    float airColumn = chapman(0.0, mu, rayleighHeight());
+    vec3 scatteredOut = 1.0 - exp(-(rayleighDepth * airColumn
                                     + mieDepth * mieAlbedo * chapman(0.0, mu, mieHeight())));
-    return skylight * 0.5 * scatteredOut * mu;
+    vec3 ozone = exp(-0.5 * ozoneDepth * airColumn);
+    return skylight * 0.5 * scatteredOut * ozone * twilightMu(mu0);
 }
 
 // Scattering phase functions, normalised to integrate to 1 over the sphere; cosTheta is the
@@ -189,4 +208,12 @@ void scatterAlong(vec3 origin, vec3 dir, float t0, float t1, bool towardEnd,
     }
     transmittance = prevT;
     inscatter *= sunColor * (1.0 + multipleScattering * (1.0 - transmittance));
+}
+
+// Half an 8-bit level of noise per pixel (interleaved gradient noise, Jimenez 2014), added after
+// the output colour conversion. The twilight and the glow beyond the limb are smooth gradients
+// across only a few levels of the display, which otherwise show as bands.
+vec3 ditherOutput(vec3 color) {
+    float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    return color + (noise - 0.5) / 255.0;
 }
