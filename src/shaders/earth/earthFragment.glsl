@@ -1,3 +1,25 @@
+/* earthFragment.glsl - the globe seen from space.
+ *
+ * Every pixel is built the same way, in this order (main() at the bottom):
+ *
+ *   1. What is on the ground: the Blue Marble albedo (atmospherically corrected surface
+ *      reflectance), sea ice drawn over the sea, the ocean mask.
+ *   2. What light falls on it: direct sunlight, dimmed and reddened by the air it crossed
+ *      (sunTransmittance) times the cosine of the sun's elevation, plus blue skylight
+ *      (skyIrradiance). Cloud shadows and the clouds' own transmission only block the direct
+ *      part. Both come from common/atmosphere.glsl.
+ *   3. What leaves the surface toward the camera: Lambertian ground and cloud tops, the
+ *      two-stream cloud/ground exchange, the sun glint off the sea (Cox & Munk), and on the
+ *      night side the city lights (an emission that does not depend on the sun).
+ *   4. The air between the surface and the camera (scatterAlong): the surface's light is
+ *      attenuated, and sunlight scattered by that air is added. This is the haze that whitens
+ *      toward the limb and the blue over the ocean. The same function draws the glow beyond the
+ *      limb in atmosphereFragment.glsl, so the two match at the edge of the disk.
+ *
+ * Radiance units: a white Lambertian surface under overhead sunlight is 1.0, so the textures'
+ * albedo shows unchanged where the sun is overhead and the air is thin. Tone mapping and the
+ * output colour space are three.js's (viewer.js sets the exposure).
+ */
 uniform sampler2D dayTexture;
 uniform sampler2D nightTexture;
 uniform sampler2D nightGlowTexture; // the night texture blurred into the glow lights make under cloud (nightGlowFragment.glsl)
@@ -7,20 +29,16 @@ uniform bool showClouds;
 uniform float cloudBrightness;    // scales cloud reflectance (1.0 = as computed)
 uniform float cloudShadowHeight;  // top height of the thickest clouds, in scene units
 uniform float cloudRelief;        // strength of the slope shading on cloud tops (0 = flat)
-uniform float cloudTwilightTint;  // 0 = cloud tops stay white to the terminator, 1 = full sunset color
+uniform float cloudShadowAmbient; // direct light a shadowed cloud top still gets from the cloud around it (0-1)
 uniform sampler2D seaIceTexture;  // sea ice concentration (0-1) in red, from the gibs-cloud-texture worker
 uniform bool showSeaIce;
 uniform vec3 seaIceColor;         // albedo of sea ice (linear); at night it takes the Black Marble's ice color (blackMarbleIce())
 uniform float seaIceFloeThreshold; // concentration from which the ice is solid pack; below it, it breaks into floes
 uniform float seaIceFloeScale;     // large floe cells per unit of the polar plane (floePlane())
 uniform float windSpeed;          // m/s; rougher seas spread the sun glint out
-uniform float glintBrightness;
-uniform float atmosphereHaze;       // scales the air seen toward the limb (0 = no haze)
-uniform float atmosphereBrightness; // brightness of sunlit haze where it is thick (at the limb)    // scales the sun glint
-uniform vec3 sunDirection;
-uniform float twilightAngle;
-uniform vec3 dayColor;
-uniform vec3 twilightColor;
+uniform float glintBrightness;    // scales the sun glint
+uniform float nightFadeAngle;     // radians below the horizon the sun must be for the night lights to show fully
+uniform float nightCloudLight;    // brightness of cloud on the night side (moonlight, airglow), as a reflectance multiplier
 uniform float time;
 uniform float retinaStrength;     // the old retinaEffect(), now computed once per frame in earth.js
 
@@ -33,8 +51,8 @@ vec3 gammaCorrection(vec3 color, float gamma) {
     return pow(color, vec3(1.0 / gamma));
 }
 
-// Clouds faintly visible on the night side (moonlight, airglow), as a reflectance multiplier
-const vec3 nightCloudColor = vec3(0.012, 0.014, 0.02);
+// Night-side cloud is faintly bluish (moonlight and airglow are), scaled by nightCloudLight
+const vec3 NIGHT_CLOUD_TINT = vec3(0.6, 0.7, 1.0);
 
 // Asymmetry parameter of cloud droplets at visible wavelengths, as in the cloud texture worker
 // (gibs-cloud-texture/src/albedo.js), which made the reflectance R from the optical thickness tau
@@ -264,8 +282,8 @@ float sampleCloudReflectanceLod(vec2 uv, float lod) {
 const int CLOUD_SHADOW_STEPS = 8;
 // Longest shadow as a multiple of the cloud height: tan(84 degrees) ~ 10
 const float MAX_SHADOW_LENGTH = 10.0;
-// Light that still reaches a shadowed cloud top from the sky and surrounding cloud
-const float CLOUD_SHADOW_AMBIENT = 0.35;
+// (the skylight a shadowed cloud top still gets is skyIrradiance(); cloudShadowAmbient adds the
+// direct light scattered to it by the cloud around it)
 
 float cloudHeight(float reflectance) {
     return cloudShadowHeight * smoothstep(0.0, 0.45, reflectance);
@@ -276,8 +294,7 @@ float cloudHeight(float reflectance) {
 //   y  at the top of the cloud here, for the cloud itself
 //   z  brightening/darkening of the cloud top by its slope toward or away from the sun
 // pixelLod: mip level matching the pixel's footprint on the cloud texture
-// sunDir is the sun used for lighting (main() passes the twilight-remapped one, which only sets
-// below the horizon where the day side has finished fading out)
+// sunDir: the direction to the sun
 vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localReflectance, float pixelLod) {
     float mu = dot(normal, sunDir);
     vec3 towardSun = sunDir - normal * mu;              // horizontal direction to the sun
@@ -331,27 +348,9 @@ vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localR
 void main() {
     vec3 viewDirection = normalize(vPosition - cameraPosition);
     vec3 normal = normalize(vNormal);
-    vec3 color = vec3(0.0);
-    float pi = 3.1415926;
-
-    float sunOrientation = dot(sunDirection, normal);
-
-    float twilightWidth = twilightAngle / pi;
-    float dayMix = smoothstep(-twilightWidth, 0.0, sunOrientation);
-
-    // Sun used to light the day side. The day texture is drawn past the geometric terminator,
-    // fading out by sunOrientation = -twilightWidth, but there the real sun is below the horizon
-    // and anything lit by it (cloud shadows, cloud-top shading, the sun glint) would switch off
-    // at the terminator while the day texture is still showing. So keep the sun's real direction
-    // across the ground (its azimuth) and remap its elevation, so that it reaches the horizon
-    // where the day side finishes fading out: sin(elevation) = (mu + w) / (1 + w). Overhead sun
-    // is unchanged, and at the geometric terminator the lighting sun is still ~6 degrees up.
-    float litSunMu = (sunOrientation + twilightWidth) / (1.0 + twilightWidth);
-    vec3 sunHorizontal = sunDirection - normal * sunOrientation;
-    float sunHorizontalLength = length(sunHorizontal);
-    vec3 litSunDirection = sunHorizontalLength > 1e-4
-        ? normal * litSunMu + sunHorizontal / sunHorizontalLength * sqrt(max(1.0 - litSunMu * litSunMu, 0.0))
-        : sunDirection;
+    vec3 toCamera = -viewDirection;
+    float muSun = dot(normal, sunDirection);     // cosine of the sun's zenith angle (negative at night)
+    float muView = dot(normal, toCamera);        // cosine of the view zenith angle (0 at the limb)
 
     // Texture-space derivatives, taken up front because the day and night textures are read
     // inside branches below (implicit derivatives are undefined in non-uniform control flow)
@@ -378,17 +377,14 @@ void main() {
     }
     vec3 seaIceAlbedo = seaIceColor * seaIceBrightness;
 
-    vec3 toCamera = -viewDirection;
-    float muView = dot(normal, toCamera);
-
     // Clouds. The texture holds the visible reflectance R of the clouds, worked out by the
     // worker from NOAA-20 VIIRS cloud optical thickness (0 where there is no cloud). Cloud
     // droplets and crystals scatter without absorbing, so a cloud that reflects R passes
-    // T = 1 - R on. By day the surface is lit through the cloud between it and the sun
-    // (sunTransmission, which is what casts shadows), seen through the cloud above it
-    // (viewTransmission), and gets back some of its own light from the cloud base:
-    // R + A T_sun T_view / (1 - R A) for a surface of albedo A. Thick clouds (R ~ 0.8) are
-    // bright white and hide the ground; thin ones (R < 0.1) only veil it.
+    // T = 1 - R on. The surface is lit by direct sun through the cloud between it and the sun
+    // (sunTransmission, which is what casts shadows) and by skylight through the cloud overhead,
+    // is seen through that cloud (viewTransmission), and gets back some of its own light from
+    // the cloud base: the two-stream exchange A T_view / (1 - R A) for a surface of albedo A.
+    // Thick clouds (R ~ 0.8) are bright white and hide the ground; thin ones (R < 0.1) only veil it.
     // showClouds is a uniform, so this branch costs nothing and skips all the cloud work while
     // the texture is loading or when clouds are toggled off.
     float cloudReflectance = 0.0;
@@ -400,15 +396,29 @@ void main() {
         vec2 cloudTexels = vec2(textureSize(cloudTexture, 0));
         float footprintA = length(uvDx * cloudTexels), footprintB = length(uvDy * cloudTexels);
         float pixelLod = max(log2(max(min(footprintA, footprintB), max(footprintA, footprintB) / 4.0)), 0.0);
-        sunlight = cloudSunlight(vUv, normal, litSunDirection, length(vPosition), cloudReflectance, pixelLod);
+        sunlight = cloudSunlight(vUv, normal, sunDirection, length(vPosition), cloudReflectance, pixelLod);
     }
     float viewTransmission = 1.0 - cloudReflectance;
     float sunTransmission = sunlight.x;
     // Glint and the retina effect below only apply to open water the sun reaches and we can see
     float specularTexColor = oceanMask * (1.0 - seaIce) * sunTransmission * viewTransmission;
 
-    // Night side, skipped where the day side is fully opaque (dayMix = 1)
-    if (dayMix < 1.0) {
+    // Light on the surface, in units of the overhead sun's irradiance:
+    //   directSun  the beam itself, reddened and dimmed by the air it came down through, times
+    //              the cosine of the sun's elevation; zero once the sun has set
+    //   skyLight   diffuse light from the sky, blue; small, but it is what lights shadows and
+    //              the last few degrees before the terminator
+    // The night side shows no sunlight at all: only the city lights below, which fade in as
+    // the sun goes down (nightFadeAngle).
+    vec3 directSun = sunTransmittance(vPosition) * max(muSun, 0.0) * sunColor;
+    vec3 skyLight = skyIrradiance(muSun) * sunColor;
+    float nightMix = 1.0 - smoothstep(-sin(nightFadeAngle), 0.0, muSun);
+    bool lit = muSun > 0.0;
+
+    vec3 color = vec3(0.0);
+
+    // Night side, skipped where the lights have fully faded out
+    if (nightMix > 0.0) {
         vec3 nightTexColor = textureGrad(nightTexture, vUv, uvDx, uvDy).rgb;
 
         // Identify and animate city lights -- this effect is completely unrealistic but it
@@ -477,75 +487,67 @@ void main() {
             cityLights = nightSurface * directTransmission
                 + glow * max(viewTransmission - directTransmission, 0.0);
         }
-        vec3 nightCloudy = cityLights + cloudReflectance * nightCloudColor;
-        color = nightCloudy * (1.0 - dayMix);
+        color = (cityLights + cloudReflectance * nightCloudLight * NIGHT_CLOUD_TINT) * nightMix;
     }
 
-    // Day side, skipped where it has fully faded out (dayMix = 0)
-    if (dayMix > 0.0) {
+    // Day side, skipped where the sun is down (directSun and skyLight are both zero there)
+    if (lit) {
         vec3 dayTexColor = textureGrad(dayTexture, vUv, uvDx, uvDy).rgb;
         // Sea ice covers that fraction of the sea, so it is part of the surface the clouds sit
         // over (its albedo enters the cloud formula below). It never darkens anything: where the
         // ice runs past the coast, or over the ice shelves (which the ocean mask counts as sea),
         // the ground is already as bright as the ice.
-        dayTexColor = max(dayTexColor, mix(dayTexColor, seaIceAlbedo, seaIce));
+        vec3 albedo = max(dayTexColor, mix(dayTexColor, seaIceAlbedo, seaIce));
 
-        float cloudTopLight = mix(CLOUD_SHADOW_AMBIENT, 1.0, sunlight.y) * sunlight.z;
-        // Sunlight reddens as the sun gets low (hue only; dayMix handles the fade to night). Cloud
-        // tops also get blue skylight, so they take at most half the reddening of the direct beam,
-        // scaled down further by cloudTwilightTint.
-        vec3 sunlightTint = exp(-0.5 * atmosphereOpticalDepth * (min(airMass(litSunMu), 20.0) - 1.0));
-        sunlightTint = mix(vec3(1.0), sunlightTint / sunlightTint.r, cloudTwilightTint);
+        // Cloud tops: direct sun, less where another cloud shades them (sunlight.y) and more or
+        // less by their slope toward the sun (sunlight.z), plus the skylight. Near the terminator
+        // the direct beam has lost its blue to the long path through the air, so the cloud tops
+        // go golden, then red, while the skylight keeps their shadowed parts blue.
+        vec3 cloudTopLight = directSun * mix(cloudShadowAmbient, 1.0, sunlight.y) * sunlight.z + skyLight;
+        vec3 cloudTop = cloudReflectance * cloudTopLight;
 
-        vec3 dayCloudy = cloudReflectance * cloudTopLight * sunlightTint
-            + dayTexColor * sunTransmission * viewTransmission / (1.0 - cloudReflectance * dayTexColor);
-        color += dayCloudy * dayMix;              // same as mix(nightCloudy, dayCloudy, dayMix)
+        // The ground: direct sun through any cloud in the way (sunTransmission includes the
+        // cloud overhead), skylight through the cloud overhead, seen through that cloud again,
+        // with the ground-cloud bounce
+        vec3 groundLight = directSun * sunTransmission + skyLight * viewTransmission;
+        vec3 ground = albedo * groundLight * viewTransmission / (1.0 - cloudReflectance * albedo);
+
+        color += cloudTop + ground;
+
+        // Sun glint, from the Cox & Munk (1954) model of a wind-roughened sea: wave facet slopes
+        // are Gaussian with variance 0.003 + 0.00512 * wind speed, and the glint is the light off
+        // facets tilted to mirror the sun into the camera (those facing the half vector), times
+        // the Fresnel reflectance of water at that angle. It stretches out and brightens toward
+        // the limb (1 / muView). It is a mirror image of the sun, so it has the colour of the
+        // direct beam (without the cosine) and, like everything else, is then seen through the
+        // air on the way up. glintMax rolls the brightest part off softly, as a camera's sensor
+        // saturating would: the real glint is many times brighter than any cloud.
+        if (specularTexColor > 0.0 && muView >= 0.0) {
+            vec3 halfVector = normalize(sunDirection + toCamera);
+            float cosTilt = max(dot(normal, halfVector), 1e-3);
+            float cos2Tilt = cosTilt * cosTilt;
+            float tan2Tilt = (1.0 - cos2Tilt) / cos2Tilt;
+            float slopeVariance = 0.003 + 0.00512 * windSpeed;
+            float waterFresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(halfVector, sunDirection), 0.0, 1.0), 5.0);
+            float glint = waterFresnel * exp(-tan2Tilt / slopeVariance)
+                / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.8));
+            const float glintMax = 0.9;
+            glint = glintMax * (1.0 - exp(-glint / glintMax));
+            color += glint * glintBrightness * specularTexColor * sunTransmittance(vPosition) * sunColor;
+        }
     }
 
-    // Atmosphere seen from space (aerial perspective). Looking toward the limb, the line of
-    // sight crosses more and more air: the surface and clouds fade behind it, and the air adds
-    // sunlight it scatters toward the camera. Thin air scatters mostly blue; by the limb the air
-    // is so thick that every color is scattered and the haze turns white, as in DSCOVR/EPIC
-    // images of the whole Earth. Only the air beyond the straight-down path counts, since the
-    // Blue Marble texture already looks like the surface seen straight down from orbit. The haze
-    // is lit by the same twilight-remapped sun as the clouds, so it warms toward the terminator
-    // and fades with the day side.
-    float hazePath = (airMass(muView) - 1.0) * atmosphereHaze;
-    vec3 hazeTransmittance = exp(-atmosphereOpticalDepth * hazePath);
-    vec3 hazeSunlight = attenuatedSunlight(litSunMu, 0.5, 0.3) * dayMix;
-    color = color * hazeTransmittance + skyInscatter(hazePath, hazeSunlight, atmosphereBrightness);
-
-    // Sun glint, from the Cox & Munk (1954) model of a wind-roughened sea: wave facet slopes
-    // are Gaussian with variance 0.003 + 0.00512 * wind speed, and the glint is the light off
-    // facets tilted to mirror the sun into the camera (those facing the half vector), times
-    // the Fresnel reflectance of water at that angle. It stretches out and brightens toward
-    // the limb (1 / muView) and takes the color of sunlight that crossed the atmosphere twice.
-    // Lit by the same remapped sun as the clouds, so it reaches into the twilight band and fades
-    // out with the day side (dayMix) instead of stopping at the geometric terminator
-    if (dayMix > 0.0 && specularTexColor > 0.0 && muView >= 0.0) {
-        vec3 halfVector = normalize(litSunDirection + toCamera);
-        float cosTilt = max(dot(normal, halfVector), 1e-3);
-        float cos2Tilt = cosTilt * cosTilt;
-        float tan2Tilt = (1.0 - cos2Tilt) / cos2Tilt;
-        float slopeVariance = 0.003 + 0.00512 * windSpeed;
-        float waterFresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(halfVector, litSunDirection), 0.0, 1.0), 5.0);
-        float glint = waterFresnel  * exp(-tan2Tilt / slopeVariance)
-            / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.8));
-        glint *= dayMix * step(0.0, muView);
-        const float glintMax = 0.9;
-        glint = glintMax * (1.0 - exp(-glint / glintMax));
-        // The color comes from the full extinction along the sun's path down and the view's path
-        // back up, as for the cloud tops, but only part of the dimming is applied: the atmosphere
-        // also scatters sunlight into those long paths. Taking all of it made the glint (and the
-        // cloud shadows, which only show against it) fade out near the limb while the surface
-        // there was still in full daylight.
-        float glintPath = min(airMass(litSunMu) + airMass(muView), 40.0) - 2.0;
-        // This was glintTint / glintTint.r * exp(-0.3 * k.r * path): the attenuatedSunlight() form with
-        // the hue and dimming strengths both 0.3, which is exactly exp(-0.3 * k * path). Give the two
-        // different strengths, as attenuatedSunlight() does, if they were meant to differ.
-        vec3 glintColor = exp(-0.3 * atmosphereOpticalDepth * glintPath);
-        color += glint * glintBrightness * specularTexColor * glintColor;
-    }
+    // The air between here and the camera (aerial perspective). Looking toward the limb the
+    // line of sight crosses more and more of it: the surface and clouds fade behind it, and it
+    // adds the sunlight it scatters toward the camera, blue where the air is thin and whitening
+    // where it is thick, as in DSCOVR/EPIC images. The same model lights the ground above, so
+    // the air's colour and the surface's agree; on the night side the air is unlit and adds
+    // nothing, apart from the band of twilight air still catching the sun past the terminator.
+    float entry = atmosphereEntry(cameraPosition, viewDirection);
+    vec3 airTransmittance, airLight;
+    scatterAlong(cameraPosition, viewDirection, entry, length(vPosition - cameraPosition), true,
+                 airTransmittance, airLight);
+    color = color * airTransmittance + airLight;
 
     // The retina effect: retinaStrength is the same for every pixel, so this branch is free
     // and skips the pow() whenever the effect is off

@@ -56,14 +56,54 @@ export class Earth {
         this.atmosphere = null;
         this.earthMaterial = null;
         this.atmosphereMaterial = null;
+        this.atmosphereUniforms = null; // shared by both materials (createAtmosphereUniforms)
         this.sunHelper = null; // unused except when debugging
         // this.sunHelper = this.initSunPointingHelper();
 
-        // Parameters for globe rendering
+        // Parameters for globe rendering. The lighting and atmosphere ones are explained, with
+        // what to change to get a given look, in docs/atmosphere-shader.md. They can be changed
+        // at runtime through setParameter().
         this.parameters = {
             radius: 5,
-            dayColor: '#d7eaf9',
-            twilightColor: '#fd5e53',
+            // colour and strength of sunlight above the atmosphere (sRGB). White means the scene
+            // is white-balanced to the sun, as a camera in daylight is; '#ffeedd' would reference
+            // it to a D65 display white instead (the sun is slightly warm by that standard)
+            sunColor: '#ffffff',
+
+            // ---- the air (common/atmosphere.glsl) ----
+            // The real atmosphere is thin: at the default view 8 km is about a pixel, so the glow
+            // beyond the limb would be a hairline. This stretches the air's heights (the limb
+            // glow's thickness and the twilight band's width) without changing how much air
+            // there is, so the colours on the disk stay the same. 1 = the real atmosphere.
+            atmosphereHeightScale: 3,
+            // vertical optical depth of Rayleigh scattering (air molecules) in the red, green and
+            // blue channels: how much of the overhead sun each channel loses to scattering on
+            // its way down. The blue/red ratio is what makes the sky blue and the sunset red.
+            // Derived spectrally for the sRGB primaries from tau(550 nm) = 0.098 (sea level).
+            rayleighDepth: [0.051, 0.099, 0.238],
+            // vertical optical depth of ozone absorption (the Chappuis band, 300 Dobson units):
+            // mostly red, so long twilight paths come out bluer than Rayleigh alone would give
+            ozoneDepth: [0.040, 0.015, 0.0],
+            // vertical optical depth of aerosol haze (grey, at 550 nm). 0.05 is a very clean
+            // marine atmosphere, 0.1 a typical global average, 0.3+ a dusty or polluted one.
+            // More aerosol whitens the haze and the ocean and brightens the limb toward the sun.
+            mieDepth: 0.08,
+            // fraction of the light aerosols take out of a beam that they scatter rather than
+            // absorb (soot lowers it, sea salt is near 1)
+            mieAlbedo: 0.9,
+            // how strongly aerosols scatter forward (Henyey-Greenstein g, 0 = evenly, 1 = all
+            // forward); 0.7-0.8 for real haze
+            mieAnisotropy: 0.76,
+            // extra light from sunlight scattered more than once, as a multiple of what single
+            // scattering gives, applied where the air is optically thick (the limb). 0 = single
+            // scattering only (a darker, bluer limb); 1-2 is about what full solutions give.
+            multipleScattering: 1.0,
+            // scales the diffuse skylight on the ground and cloud tops: it is blue, it lights
+            // cloud shadows and the shadowed side of cloud banks, and it is what is left of the
+            // daylight in the last few degrees before the terminator
+            skylight: 1.0,
+
+            // ---- clouds ----
             // scales cloud reflectance; above 1 brightens thin clouds, below 1 makes them sheerer
             cloudBrightness: 1.0,
             // top height (km) of the thickest clouds, used to cast shadows (thinner clouds are
@@ -72,13 +112,25 @@ export class Earth {
             cloudShadowHeight: 30,
             // shading of cloud tops by their slope toward or away from the sun (0 = flat)
             cloudRelief: 0.6,
-            // reddening of cloud tops near the terminator (0 = none, 1 = full sunset color)
-            cloudTwilightTint: 0.2,
+            // direct sunlight a cloud top shaded by another cloud still gets, scattered to it by
+            // the cloud around it (0 = only skylight, 1 = shadows have no effect)
+            cloudShadowAmbient: 0.3,
+            // brightness of cloud on the night side (moonlight, airglow), relative to the
+            // cloud's daytime reflectance; the night texture's lights are on the same scale
+            nightCloudLight: 0.02,
+
+            // ---- night side ----
+            // how far below the horizon (degrees) the sun must be for the city lights to show at
+            // full brightness; they fade in from the terminator. (A real single exposure would
+            // show nothing of the night side, so this is the night side's own exposure.)
+            nightFadeAngle: 12,
             // how far city light spreads sideways inside cloud before it escapes (km, one standard
             // deviation of the glow). Real cloud spreads it over a few km to ten, which is about a
             // pixel at globe scale, so this is a little exaggerated; much more and neighbouring
             // cities run together
             cityLightSpread: 12,
+
+            // ---- sea ice ----
             // color of sea ice (sRGB): nearly white, as snow-covered floes are. Loose floes are
             // drawn a little greyer (thinner ice), and the sea shows between them. At night the
             // sea ice takes the Black Marble's color for the ice sheets instead, read from the
@@ -91,16 +143,12 @@ export class Earth {
             // Real floes are mostly smaller, but these are what makes the 25 km data look like
             // broken ice at globe scale. They show once a cell is a few pixels across.
             seaIceFloeSize: 80,
+
+            // ---- sea surface ----
             // sea surface wind speed (m/s): calmer seas give a smaller, sharper sun glint
-            windSpeed: 7.5,
-            glintBrightness: 0.75,
-            // haze over the globe toward the limb (0 = none), and the brightness of sunlit haze where
-            // it is thick; also used for the glow beyond the limb
-            atmosphereHaze: 3.0,
-            atmosphereBrightness: 0.4,
-            // scene units over which the glow beyond the limb fades with height (the real atmosphere's
-            // 8 km would be under a pixel, so this is exaggerated)
-            haloScaleHeight: 0.02
+            windSpeed: 5.0,
+            // scales the sun glint (its brightest part rolls off softly, like a saturating sensor)
+            glintBrightness: 0.75
         };
 
         // Whether the viewer wants clouds and sea ice shown (the settings menu); each appears once
@@ -512,18 +560,8 @@ export class Earth {
             this.configureEarthTextures(blueMarble, blackMarble);
             this.earthTextureWidth = EARTH_TEXTURE_WIDTHS[0];
 
-            // Civil, Nautical, and Astronomical Twilight account for sun angles up to
-            // about 18 degrees past the horizon
-            const twilightAngle = 18.0 * Math.PI / 180.0;
-
-            await this.createEarth(
-                blueMarble,
-                blackMarble,
-                earthSpec,
-                twilightAngle,
-                interactiveLayer
-            );
-            await this.createAtmosphere(twilightAngle);
+            await this.createEarth(blueMarble, blackMarble, earthSpec, interactiveLayer);
+            await this.createAtmosphere();
 
             // Compile the globe's shaders before showing it. Where the browser has
             // KHR_parallel_shader_compile (Chrome, Edge, Firefox, Safari) they compile in the
@@ -559,26 +597,82 @@ export class Earth {
         }
     }
 
-    async createEarth(blueMarble, blackMarble, earthSpec, twilightAngle, interactiveLayer) {
+    // The uniforms declared in shaders/common/atmosphere.glsl, which both the Earth and the
+    // atmosphere shaders include. The two materials share these objects, so changing a value
+    // here (setParameter) changes it for both, and the haze on the disk always matches the glow
+    // beyond the limb.
+    createAtmosphereUniforms() {
+        const p = this.parameters;
+        this.atmosphereUniforms = {
+            sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
+            sunColor: new THREE.Uniform(new THREE.Color(p.sunColor)),
+            earthRadius: new THREE.Uniform(p.radius),
+            atmosphereHeightScale: new THREE.Uniform(p.atmosphereHeightScale),
+            rayleighDepth: new THREE.Uniform(new THREE.Vector3(...p.rayleighDepth)),
+            ozoneDepth: new THREE.Uniform(new THREE.Vector3(...p.ozoneDepth)),
+            mieDepth: new THREE.Uniform(p.mieDepth),
+            mieAlbedo: new THREE.Uniform(p.mieAlbedo),
+            mieAnisotropy: new THREE.Uniform(p.mieAnisotropy),
+            multipleScattering: new THREE.Uniform(p.multipleScattering),
+            skylight: new THREE.Uniform(p.skylight)
+        };
+        return this.atmosphereUniforms;
+    }
+
+    // Radius of the shell the limb glow is drawn on: the top of the atmosphere as the shaders
+    // see it (100 km, stretched by atmosphereHeightScale), with a little margin
+    atmosphereShellRadius() {
+        return this.parameters.radius * (1 + 100 / 6371 * this.parameters.atmosphereHeightScale) * 1.005;
+    }
+
+    // Change a rendering parameter while the scene is running, e.g. from a GUI or the console:
+    //   earth.setParameter('mieDepth', 0.2)
+    //   earth.setParameter('rayleighDepth', [0.046, 0.108, 0.265])
+    //   earth.setParameter('sunColor', '#ffeedd')
+    // Parameters that shape geometry or textures (radius, cityLightSpread, seaIceFloeSize)
+    // and atmosphereHeightScale, which sets the glow shell's size, are not applied live.
+    setParameter(name, value) {
+        if (!(name in this.parameters)) {
+            throw new Error(`Unknown parameter ${name}`);
+        }
+        this.parameters[name] = value;
+        const uniforms = this.earthMaterial?.uniforms;
+        if (!uniforms) return;
+        const degrees = Math.PI / 180;
+        const setters = {
+            sunColor: () => uniforms.sunColor.value.set(value),
+            rayleighDepth: () => uniforms.rayleighDepth.value.fromArray(value),
+            ozoneDepth: () => uniforms.ozoneDepth.value.fromArray(value),
+            seaIceColor: () => uniforms.seaIceColor.value.set(value),
+            cloudShadowHeight: () => { uniforms.cloudShadowHeight.value = value * this.parameters.radius / 6371; },
+            nightFadeAngle: () => { uniforms.nightFadeAngle.value = value * degrees; }
+        };
+        if (setters[name]) {
+            setters[name]();
+        } else if (name in uniforms) {
+            uniforms[name].value = value;
+        }
+    }
+
+    async createEarth(blueMarble, blackMarble, earthSpec, interactiveLayer) {
         const earthGeometry = new THREE.SphereGeometry(this.parameters.radius, 64, 64);
 
         // Shader material with added cloud and sea ice texture uniforms
         this.earthMaterial = new THREE.ShaderMaterial({
             uniforms: {
+                ...this.createAtmosphereUniforms(),
                 dayTexture: new THREE.Uniform(blueMarble),
                 nightTexture: new THREE.Uniform(blackMarble),
                 specularMapTexture: new THREE.Uniform(earthSpec),
-                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                twilightAngle: new THREE.Uniform(twilightAngle),
-                dayColor: new THREE.Uniform(new THREE.Color(this.parameters.dayColor)),
-                twilightColor: new THREE.Uniform(new THREE.Color(this.parameters.twilightColor)),
+                nightFadeAngle: new THREE.Uniform(this.parameters.nightFadeAngle * Math.PI / 180),
+                nightCloudLight: new THREE.Uniform(this.parameters.nightCloudLight),
                 // Clouds: set by loadCloudTexture() once the texture has arrived
                 cloudTexture: new THREE.Uniform(null),
                 showClouds: new THREE.Uniform(false),
                 cloudBrightness: new THREE.Uniform(this.parameters.cloudBrightness),
                 cloudShadowHeight: new THREE.Uniform(this.parameters.cloudShadowHeight * this.parameters.radius / 6371),
                 cloudRelief: new THREE.Uniform(this.parameters.cloudRelief),
-                cloudTwilightTint: new THREE.Uniform(this.parameters.cloudTwilightTint),
+                cloudShadowAmbient: new THREE.Uniform(this.parameters.cloudShadowAmbient),
                 // Sea ice: set by loadSeaIceTexture() once the texture has arrived
                 seaIceTexture: new THREE.Uniform(null),
                 showSeaIce: new THREE.Uniform(false),
@@ -588,8 +682,6 @@ export class Earth {
                 seaIceFloeScale: new THREE.Uniform(2 * 6371 / this.parameters.seaIceFloeSize),
                 windSpeed: new THREE.Uniform(this.parameters.windSpeed),
                 glintBrightness: new THREE.Uniform(this.parameters.glintBrightness),
-                atmosphereHaze: new THREE.Uniform(this.parameters.atmosphereHaze),
-                atmosphereBrightness: new THREE.Uniform(this.parameters.atmosphereBrightness),
                 time: new THREE.Uniform(0.0),
                 // set in onBeforeRender below
                 retinaStrength: new THREE.Uniform(0.0),
@@ -717,25 +809,19 @@ export class Earth {
         glow.needsUpdate = false;
     }
 
-    async createAtmosphere(twilightAngle) {
-        // Atmosphere
-        const atmosphereGeometry = new THREE.SphereGeometry(
-            this.parameters.radius * 1.015, 64, 64
-        );
+    async createAtmosphere() {
+        // The glow beyond the limb is drawn on the inside of a sphere just outside the top of
+        // the atmosphere; the globe itself draws the air in front of the disk
+        const atmosphereGeometry = new THREE.SphereGeometry(this.atmosphereShellRadius(), 64, 64);
 
         this.atmosphereMaterial = new THREE.ShaderMaterial({
             vertexShader: atmosphereVertexShader,
             fragmentShader: atmosphereFragmentShader,
-            uniforms: {
-                sunDirection: new THREE.Uniform(new THREE.Vector3(0, 0, 1)),
-                twilightAngle: new THREE.Uniform(twilightAngle),
-                earthRadius: new THREE.Uniform(this.parameters.radius),
-                atmosphereRadius: new THREE.Uniform(atmosphereGeometry.parameters.radius),
-                atmosphereBrightness: new THREE.Uniform(this.parameters.atmosphereBrightness),
-                haloScaleHeight: new THREE.Uniform(this.parameters.haloScaleHeight),
-            },
+            // the same uniform objects as the Earth material (createAtmosphereUniforms)
+            uniforms: this.atmosphereUniforms,
             side: THREE.BackSide,
-            transparent: true
+            transparent: true,
+            depthWrite: false
         });
 
         // added to the scene by initialize(), once its shaders are compiled
@@ -770,10 +856,9 @@ export class Earth {
         this.earth.rotation.y = siderealTime;
         this.atmosphere.rotation.y = siderealTime;
 
-        // Update sun direction for both earth and atmosphere
+        // Update the sun direction (the uniform is shared by the earth and atmosphere materials)
         const sunDirection = getSunPointingAngle(currentDate);
-        this.earthMaterial.uniforms.sunDirection.value.copy(sunDirection);
-        this.atmosphereMaterial.uniforms.sunDirection.value.copy(sunDirection);
+        this.atmosphereUniforms.sunDirection.value.copy(sunDirection);
 
         this.earthMaterial.uniforms.time.value = performance.now() * 0.001;
 
