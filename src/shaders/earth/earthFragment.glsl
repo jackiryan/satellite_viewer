@@ -10,7 +10,7 @@ uniform float cloudRelief;        // strength of the slope shading on cloud tops
 uniform float cloudTwilightTint;  // 0 = cloud tops stay white to the terminator, 1 = full sunset color
 uniform sampler2D seaIceTexture;  // sea ice concentration (0-1) in red, from the gibs-cloud-texture worker
 uniform bool showSeaIce;
-uniform vec3 seaIceColor;         // albedo of sea ice (linear)
+uniform vec3 seaIceColor;         // albedo of sea ice (linear); at night it takes the Black Marble's ice color (blackMarbleIce())
 uniform float seaIceFloeThreshold; // concentration from which the ice is solid pack; below it, it breaks into floes
 uniform float seaIceFloeScale;     // large floe cells per unit of the polar plane (floePlane())
 uniform float windSpeed;          // m/s; rougher seas spread the sun glint out
@@ -227,6 +227,18 @@ vec2 seaIceCover(float concentration, vec3 direction) {
     return vec2(covered, brightness);
 }
 
+// The Black Marble's color for ice. It draws the ice sheets in one flat color (sRGB about
+// 49, 48, 70, a little bluer over Antarctica than over Greenland), which sea ice takes on at
+// night, as it is about as bright as the ice sheets. Read from the night texture itself, so it
+// matches whichever size is loaded: from the middle of the Greenland ice sheet (74 N, 40 W) for
+// Arctic sea ice, and the East Antarctic plateau (80 S, 90 E) for Antarctic sea ice, at the mip
+// level 256 texels wide, where a texel spans 1.4 degrees, well inside either ice sheet.
+vec3 blackMarbleIce(bool north) {
+    vec2 uv = north ? vec2(140.0 / 360.0, 164.0 / 180.0) : vec2(270.0 / 360.0, 10.0 / 180.0);
+    float lod = max(log2(float(textureSize(nightTexture, 0).x) / 256.0), 0.0);
+    return textureLod(nightTexture, uv, lod).rgb;
+}
+
 float sampleCloudReflectance(vec2 uv, float bias) {
     float encoded = texture(cloudTexture, uv, bias).r * float(showClouds);
     return clamp(encoded * encoded * cloudBrightness, 0.0, 0.95);
@@ -437,22 +449,35 @@ void main() {
             animatedNightTexColor = min(animatedNightTexColor * 1.2, vec3(1.0));
         }
 
+        // Sea ice at night looks like the ice sheets do in the Black Marble: it covers that part
+        // of the (nearly black) sea with the Black Marble's ice color, a little darker for loose
+        // floes, as on the day side. Like there, it never darkens anything, such as city lights
+        // or the ice shelves, which the Black Marble already draws as ice.
+        vec3 nightSurface = animatedNightTexColor;
+        vec3 seaIceNight = vec3(0.0);
+        if (seaIce > 0.0) {
+            seaIceNight = blackMarbleIce(vUv.y >= 0.5) * seaIceBrightness;
+            nightSurface = max(nightSurface, mix(nightSurface, seaIceNight, seaIce));
+        }
+
         // At night city lights shine up through the cloud once, and the cloud tops are barely lit.
         // The cloud passes 1 - R of the light on. The part that crosses it without being scattered
         // aside keeps the lights sharp; the rest spreads out sideways inside the cloud and leaves it
         // as a soft glow (nightGlowTexture). Thin cloud leaves most lights sharp, and only the glow
         // gets through thick cloud, or along the slanting view toward the limb. Clear sky skips
-        // the glow lookup altogether.
-        vec3 cityLights = animatedNightTexColor * viewTransmission;
+        // the glow lookup altogether. The rest of the night surface, the ice sheets included, comes
+        // through cloud the same way, and so does the sea ice: the glow is made from the night
+        // texture, which has no sea ice, so the ice is put into it here too. Its floes are much
+        // larger than the glow's spread (cityLightSpread), so their glow is about the ice itself.
+        vec3 cityLights = nightSurface * viewTransmission;
         if (cloudReflectance > 0.0) {
             float directTransmission = exp(-scatteringDepth(cloudReflectance) / max(muView, 0.1));
             vec3 glow = textureGrad(nightGlowTexture, vUv, uvDx, uvDy).rgb;
-            cityLights = animatedNightTexColor * directTransmission
+            glow = max(glow, mix(glow, seaIceNight, seaIce));
+            cityLights = nightSurface * directTransmission
                 + glow * max(viewTransmission - directTransmission, 0.0);
         }
-        // Sea ice is faintly visible at night too, like cloud, seen through any cloud above it
-        vec3 nightCloudy = cityLights + cloudReflectance * nightCloudColor
-            + seaIce * seaIceAlbedo * nightCloudColor * viewTransmission;
+        vec3 nightCloudy = cityLights + cloudReflectance * nightCloudColor;
         color = nightCloudy * (1.0 - dayMix);
     }
 

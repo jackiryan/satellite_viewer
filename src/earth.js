@@ -80,7 +80,9 @@ export class Earth {
             // cities run together
             cityLightSpread: 12,
             // color of sea ice (sRGB): nearly white, as snow-covered floes are. Loose floes are
-            // drawn a little greyer (thinner ice), and the sea shows between them
+            // drawn a little greyer (thinner ice), and the sea shows between them. At night the
+            // sea ice takes the Black Marble's color for the ice sheets instead, read from the
+            // night texture (blackMarbleIce() in earthFragment.glsl)
             seaIceColor: '#f1f5f8',
             // concentration from which sea ice is drawn as solid pack; below it, the ice breaks up
             // into floes that get smaller and further apart as the concentration falls
