@@ -1,10 +1,10 @@
 /* atmosphere.glsl - the atmosphere model shared by the Earth and atmosphere shaders.
  *
- * Everything that gives the globe its colour from space is derived from one description of
+ * Everything that gives the globe its color from space is derived from one description of
  * the air: how much of it there is at each height, and how strongly it scatters and absorbs
- * each colour. Three things are computed from it, all with the same code so they agree:
+ * each color. Three things are computed from it, all with the same code so they agree:
  *
- *   sunTransmittance()   how much sunlight (per colour) reaches a point, after the air above it
+ *   sunTransmittance()   how much sunlight (per color) reaches a point, after the air above it
  *   skyIrradiance()      the diffuse skylight falling on the ground, including the twilight
  *                        that still lights it for a few degrees after sunset
  *   scatterAlong()       for a view ray: how much of the light at its far end survives the air
@@ -13,7 +13,7 @@
  *                        blue-white and the ocean blue.
  *
  * The model is single scattering (sunlight scattered once toward the camera) in an atmosphere
- * of three parts, each with its own vertical optical depth per colour channel:
+ * of three parts, each with its own vertical optical depth per color channel:
  *   Rayleigh   air molecules, scale height 8 km, scatter ~ 1/wavelength^4 (blue most)
  *   Mie        aerosol haze, scale height 1.2 km, grey, scatters mostly forward
  *   ozone      absorbs (mainly red here, the Chappuis band); given the Rayleigh profile
@@ -36,7 +36,7 @@
  */
 
 uniform vec3 sunDirection;          // unit vector toward the sun (scene frame)
-uniform vec3 sunColor;              // colour and strength of sunlight at the top of the atmosphere
+uniform vec3 sunColor;              // color and strength of sunlight at the top of the atmosphere
 uniform float earthRadius;          // scene units
 uniform float atmosphereHeightScale; // stretches the air's heights (not its optical depth), to make the limb glow visible
 uniform vec3 rayleighDepth;         // vertical optical depth of Rayleigh scattering, per channel
@@ -90,7 +90,7 @@ vec2 airColumns(vec3 position, vec3 dir) {
     return vec2(chapman(h, mu, rayleighHeight()), chapman(h, mu, mieHeight()));
 }
 
-// Optical depth per colour channel for those columns: everything that takes light out of a beam
+// Optical depth per color channel for those columns: everything that takes light out of a beam
 vec3 extinction(vec2 columns) {
     return (rayleighDepth + ozoneDepth) * columns.x + mieDepth * columns.y;
 }
@@ -118,7 +118,7 @@ float twilightMu(float mu0) {
 // fraction of the irradiance of the overhead sun (so it is on the same scale as the direct
 // term T_sun * mu0). Of the sunlight scattered out of the direct beam on its way down, about
 // half goes on downward; multiply by skylight to taste. It is blue, so shadows and the ground
-// near the terminator take on the sky's colour. The light has also crossed the ozone layer,
+// near the terminator take on the sky's color. The light has also crossed the ozone layer,
 // which sits 20-30 km up and so has about half the Rayleigh air mass at sunset (17 rather than
 // 35); its red absorption is what makes twilight (the "blue hour") blue.
 vec3 skyIrradiance(float mu0) {
@@ -190,7 +190,7 @@ void scatterAlong(vec3 origin, vec3 dir, float t0, float t1, bool towardEnd,
         vec2 columns = airColumns(origin + dir * dist, -dir);
         vec3 T = exp(-max(extinction(columns) - cameraDepth, 0.0));
 
-        // The segment's share of each kind of air decides the colour of what it scatters; the
+        // The segment's share of each kind of air decides the color of what it scatters; the
         // amount is what the segment removes from the view path (prevT - T), lit by the sun
         // at the segment's middle.
         vec2 seg = max(columns - prevColumns, 0.0);
@@ -211,7 +211,7 @@ void scatterAlong(vec3 origin, vec3 dir, float t0, float t1, bool towardEnd,
 }
 
 // Half an 8-bit level of noise per pixel (interleaved gradient noise, Jimenez 2014), added after
-// the output colour conversion. The twilight and the glow beyond the limb are smooth gradients
+// the output color conversion. The twilight and the glow beyond the limb are smooth gradients
 // across only a few levels of the display, which otherwise show as bands.
 vec3 ditherOutput(vec3 color) {
     float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));

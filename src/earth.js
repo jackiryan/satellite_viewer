@@ -65,7 +65,7 @@ export class Earth {
         // at runtime through setParameter().
         this.parameters = {
             radius: 5,
-            // colour and strength of sunlight above the atmosphere (sRGB). White means the scene
+            // color and strength of sunlight above the atmosphere (sRGB). White means the scene
             // is white-balanced to the sun, as a camera in daylight is; '#ffeedd' would reference
             // it to a D65 display white instead (the sun is slightly warm by that standard)
             sunColor: '#ffffff',
@@ -74,20 +74,20 @@ export class Earth {
             // The real atmosphere is thin: at the default view 8 km is about a pixel, so the glow
             // beyond the limb would be a hairline. This stretches the air's heights (the limb
             // glow's thickness and the twilight band's width) without changing how much air
-            // there is, so the colours on the disk stay the same. 1 = the real atmosphere.
+            // there is, so the colors on the disk stay the same. 1 = the real atmosphere.
             atmosphereHeightScale: 3,
             // vertical optical depth of Rayleigh scattering (air molecules) in the red, green and
             // blue channels: how much of the overhead sun each channel loses to scattering on
             // its way down. The blue/red ratio is what makes the sky blue and the sunset red.
             // Derived spectrally for the sRGB primaries from tau(550 nm) = 0.098 (sea level).
-            rayleighDepth: [0.051, 0.099, 0.238],
+            rayleighDepth: [0.046, 0.108, 0.265], // [0.051, 0.099, 0.238],
             // vertical optical depth of ozone absorption (the Chappuis band, 300 Dobson units):
             // mostly red, so long twilight paths come out bluer than Rayleigh alone would give
             ozoneDepth: [0.040, 0.015, 0.0],
             // vertical optical depth of aerosol haze (grey, at 550 nm). 0.05 is a very clean
             // marine atmosphere, 0.1 a typical global average, 0.3+ a dusty or polluted one.
             // More aerosol whitens the haze and the ocean and brightens the limb toward the sun.
-            mieDepth: 0.08,
+            mieDepth: 0.04, // 0.08,
             // fraction of the light aerosols take out of a beam that they scatter rather than
             // absorb (soot lowers it, sea salt is near 1)
             mieAlbedo: 0.9,
@@ -97,7 +97,7 @@ export class Earth {
             // extra light from sunlight scattered more than once, as a multiple of what single
             // scattering gives, applied where the air is optically thick (the limb). 0 = single
             // scattering only (a darker, bluer limb); 1-2 is about what full solutions give.
-            multipleScattering: 1.0,
+            multipleScattering: 2.0, // 1.0,
             // scales the diffuse skylight on the ground and cloud tops: it is blue, it lights
             // cloud shadows and the shadowed side of cloud banks, and it is what is left of the
             // daylight in the last few degrees before the terminator
@@ -127,7 +127,7 @@ export class Earth {
             // How far the dim ground near the terminator is brightened: 0 = one fixed exposure
             // (the physical falloff), 1 = everything shown as in full daylight. With 0.6, clouds
             // stay visible to about 4 degrees past the terminator, where the lights have come up.
-            twilightAdaptation: 0.6,
+            twilightAdaptation: 0.8, // 0.6,
             // illumination (fraction of the overhead sun's) above which the eye doesn't adapt, so
             // the sunlit disk looks exactly as the physics gives it. 0.3 is the sun ~20 degrees up.
             adaptationKnee: 0.3,

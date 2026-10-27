@@ -4,7 +4,7 @@
  * in common/atmosphere.glsl, set by atmosphereHeightScale). Only the part outside the Earth's
  * disk is ever visible: behind the disk the globe, drawn first, wins the depth test. Each
  * visible pixel's line of sight passes through the atmosphere without touching the ground, so
- * the colour is purely the sunlight that air scatters toward the camera, from the same
+ * the color is purely the sunlight that air scatters toward the camera, from the same
  * scatterAlong() that draws the haze on the disk. Thick air next to the limb glows white-blue,
  * the thinning air above it fades to a deeper blue, and the twilight band of air past the
  * terminator, still in sunlight when the ground below is not, carries the glow a little way
@@ -21,8 +21,8 @@ varying vec3 vPosition;
 void main() {
     vec3 viewDirection = normalize(vPosition - cameraPosition);
 
-    // The point where the line of sight comes closest to the Earth's centre, worked out from
-    // this fragment's point on the shell (about earthRadius from the centre) rather than from the
+    // The point where the line of sight comes closest to the Earth's center, worked out from
+    // this fragment's point on the shell (about earthRadius from the center) rather than from the
     // camera (up to 30 times further out), so that it keeps its precision at the limb.
     float along = dot(vPosition, viewDirection);
     vec3 closest = vPosition - viewDirection * along;

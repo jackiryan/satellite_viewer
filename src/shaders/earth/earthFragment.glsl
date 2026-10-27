@@ -23,7 +23,7 @@
  *
  * Radiance units: a white Lambertian surface under overhead sunlight is 1.0, so the textures'
  * albedo shows unchanged where the sun is overhead and the air is thin. Tone mapping and the
- * output colour space are three.js's (viewer.js sets the exposure).
+ * output color space are three.js's (viewer.js sets the exposure).
  */
 uniform sampler2D dayTexture;
 uniform sampler2D nightTexture;
@@ -579,7 +579,7 @@ void main() {
         // are Gaussian with variance 0.003 + 0.00512 * wind speed, and the glint is the light off
         // facets tilted to mirror the sun into the camera (those facing the half vector), times
         // the Fresnel reflectance of water at that angle. It stretches out and brightens toward
-        // the limb (1 / muView). It is a mirror image of the sun, so it has the colour of the
+        // the limb (1 / muView). It is a mirror image of the sun, so it has the color of the
         // direct beam (without the cosine) and, like everything else, is then seen through the
         // air on the way up. glintMax rolls the brightest part off softly, as a camera's sensor
         // saturating would: the real glint is many times brighter than any cloud.
@@ -603,7 +603,7 @@ void main() {
     // line of sight crosses more and more of it: the surface and clouds fade behind it, and it
     // adds the sunlight it scatters toward the camera, blue where the air is thin and whitening
     // where it is thick, as in DSCOVR/EPIC images. The same model lights the ground above, so
-    // the air's colour and the surface's agree; on the night side the air is unlit and adds
+    // the air's color and the surface's agree; on the night side the air is unlit and adds
     // nothing, apart from the band of twilight air still catching the sun past the terminator.
     // The ray ends at the true sphere (trueSurface), not at the mesh.
     float entry = atmosphereEntry(cameraPosition, viewDirection);

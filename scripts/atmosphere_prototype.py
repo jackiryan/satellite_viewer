@@ -1,9 +1,9 @@
-"""Numpy port of the Earth and atmosphere shaders, for checking colours without the app.
+"""Numpy port of the Earth and atmosphere shaders, for checking colors without the app.
 
 Mirrors src/shaders/common/atmosphere.glsl and the lighting in earthFragment.glsl one-to-one
 (same Chapman fit, same per-segment in-scatter, same sample placement, the same twilight sky
 and observer adaptation; rays are traced to the true sphere, as the shaders now do), renders the globe with
-the repository's Blue Marble textures, procedural clouds (for colour only; their shapes are
+the repository's Blue Marble textures, procedural clouds (for color only; their shapes are
 made up) and the Black Marble at night, and writes a PNG. See docs/atmosphere-shader.md.
 
 Usage:  python scripts/atmosphere_prototype.py                      # defaults -> proto.png
@@ -178,7 +178,7 @@ def to_lin(c):
 
 
 def noise_clouds(lon, lat, seed=3):
-    """Cheap procedural cloud reflectance (0..0.85) for checking colours only."""
+    """Cheap procedural cloud reflectance (0..0.85) for checking colors only."""
     rng = np.random.default_rng(seed)
     v = np.zeros_like(lon)
     for k in range(5):
@@ -210,7 +210,7 @@ def render(width=1000, height=800, fov=45.0, cam_latlon=(10, -65), sun_latlon=(-
     right = np.cross(fwd, np.array([0, 0, 1.0]))
     right /= np.linalg.norm(right)
     upv = np.cross(right, fwd)
-    # look: turn the camera (radians right, up) away from the Earth's centre, e.g. toward the limb
+    # look: turn the camera (radians right, up) away from the Earth's center, e.g. toward the limb
     fwd = fwd + right * np.tan(look[0]) + upv * np.tan(look[1])
     fwd /= np.linalg.norm(fwd)
     right = np.cross(fwd, upv)
@@ -264,7 +264,7 @@ def render(width=1000, height=800, fov=45.0, cam_latlon=(10, -65), sun_latlon=(-
     Tcloud = 1 - cloudR
     L = cloudR * (e_direct + e_sky) + surface * Tcloud * Tcloud / (1 - cloudR * albedo)
 
-    # glint (Cox & Munk), lit by the direct sun colour
+    # glint (Cox & Munk), lit by the direct sun color
     hv = sunDir[None] - d[hit]
     hv /= np.linalg.norm(hv, axis=-1, keepdims=True)
     cosTilt = np.maximum(np.sum(n * hv, axis=-1), 1e-3)

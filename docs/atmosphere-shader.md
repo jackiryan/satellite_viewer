@@ -1,6 +1,6 @@
 # The Earth and atmosphere shaders
 
-How the globe gets its colour from space, and what each parameter in `parameters` in
+How the globe gets its color from space, and what each parameter in `parameters` in
 `src/earth.js` does. The code is in `src/shaders/common/atmosphere.glsl` (the air),
 `src/shaders/earth/earthFragment.glsl` (the disk) and
 `src/shaders/atmosphere/atmosphereFragment.glsl` (the glow beyond the limb).
@@ -55,7 +55,7 @@ is high and the air thin the texture shows unchanged. `renderer.toneMappingExpos
 
 ### The air
 
-The atmosphere is three things, each with a vertical optical depth per colour channel, i.e.
+The atmosphere is three things, each with a vertical optical depth per color channel, i.e.
 the fraction of the overhead sun's light that channel loses on its way straight down is
 `1 - exp(-depth)`:
 
@@ -89,7 +89,7 @@ would scatter. At a view angle of 70° from vertical (`muView = 0.3`) a white cl
 is the orange band of cloud that shows a third of the way in from the limb. The same
 mismatch is why the haze never whitened (the in-scatter only saturates at `path ~ 15`, well
 past the limb) and why the glow was lit with a reddened sun. The ocean was purple because
-the Blue Marble's water colour (blue:green 4.5:1, no air over it) was shown as is: the real
+the Blue Marble's water color (blue:green 4.5:1, no air over it) was shown as is: the real
 ocean from space is mostly Rayleigh-scattered sunlight from the air above it, which is
 blue-cyan, and the shader only added air "beyond the straight-down path".
 
@@ -104,7 +104,7 @@ or a GUI with `earth.setParameter(name, value)`; the exceptions are noted.
 
 ### Sunlight
 
-**`sunColor`** (`'#ffffff'`). Colour and strength of sunlight above the atmosphere. White means
+**`sunColor`** (`'#ffffff'`). color and strength of sunlight above the atmosphere. White means
 the picture is white-balanced to the sun, as a camera in daylight is. The sun is a 5778 K
 black body, slightly warm against a D65 display white: `'#ffeedd'` (linear `1.07, 1.0, 0.89`)
 gives that look. Brightness goes here too (`'#cccccc'` dims everything 20%), though the
@@ -116,7 +116,7 @@ renderer's `toneMappingExposure` is the better place for an overall exposure cha
 default view, so the glow beyond the limb would be a hairline. This stretches the heights of
 the air (8 km → 24 km, 1.2 km → 3.6 km, top 100 km → 300 km) without changing how much air there
 is: every vertical optical depth stays the same, so where the sun and the view are more than
-~15° above the horizon the colours change by under 5%. Slant paths do change: the air mass
+~15° above the horizon the colors change by under 5%. Slant paths do change: the air mass
 along the horizon goes as the square root of the Earth's radius over the scale height, so at 3×
 it is 20 rather than 35. That makes the sunset band a little less red, and the limb a little
 less saturated, than the real atmosphere would; it also widens the glow and the band of
@@ -125,11 +125,11 @@ the size of the shell the glow is drawn on.
 
 **`rayleighDepth`** (`[0.051, 0.099, 0.238]`). Vertical optical depth of Rayleigh scattering in
 the red, green and blue channels, derived spectrally for the sRGB primaries from the sea-level
-value `tau(550 nm) = 0.098`. This is the single most important colour setting:
+value `tau(550 nm) = 0.098`. This is the single most important color setting:
 
 - The **blue : red ratio** (4.7 here) sets how blue thin air is and how red the sun becomes
   near the terminator. Bruneton's widely used `[0.046, 0.108, 0.265]` (ratio 5.8) gives a
-  deeper, more saturated ocean and limb, closer to EPIC's narrow-band natural-colour
+  deeper, more saturated ocean and limb, closer to EPIC's narrow-band natural-color
   composites; `[0.065, 0.098, 0.21]` is flatter and greyer.
 - **Scaling all three together** is the amount of air. It raises the haze over the disk, the
   blue over the ocean, and how soon the limb saturates to white. It also moves the
@@ -144,7 +144,7 @@ them drift to yellow. `[0, 0, 0]` removes it.
 atmosphere, `0.1` a global average, `0.3` and up dusty or polluted. More aerosol whitens the
 haze over the disk, whitens the ocean, and brightens the limb when the sun is behind the
 Earth (aerosols scatter forward). If the haze looks too blue and too clean, raise this; if
-clouds near the centre of the disk lose contrast, lower it.
+clouds near the center of the disk lose contrast, lower it.
 
 **`mieAlbedo`** (`0.9`). Of the light aerosols take out of a beam, the fraction they scatter
 rather than absorb. Sea salt and sulfate are near 1; soot and dust pull it down toward 0.7,
@@ -260,7 +260,7 @@ the ground is, not by a fixed angle.
 seas give a smaller, sharper glint.
 
 **`glintBrightness`** (`0.75`). Scales the glint. The glint is a mirror image of the sun, so
-it now takes the colour of the direct beam at that point (red near the terminator) and is
+it now takes the color of the direct beam at that point (red near the terminator) and is
 then seen through the air on the way up, like everything else. Its brightest part rolls off
 softly like a saturating sensor (`glintMax` in the shader), since the real glint is many
 times brighter than any cloud.
@@ -275,7 +275,7 @@ the rest of the ground and gets the same lighting.
 `viewer.js` uses `THREE.LinearToneMapping` with exposure 1.3. The scene is now in consistent
 radiance units, so switching to `THREE.ACESFilmicToneMapping` (exposure around 1.0-1.2)
 works and will keep the sunward limb and the glint from clipping to flat white, at the cost
-of a slightly lower-contrast disk. Either is fine; the colours above were checked with the
+of a slightly lower-contrast disk. Either is fine; the colors above were checked with the
 linear setting.
 
 ## Recipes
