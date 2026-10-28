@@ -4,7 +4,7 @@
 #
 #   npm run deploy                 build, then upload what changed
 #   npm run deploy -- --dry-run    build, then list what would change, without changing it
-#   npm run deploy -- --prune      also delete old build files from the server (asks first)
+#   npm run deploy -- --prune      also delete old JS and CSS build files from the server (asks first)
 #   npm run deploy -- --no-build   upload the existing dist/ as it is
 #
 # How it works:
@@ -33,8 +33,9 @@ URL="${DEPLOY_URL:-https://jackiepi.xyz/}"                # checked against dist
 #   groups/       satellite data written there by the nightly TLE job
 #   .well-known/  certbot challenges and other site-verification files
 PROTECT=(--exclude=/groups/ --exclude=/.well-known/ --exclude=.DS_Store)
-# The same rule for --prune, which also leaves HTML pages alone.
-LIST_FILES='find . -type f ! -path "./groups/*" ! -path "./.well-known/*" ! -name .DS_Store ! -name "*.html" | LC_ALL=C sort'
+# What --prune may delete: only JavaScript and CSS build artifacts. Fonts, textures and
+# other assets are left alone, as are HTML pages and the protected paths above.
+LIST_FILES='find . -type f ! -path "./groups/*" ! -path "./.well-known/*" \( -name "*.js" -o -name "*.css" \) | LC_ALL=C sort'
 
 usage() { sed -n '3,/^$/s/^# \{0,1\}//p' "$0"; }
 die() { echo "deploy: $*" >&2; exit 1; }
@@ -86,9 +87,9 @@ if (( prune )); then
     stale=$(LC_ALL=C comm -13 <(cd dist && eval "$LIST_FILES") \
         <($ssh_cmd -n "$HOST" "cd $root_q && $LIST_FILES") | sed 's|^\./||')
     if [[ -z $stale ]]; then
-        echo "Nothing to prune: every file on the server is part of this build."
+        echo "Nothing to prune: every JS and CSS file on the server is part of this build."
     else
-        echo "On the server but not in this build:"
+        echo "JS and CSS files on the server but not in this build:"
         echo "  ${stale//$'\n'/$'\n'  }"
         if (( dry_run )); then
             echo "(dry run: you would be asked before these are deleted)"
