@@ -16,6 +16,7 @@
 #     --prune removes old files only after the new pages are live.
 #   * groups/ on the server is never touched: the nightly TLE job keeps it current
 #     there, and the copy in dist/ (the committed index.json) would overwrite it.
+#   * --prune never deletes anything under nca_atlas/ on the server.
 #   * If your user can write to the web root, files go straight there. Otherwise they
 #     are uploaded to ~/site-staging on the server and copied into place with sudo
 #     (you'll be asked for your sudo password).
@@ -35,7 +36,8 @@ URL="${DEPLOY_URL:-https://jackiepi.xyz/}"                # checked against dist
 PROTECT=(--exclude=/groups/ --exclude=/.well-known/ --exclude=.DS_Store)
 # What --prune may delete: only JavaScript and CSS build artifacts. Fonts, textures and
 # other assets are left alone, as are HTML pages and the protected paths above.
-LIST_FILES='find . -type f ! -path "./groups/*" ! -path "./.well-known/*" \( -name "*.js" -o -name "*.css" \) | LC_ALL=C sort'
+# nca_atlas/ is also never pruned, whatever it contains.
+LIST_FILES='find . -type f ! -path "./groups/*" ! -path "./.well-known/*" ! -path "./nca_atlas/*" \( -name "*.js" -o -name "*.css" \) | LC_ALL=C sort'
 
 usage() { sed -n '3,/^$/s/^# \{0,1\}//p' "$0"; }
 die() { echo "deploy: $*" >&2; exit 1; }
