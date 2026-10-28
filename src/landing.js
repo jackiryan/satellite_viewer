@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { Timer } from 'three/addons/misc/Timer.js';
 import { initSky } from './skybox.js';
-import { initEarth } from './earth.js';
+import { initEarth, renderPixelRatio } from './earth.js';
 
 let camera, scene, renderer;
 let earth, skybox;
@@ -70,7 +70,7 @@ async function init() {
 
 function onWindowResize() {
     const canvas = renderer.domElement;
-    const pixelRatio = window.devicePixelRatio;
+    const pixelRatio = renderPixelRatio();
     const width = Math.floor(canvas.clientWidth * pixelRatio);
     const height = Math.floor(canvas.clientHeight * pixelRatio);
 

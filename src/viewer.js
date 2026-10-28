@@ -6,7 +6,7 @@ import { populateButtonGroup, setButtonState } from './buttonGroup.js';
 import { loadGltfGeometry } from './gltfGeometry.js';
 import { SatelliteGroupMap } from './satelliteGroupMap.js';
 import { initSky } from './skybox.js';
-import { Earth } from './earth.js';
+import { Earth, renderPixelRatio } from './earth.js';
 import { initMoon } from './moon.js';
 import Stats from 'three/addons/libs/stats.module.js';
 import { Timer } from 'three/addons/misc/Timer.js';
@@ -383,7 +383,7 @@ function fitCameraToObject(camera, object, offset) {
 
 function onWindowResize() {
     const canvas = renderer.domElement;
-    const pixelRatio = window.devicePixelRatio;
+    const pixelRatio = renderPixelRatio();
     const width = Math.floor(canvas.clientWidth * pixelRatio);
     const height = Math.floor(canvas.clientHeight * pixelRatio);
     const needsResize = canvas.width !== width || canvas.height !== height;
