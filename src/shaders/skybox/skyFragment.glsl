@@ -85,16 +85,19 @@ vec4 getPixInfo(vec2 homeCenter, vec3 viewDir, vec2 offset) {
     // ~89% of texels hold no star; neighbouring pixels read the same texels, so this branch is coherent
     if (starData.b < 1e-6) return vec4(0.0);
     vec3 tempData = texture(uTempData, uvCenter).rgb;
-    float xData = starData.r;
-    float yData = starData.g;
+    // Texel center minus star position, in texels (within +/-1.5). R is measured along the
+    // image rows and G along the columns; see scripts/make_star_datapack.py.
+    float rowOffset = starData.r * 3.0 - 1.5;
+    float colOffset = starData.g * 3.0 - 1.5;
     float magData = starData.b;
 
     float starBrightness = magnitudeToBrightness(decodeMagnitude(magData) - uScaleFactor);
 
+    // The texture is flipped on upload, so u runs along the image columns and v against
+    // the rows. One texel spans 2 / uPixelSize of the map's [-1, 1] range.
     vec2 coord1;
-    // Value is between -2.5 / uPixelSize to 2.5 / uPixelSize
-    coord1.x = (uvCenter.x * 2.0 - 1.0) + (((xData * 3.0) - 1.5) / uPixelSize);
-    coord1.y = (uvCenter.y * 2.0 - 1.0) + (((yData * 3.0) - 1.5) / uPixelSize);
+    coord1.x = (uvCenter.x * 2.0 - 1.0) - colOffset * 2.0 / uPixelSize;
+    coord1.y = (uvCenter.y * 2.0 - 1.0) + rowOffset * 2.0 / uPixelSize;
 
     vec3 Pprime1;
     if (abs(coord1.x) + abs(coord1.y) <= 1.0) {

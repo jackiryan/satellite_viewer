@@ -90,6 +90,20 @@ a, button, input, select {
 	}
 }
 
+/* Star map page: constellation tooltip (constellations.js) */
+.constellation-tooltip {
+    z-index: 3;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+}
+
+.tooltip-detail {
+    display: block;
+    font-size: 0.75em;
+    color: var(--slate-700);
+}
+
 /**
  * Container
  */
