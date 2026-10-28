@@ -90,7 +90,7 @@ a, button, input, select {
 	}
 }
 
-/* Star map page: constellation tooltip (constellations.js) and ecliptic labels (ecliptic.js) */
+/* Star map page: constellation tooltip (constellations.js) */
 .constellation-tooltip {
     z-index: 3;
     white-space: nowrap;
@@ -102,37 +102,6 @@ a, button, input, select {
     display: block;
     font-size: 0.75em;
     color: var(--slate-700);
-}
-
-.sky-labels {
-    --ecliptic-color: #d9b46c; /* keep in sync with LINE_COLOR in ecliptic.js */
-    position: fixed;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    user-select: none;
-    z-index: 0; /* above the canvas, below #info and the controls */
-}
-
-.ecliptic-label {
-    position: absolute;
-    left: 0;
-    top: 0;
-    /* the left padding balances the letter spacing after the last letter */
-    padding: 0 0 0.3rem 0.3em;
-    font-family: 'AudioLink Mono', monospace;
-    font-size: 0.75rem;
-    letter-spacing: 0.3em;
-    text-transform: uppercase;
-    white-space: nowrap;
-    color: var(--ecliptic-color);
-    text-shadow: 0 0 0.25rem var(--slate-950);
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.ecliptic-label.visible {
-    opacity: 0.85;
 }
 
 /**

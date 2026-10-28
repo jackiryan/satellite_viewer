@@ -1,12 +1,12 @@
 /* nightsky.js - main source for Star Map Demo (previously called Night Sky Demo) */
 import * as THREE from 'three';
 import GUI from 'lil-gui';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Timer } from 'three/addons/misc/Timer.js';
 import { initSky } from './skyboxcolor.js';
 import { initConstellations } from './constellations.js';
 import { EclipticOverlay } from './ecliptic.js';
 import { raDecToWorld } from './skyCoords.js';
+import { SkyControls } from './skyControls.js';
 
 let scene, renderer, camera, controls, timer, skybox, ecliptic, constellations;
 
@@ -16,17 +16,15 @@ async function init() {
     scene = new THREE.Scene();
 
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    // open looking at Orion (RA 6h), tilted up enough to show the ecliptic above it; the
-    // camera orbits the origin, so it sits opposite the direction it looks
-    camera.position.copy(raDecToWorld(90, 8)).negate();
+    // The camera sits at the center of the sky and only turns. It opens looking at Orion
+    // (RA 6h), tilted up enough to show the ecliptic above it, with celestial north up.
+    camera.lookAt(raDecToWorld(90, 8));
 
     const canvas = document.querySelector('#webgl-canvas');
     renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
     renderer.setClearColor(0x000000);
 
-    controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableZoom = false;
-    controls.update();
+    controls = new SkyControls(camera, renderer.domElement);
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
     scene.add(ambientLight);
@@ -45,6 +43,7 @@ async function init() {
         timer = new Timer();
         requestAnimationFrame(animate);
     });
+    gui.add(controls, 'resetView').name('Reset View');
 
     constellations = await constellationsLoading;
     initOverlayTweaks(gui);
@@ -74,10 +73,11 @@ function onWindowResize() {
 
 function animate(timestamp) {
     timer.update(timestamp);
+    const deltaSeconds = timer.getDelta();
     onWindowResize();
-    controls.update();
+    controls.update(deltaSeconds);
     ecliptic.update();
-    constellations?.update(timer.getDelta());
+    constellations?.update(deltaSeconds);
     renderer.render(scene, camera);
     requestAnimationFrame(animate);
 }
