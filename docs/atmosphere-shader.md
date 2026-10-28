@@ -257,7 +257,9 @@ the ground is, not by a fixed angle.
 ### Sea surface
 
 **`windSpeed`** (`5` m/s). Sets the spread of wave slopes in the Cox & Munk glint; calmer
-seas give a smaller, sharper glint.
+seas give a smaller, sharper glint. It also sets how the waves shade each other as the sun
+gets low (Smith shadowing), which fades the glint out over the last few degrees before the
+terminator; calmer seas keep it bright a little closer to the terminator.
 
 **`glintBrightness`** (`0.75`). Scales the glint. The glint is a mirror image of the sun, so
 it now takes the color of the direct beam at that point (red near the terminator) and is

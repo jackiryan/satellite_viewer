@@ -397,6 +397,19 @@ vec3 cloudSunlight(vec2 uv, vec3 normal, vec3 sunDir, float radius, float localR
     return vec3(1.0 - groundBlocked, 1.0 - topBlocked, slopeLight);
 }
 
+// Fraction of the sea's wave facets that the sun still reaches when it is at cos(zenith) mu,
+// for Gaussian slopes of variance slopeVariance (Smith's shadowing function for the Beckmann
+// distribution, with Walter et al.'s 2007 rational fit). It is 1 with the sun high, and as the
+// sun sets the wave crests shade the troughs, so it falls to 0 at the horizon: about 0.5 with
+// the sun 2 degrees up and 0.3 at 1 degree with a 5 m/s wind.
+float waveShadowing(float mu, float slopeVariance) {
+    if (mu <= 0.0) return 0.0;
+    float a = mu / sqrt(slopeVariance * max(1.0 - mu * mu, 1e-6)); // 1 / (sigma tan(zenith))
+    if (a >= 1.6) return 1.0;
+    float lambda = (1.0 - 1.259 * a + 0.396 * a * a) / (3.535 * a + 2.181 * a * a);
+    return 1.0 / (1.0 + lambda);
+}
+
 void main() {
     vec3 viewDirection = normalize(vPosition - cameraPosition);
     vec3 normal = normalize(vNormal);                // the mesh point's direction (lighting, textures)
@@ -581,8 +594,12 @@ void main() {
         // the Fresnel reflectance of water at that angle. It stretches out and brightens toward
         // the limb (1 / muView). It is a mirror image of the sun, so it has the color of the
         // direct beam (without the cosine) and, like everything else, is then seen through the
-        // air on the way up. glintMax rolls the brightest part off softly, as a camera's sensor
-        // saturating would: the real glint is many times brighter than any cloud.
+        // air on the way up. As the sun sets the waves shade each other (waveShadowing), which
+        // fades the glint out over the last few degrees before the terminator. Without it the
+        // glint has no cosine to take it to zero, and sunAtGround is still a few percent at the
+        // horizon before it drops to nothing, so the glint was cut off sharply at the terminator.
+        // glintMax rolls the brightest part off softly, as a camera's sensor saturating would:
+        // the real glint is many times brighter than any cloud.
         if (specularTexColor > 0.0 && muView >= 0.0) {
             vec3 halfVector = normalize(sunDirection + toCamera);
             float cosTilt = max(dot(normal, halfVector), 1e-3);
@@ -590,7 +607,7 @@ void main() {
             float tan2Tilt = (1.0 - cos2Tilt) / cos2Tilt;
             float slopeVariance = 0.003 + 0.00512 * windSpeed;
             float waterFresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(halfVector, sunDirection), 0.0, 1.0), 5.0);
-            float glint = waterFresnel * exp(-tan2Tilt / slopeVariance)
+            float glint = waterFresnel * exp(-tan2Tilt / slopeVariance) * waveShadowing(muSun, slopeVariance)
                 / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.8));
             const float glintMax = 0.9;
             glint = glintMax * (1.0 - exp(-glint / glintMax));
