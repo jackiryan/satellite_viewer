@@ -42,6 +42,11 @@ const EARTH_ATMOSPHERE_DEFINES = isMobile ? { ATMOSPHERE_SAMPLES: 6 } : {};
 // preloads, and moves up a size when the view shows more detail than the texture has.
 const EARTH_TEXTURE_WIDTHS = [2048, 4096, 8192];
 
+// The largest day/night and cloud textures mobile devices and Safari get (getMaxTextureWidth).
+// The 8192-wide day and night textures take 360 MB of GPU memory together (with mipmaps), which
+// can make the WebGL context fail on lower-end mobile devices; the 4096-wide ones take 90 MB.
+const MOBILE_MAX_TEXTURE_WIDTH = 4096;
+
 // Cloud texture sizes the gibs-cloud-texture worker makes. tileMatrix is the lowest GIBS level
 // with at least as many pixels as the texture, so the worker shrinks the tiles rather than
 // enlarging them; these match what its hourly job keeps ready (PREWARM_TILE_MATRIX in
@@ -56,7 +61,14 @@ const CLOUD_WIDTHS = CLOUD_RESOLUTIONS.map((r) => r.width);
 // A texture has enough detail while it has at least this many texels per screen pixel where
 // the globe is closest to the camera (and more everywhere else). Slightly under 1 so that a
 // texture that is just short at the default view isn't replaced by one four times the size.
-const MIN_TEXELS_PER_PIXEL = 0.8;
+// Mobile devices go lower, to keep GPU memory down: at the default view a phone in portrait has
+// about 0.6 texels per pixel from the 2048-wide textures, so they stay until the viewer zooms in.
+const MIN_TEXELS_PER_PIXEL = isMobile ? 0.5 : 0.8;
+
+// Widest the night glow is made (bakeNightGlow). On mobile devices it stays at 2048 x 1024
+// (11 MB) when the night texture moves up to 4096: the glow is a soft blur, and at 4096 x 2048 it
+// would take 45 MB, and another 34 MB while it is being drawn.
+const MAX_NIGHT_GLOW_WIDTH = isMobile ? 2048 : 4096;
 
 // Larger textures start loading once the camera's distance has held still this long (ms), so
 // that zooming in loads the size for where the zoom ends, not every size on the way there
@@ -305,24 +317,25 @@ export class Earth {
         ];
     }
 
-    // The largest day/night texture this device gets. Mobile devices and Safari stay at 2048 x 1024:
-    // Safari chokes on loading images as bitmaps, and the creation of a WebGL context can fail on
-    // lower-end mobile devices when decompressing large textures. The landing page (useLowRes)
-    // also stays at 2048.
+    // The largest of the given texture widths this device gets. Mobile devices and Safari go up
+    // to MOBILE_MAX_TEXTURE_WIDTH (Safari, which chokes on loading images as bitmaps, loads them
+    // the way mobile devices do). The landing page (useLowRes) stays at 2048.
     getMaxTextureWidth(widths) {
-        if (this.isMobileOrSafari || this.useLowRes) {
+        if (this.useLowRes) {
             return widths[0];
         }
         const maxTextureSize = this.scene.renderer?.capabilities.maxTextureSize ?? 4096;
-        return widths.filter((w) => w <= maxTextureSize).pop() ?? widths[0];
+        const limit = this.isMobileOrSafari ? Math.min(maxTextureSize, MOBILE_MAX_TEXTURE_WIDTH) : maxTextureSize;
+        return widths.filter((w) => w <= limit).pop() ?? widths[0];
     }
 
-    // The first cloud texture: 2048 x 1024 wherever the Earth textures are capped at 2048
-    // (mobile, Safari, the landing page), otherwise 4096 x 2048, which has more than a texel per
-    // pixel at the default view even on high-DPI screens. 8192 x 4096 (18 MB) only loads once
-    // the camera is close enough to need it (updateDetail).
+    // The first cloud texture: 2048 x 1024 on mobile devices, Safari and the landing page,
+    // otherwise 4096 x 2048, which has more than a texel per pixel at the default view even on
+    // high-DPI screens. Larger ones only load once the camera is close enough to need them
+    // (updateDetail).
     getInitialCloudResolution() {
-        return this.getMaxTextureWidth(CLOUD_WIDTHS) > 2048 ? CLOUD_RESOLUTIONS[1] : CLOUD_RESOLUTIONS[0];
+        return this.isMobileOrSafari || this.getMaxTextureWidth(CLOUD_WIDTHS) < 4096 ?
+            CLOUD_RESOLUTIONS[0] : CLOUD_RESOLUTIONS[1];
     }
 
     // URL of the cloud texture made by the gibs-cloud-texture worker (proxied at /cloud-texture).
@@ -399,8 +412,8 @@ export class Earth {
     // daily Arctic and Antarctic grids. NSIDC publishes a day's grids the next day, so ask for
     // the day before the scene time (never later than now); the worker serves the newest day it
     // has at or before that. The grids are 25 km, so 4096x2048 (about 10 km per texel north to
-    // south) already shows all their detail, and 2048x1024 wherever the Earth textures drop to
-    // low resolution. Both are what the worker's hourly job keeps ready.
+    // south) already shows all their detail, and 2048x1024 on mobile devices, Safari and the
+    // landing page. Both are what the worker's hourly job keeps ready.
     getSeaIceTextureUrl(useLowRes = false) {
         const sceneTime = Math.min(this.initialDate.getTime(), Date.now());
         const params = new URLSearchParams({
@@ -520,7 +533,7 @@ export class Earth {
             const previousNight = uniforms.nightTexture.value;
             uniforms.dayTexture.value = day;
             uniforms.nightTexture.value = night;
-            // the glow is made at up to 4096 wide, limited by the night texture's width
+            // the glow is made at up to MAX_NIGHT_GLOW_WIDTH, limited by the night texture's width
             this.nightGlow.needsUpdate = true;
             disposeTexture(previousDay);
             disposeTexture(previousNight);
@@ -814,11 +827,11 @@ export class Earth {
 
         // Enough resolution for about 1.25 texels per standard deviation, which bilinear
         // filtering turns into smooth round glows: 4096 x 2048 (45 MB with mipmaps) at the default
-        // 12 km, or 2048 x 1024 (11 MB) for spreads of 20 km and up and wherever the night
-        // texture itself is 2048 wide
+        // 12 km, or 2048 x 1024 (11 MB) for spreads of 20 km and up, wherever the night texture
+        // itself is 2048 wide, and on mobile devices (MAX_NIGHT_GLOW_WIDTH)
         const spread = this.parameters.cityLightSpread / 6371;
         const ideal = 1.25 * 2 * Math.PI / spread;
-        const width = Math.min(Math.max(2 ** Math.round(Math.log2(ideal)), 256), 4096, nightWidth);
+        const width = Math.min(Math.max(2 ** Math.round(Math.log2(ideal)), 256), MAX_NIGHT_GLOW_WIDTH, nightWidth);
         const height = width / 2;
 
         // The glow is stored sRGB-encoded in 8 bits, like the night texture itself, which keeps the
