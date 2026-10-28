@@ -15,7 +15,7 @@
  *      at, so the dim ground near the terminator is shown brighter than a single exposure would
  *      show it, and the city lights take over where it has adapted to the dark. This is the only
  *      step that is about perception rather than physics, and it only touches the light
- *      reflected by the surface and clouds.
+ *      reflected by the surface and clouds, not the sun glint (the sun's own image).
  *   5. The air between the surface and the camera (scatterAlong): the surface's light is
  *      attenuated, and sunlight scattered by that air is added. This is the haze that whitens
  *      toward the limb and the blue over the ocean. The same function draws the glow beyond the
@@ -108,7 +108,9 @@ const vec3 LUMINANCE = vec3(0.2126, 0.7152, 0.0722);
  * lights, which caps the gain. The night lights are shown with weight 1 / (1 + (E / A)^2): full
  * where E << A, half at E = A (with A = 1e-3, the sun about 2.5 degrees below the horizon), and
  * gone in daylight. The air's own light (in-scatter) is not adapted, so the haze and the glow
- * beyond the limb stay as the physics gives them and meet at the edge of the disk.
+ * beyond the limb stay as the physics gives them and meet at the edge of the disk. Nor is the
+ * sun glint: it is an image of the sun itself, which the eye does not adapt to, and brightening
+ * it by the twilight gain (about 10 with the sun 2 degrees up) made it a clipped orange blob.
  *
  * irradiance: light falling on the ground, relative to the overhead sun, without sunColor.
  * Returns x: the gain for reflected sunlight, y: the weight of the night lights.
@@ -414,7 +416,6 @@ void main() {
     vec3 viewDirection = normalize(vPosition - cameraPosition);
     vec3 normal = normalize(vNormal);                // the mesh point's direction (lighting, textures)
     vec3 surface = trueSurface(vPosition, viewDirection); // the true sphere along this ray (the air)
-    vec3 groundPoint = normal * earthRadius;
     vec3 toCamera = -viewDirection;
     float muSun = dot(normal, sunDirection);     // cosine of the sun's zenith angle (negative at night)
     float muView = dot(normal, toCamera);        // cosine of the view zenith angle (0 at the limb)
@@ -476,10 +477,13 @@ void main() {
     //   skyLight   diffuse light from the sky, blue; small, but it is what lights shadows, and
     //              the ground and clouds for the last degrees before the terminator and the
     //              first few of twilight after it
-    // The observer then adapts to that light (observerAdaptation): dayGain brightens the dim
-    // ground near the terminator, and nightWeight brings in the city lights as it gets dark.
-    vec3 sunAtGround = sunTransmittance(groundPoint);
-    vec3 sky = skyIrradiance(muSun);
+    // Both come from the air between the ground and the sun (along the horizon once the sun has
+    // set, for the skylight), looked up once. The observer then adapts to that light
+    // (observerAdaptation): dayGain brightens the dim ground near the terminator, and
+    // nightWeight brings in the city lights as it gets dark.
+    vec2 sunColumns = airColumnsAt(0.0, max(muSun, 0.0));
+    vec3 sunAtGround = muSun > 0.0 ? exp(-extinction(sunColumns)) : vec3(0.0);
+    vec3 sky = skyIrradiance(muSun, sunColumns);
     vec3 irradiance = sunAtGround * max(muSun, 0.0) + sky;
     vec2 adaptation = observerAdaptation(irradiance);
     float dayGain = adaptation.x;
@@ -599,7 +603,9 @@ void main() {
         // glint has no cosine to take it to zero, and sunAtGround is still a few percent at the
         // horizon before it drops to nothing, so the glint was cut off sharply at the terminator.
         // glintMax rolls the brightest part off softly, as a camera's sensor saturating would:
-        // the real glint is many times brighter than any cloud.
+        // the real glint is many times brighter than any cloud. It is added after the observer's
+        // gain, which it does not get (observerAdaptation).
+        vec3 glintLight = vec3(0.0);
         if (specularTexColor > 0.0 && muView >= 0.0) {
             vec3 halfVector = normalize(sunDirection + toCamera);
             float cosTilt = max(dot(normal, halfVector), 1e-3);
@@ -611,9 +617,9 @@ void main() {
                 / (4.0 * slopeVariance * cos2Tilt * cos2Tilt * max(muView, 0.8));
             const float glintMax = 0.9;
             glint = glintMax * (1.0 - exp(-glint / glintMax));
-            reflected += glint * glintBrightness * specularTexColor * sunAtGround * sunColor;
+            glintLight = glint * glintBrightness * specularTexColor * sunAtGround * sunColor;
         }
-        color += reflected * dayGain;
+        color += reflected * dayGain + glintLight;
     }
 
     // The air between here and the camera (aerial perspective). Looking toward the limb the

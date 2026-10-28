@@ -23,7 +23,8 @@ Every pixel of the disk is built in the same five steps, in this order:
 4. **The observer** (`observerAdaptation`). The eye adapts to the light around what it looks
    at, so the dim ground near the terminator is brightened, and the city lights fade in as it
    adapts to the dark. This is the one step that models perception rather than physics, and it
-   only touches the light reflected by the surface and clouds, never the air's.
+   only touches the light reflected by the surface and clouds, never the air's or the sun
+   glint's.
 5. **The air between the surface and the camera** (`scatterAlong`). The surface's light is
    attenuated by that air, and the sunlight the air scatters toward the camera is added.
 
@@ -61,19 +62,25 @@ the fraction of the overhead sun's light that channel loses on its way straight 
 
 | | what | profile | default depth (R, G, B) |
 |---|---|---|---|
-| Rayleigh | air molecules; scatter blue ~5x more than red | exponential, 8 km scale height | `0.051, 0.099, 0.238` |
+| Rayleigh | air molecules; scatter blue ~6x more than red | exponential, 8 km scale height | `0.046, 0.108, 0.265` |
 | ozone | absorbs, mostly orange-red (Chappuis band) | given the Rayleigh profile | `0.040, 0.015, 0.0` |
-| Mie | aerosol haze; grey, scatters mostly forward | exponential, 1.2 km scale height | `0.08` |
+| Mie | aerosol haze; grey, scatters mostly forward | exponential, 1.2 km scale height | `0.04` |
 
-Optical depth along any ray is computed in closed form with the Chapman function (a rational
-fit, exact straight up and along the horizon, within 6% between; `scripts/chapman_check.py`
-checks it), so finding how much sunlight reaches a point costs two square roots and two
-exponentials, with no inner loop toward the sun.
+The optical depth along any ray comes from a small table of air columns (`src/atmosphereTable.js`).
+For each height from the ground to the top of the atmosphere and each angle from straight up
+to the horizon, it holds how much of each profile lies along the ray to space (the Chapman
+function). It is computed by numerical integration when the globe is created, which takes a
+few milliseconds. Each texel stores the column relative to the column straight up from that
+height. That ratio barely changes with height, so a 256 × 16 half-float table is accurate to
+0.1% (`scripts/chapman_check.py` checks it). The shader multiplies the exponential falloff
+back in. A ray pointing below the horizon takes two lookups: twice the horizontal column from
+its lowest point, less the column up the mirror-image ray. So finding how much sunlight
+reaches a point is one texture read and two exponentials, with no inner loop toward the sun.
 
-`scatterAlong` walks a view ray in 8 segments (12 for the limb glow). For each segment it
-takes the exact transmittance across it from Chapman differences, and the light it scatters
-toward the camera is *the light that segment removes from the view path*, lit by the sun at
-the segment's middle and weighted by the phase functions. Extinction and in-scatter are
+`scatterAlong` walks a view ray in 8 segments (6 on phones and tablets, 12 for the limb glow).
+For each segment it takes the exact transmittance across it from differences of air columns,
+and the light it scatters toward the camera is *the light that segment removes from the view
+path*, lit by the sun at the segment's middle and weighted by the phase functions. Extinction and in-scatter are
 therefore always consistent: a thick stretch of air both hides what is behind it and glows,
 in proportion. Light scattered more than once is approximated by a boost proportional to how
 much of the path was scattered at all (`multipleScattering`).
@@ -93,9 +100,10 @@ the Blue Marble's water color (blue:green 4.5:1, no air over it) was shown as is
 ocean from space is mostly Rayleigh-scattered sunlight from the air above it, which is
 blue-cyan, and the shader only added air "beyond the straight-down path".
 
-With the new model the same cloud at `muView = 0.3` comes out `(0.41, 0.43, 0.41)`: a neutral
-white, dimmed by the air in front of it, which is what EPIC and ISS images show for clouds
-toward the limb.
+With the new model, a white cloud under an overhead sun at `muView = 0.3` loses `(34%, 41%,
+63%)` to the air and gets back `(0.05, 0.10, 0.24)`, and comes out `(0.66, 0.64, 0.56)`: a
+near-neutral white, dimmed by the air in front of it, which is what EPIC and ISS images show
+for clouds toward the limb.
 
 ## Parameters
 
@@ -120,17 +128,20 @@ is: every vertical optical depth stays the same, so where the sun and the view a
 along the horizon goes as the square root of the Earth's radius over the scale height, so at 3×
 it is 20 rather than 35. That makes the sunset band a little less red, and the limb a little
 less saturated, than the real atmosphere would; it also widens the glow and the band of
-twilight air past the terminator. `1` is the real atmosphere. Not applied live: it also sets
-the size of the shell the glow is drawn on.
+twilight air past the terminator. `1` is the real atmosphere. It can be changed live:
+`setParameter` remakes the table of air columns and the shell the glow is drawn on. The shaders
+assume the camera is outside the atmosphere, which with `viewer.js`'s closest zoom (7 units
+from the center) holds for values up to about 26.
 
-**`rayleighDepth`** (`[0.051, 0.099, 0.238]`). Vertical optical depth of Rayleigh scattering in
-the red, green and blue channels, derived spectrally for the sRGB primaries from the sea-level
-value `tau(550 nm) = 0.098`. This is the single most important color setting:
+**`rayleighDepth`** (`[0.046, 0.108, 0.265]`). Vertical optical depth of Rayleigh scattering in
+the red, green and blue channels: Bruneton and Neyret's (2008) widely used values, at 680, 550
+and 440 nm. This is the single most important color setting:
 
-- The **blue : red ratio** (4.7 here) sets how blue thin air is and how red the sun becomes
-  near the terminator. Bruneton's widely used `[0.046, 0.108, 0.265]` (ratio 5.8) gives a
-  deeper, more saturated ocean and limb, closer to EPIC's narrow-band natural-color
-  composites; `[0.065, 0.098, 0.21]` is flatter and greyer.
+- The **blue : red ratio** (5.8 here) sets how blue thin air is and how red the sun becomes
+  near the terminator. It gives a deep, saturated ocean and limb, close to EPIC's narrow-band
+  natural-color composites. `[0.051, 0.099, 0.238]` (ratio 4.7), derived spectrally for the
+  sRGB primaries from the sea-level value `tau(550 nm) = 0.098`, is a little paler;
+  `[0.065, 0.098, 0.21]` is flatter and greyer.
 - **Scaling all three together** is the amount of air. It raises the haze over the disk, the
   blue over the ocean, and how soon the limb saturates to white. It also moves the
   terminator's reddening inward.
@@ -140,7 +151,7 @@ the red channel because the Chappuis band peaks near 600 nm. It only matters alo
 paths: it keeps the twilight band and the thick air at the limb blue rather than letting
 them drift to yellow. `[0, 0, 0]` removes it.
 
-**`mieDepth`** (`0.08`). Aerosol optical depth at 550 nm, grey. `0.05` is a very clean marine
+**`mieDepth`** (`0.04`). Aerosol optical depth at 550 nm, grey. `0.04` is a very clean marine
 atmosphere, `0.1` a global average, `0.3` and up dusty or polluted. More aerosol whitens the
 haze over the disk, whitens the ocean, and brightens the limb when the sun is behind the
 Earth (aerosols scatter forward). If the haze looks too blue and too clean, raise this; if
@@ -155,16 +166,16 @@ evenly, `1` all forward. Real haze is 0.7-0.8. Lower values spread the aerosol's
 the whole disk (a brighter, whiter haze everywhere); higher values concentrate it into the
 sunward limb.
 
-**`multipleScattering`** (`1.0`). Light that is scattered more than once before reaching the
+**`multipleScattering`** (`2.0`). Light that is scattered more than once before reaching the
 camera, as a multiple of the single-scattered light, applied in proportion to how much of
 the view path's light was scattered at all (so it does nothing where the air is thin and
-doubles the glow where it is opaque). `0` is pure single scattering: a darker, bluer limb.
+triples the glow where it is opaque). `0` is pure single scattering: a darker, bluer limb.
 Full solutions of the transfer equation sit around 1-2 for an Earth-like atmosphere. This
 is the knob for how bright the white rim at the limb is.
 
 **`skylight`** (`1.0`). Scales the diffuse skylight on the ground and cloud tops. The model
 takes half of the sunlight scattered out of the direct beam on its way down as skylight,
-which is about 6% of the overhead sun in red and 13% in blue. It lights cloud shadows and
+which is about 4% of the overhead sun in red and 13% in blue. It lights cloud shadows and
 the shadowed sides of cloud banks blue, and it is what is left of the daylight in the last
 few degrees before the terminator, where the direct beam has been absorbed. After sunset it
 carries on as twilight, falling off by a factor *e* every ~1.1° of sun depression: 0.6% of the
@@ -217,23 +228,28 @@ nightWeight = 1 / (1 + (E / A)^2)                    A = nightAdaptationLevel
 
 The night lights (and night-side cloud) are drawn with `nightWeight`. The air's own light is
 not adapted, so the haze and the limb glow stay exactly as the physics gives them and still meet
-at the edge of the disk.
+at the edge of the disk. Nor is the sun glint: it is an image of the sun itself, which the eye
+does not adapt to. (With the gain on it, the glint over the last few degrees before the
+terminator was brightened ten times or more, into a clipped orange blob.)
 
 With the defaults, a cloud's displayed brightness and the night lights across the terminator
-(sun elevation in degrees; 8-bit sRGB values of a cloud with reflectance 0.7, seen straight
-down):
+(sun elevation in degrees; 8-bit sRGB values of the luminance of a cloud with reflectance 0.7,
+leaving out the air in front of it; `python scripts/atmosphere_prototype.py twilight` prints
+this table):
 
 | sun elevation | 30° | 10° | 3° | 0° | −2° | −3° | −4° | −6° |
 |---|---|---|---|---|---|---|---|---|
-| one exposure (`twilightAdaptation: 0`) | 164 | 89 | 42 | 16 | 4 | 2 | 1 | 0 |
-| default (`0.6`) | 164 | 118 | 89 | 64 | 41 | 29 | 18 | 4 |
-| night lights | 0 | 0 | 0 | 3% | 36% | 75% | 94% | 100% |
+| one exposure (`twilightAdaptation: 0`) | 166 | 92 | 43 | 16 | 4 | 2 | 1 | 0 |
+| default (`0.8`) | 166 | 130 | 113 | 93 | 68 | 52 | 36 | 12 |
+| gain | 1 | 2.1 | 6.8 | 21 | 49 | 67 | 81 | 93 |
+| night lights | 0 | 0 | 0 | 3% | 37% | 75% | 94% | 100% |
 
-**`twilightAdaptation`** (`0.6`). How far dim ground near the terminator is brightened: `0`
+**`twilightAdaptation`** (`0.8`). How far dim ground near the terminator is brightened: `0`
 is a single fixed exposure (the physical falloff, black around the terminator), `1` shows
 everything as in full daylight down to `nightAdaptationLevel`, which is close to the original
-shader, which drew the day side at full brightness to the terminator. `0.7`–`0.8` gives more
-of the twilight band; `0.4` a more photographic look.
+shader, which drew the day side at full brightness to the terminator. With `0.8` the clouds
+stay visible to about 5° past the terminator, where the night lights have come up. `0.6` gives
+a darker twilight band; `0.4` a more photographic look.
 
 **`adaptationKnee`** (`0.3`). The illumination above which the eye doesn't adapt, so the
 sunlit disk is exactly as the physics gives it. `0.3` is the sun about 20° up. Raise it toward
@@ -243,7 +259,7 @@ frame); lower it to confine the effect to the terminator.
 **`nightAdaptationLevel`** (`1e-3`). The illumination at which the view is half day-adapted
 and half night-adapted: the city lights are at half brightness here (the sun about 2.5° below
 the horizon with the defaults), full well below it, invisible in daylight. It also caps the
-gain, at `((knee + A) / A) ^ twilightAdaptation` (31 with the defaults), so it sets how far
+gain, at `((knee + A) / A) ^ twilightAdaptation` (96 with the defaults), so it sets how far
 into twilight the clouds stay visible. `3e-3` brings the lights in at about −1°, right behind
 the terminator; `3e-4` holds them back to about −4° and lets the twilit clouds go a little
 further.
@@ -265,7 +281,8 @@ terminator; calmer seas keep it bright a little closer to the terminator.
 it now takes the color of the direct beam at that point (red near the terminator) and is
 then seen through the air on the way up, like everything else. Its brightest part rolls off
 softly like a saturating sensor (`glintMax` in the shader), since the real glint is many
-times brighter than any cloud.
+times brighter than any cloud. It is not brightened by the observer's twilight gain (see
+above), so near the terminator it fades to a faint golden streak.
 
 ### Sea ice
 
@@ -284,11 +301,13 @@ linear setting.
 
 - **More, whiter haze over the whole disk** (hazier, more like a wide-angle ISS photo):
   `mieDepth: 0.15`.
-- **A clearer, bluer, higher-contrast disk** (more like a processed EPIC frame): `mieDepth:
-  0.04`, `rayleighDepth: [0.046, 0.108, 0.265]`.
-- **A brighter rim at the limb**: `multipleScattering: 2`. A thicker one: `atmosphereHeightScale: 5`.
-- **The twilight band too dark**: `twilightAdaptation: 0.8`. For the original shader's fully
-  lit day side, `twilightAdaptation: 1, adaptationKnee: 1`.
+- **A softer, paler disk** (less saturated ocean and limb): `mieDepth: 0.08`,
+  `rayleighDepth: [0.051, 0.099, 0.238]`.
+- **A dimmer, bluer rim at the limb**: `multipleScattering: 1`. A thicker one:
+  `atmosphereHeightScale: 5`.
+- **The twilight band too bright or too dark**: `twilightAdaptation` (`0.6` darker, `1`
+  brighter). For the original shader's fully lit day side, `twilightAdaptation: 1,
+  adaptationKnee: 1`.
 - **The terminator too hard**: `skylight: 1.5` lifts the last few degrees; the width of the
   reddening is set by the air (`rayleighDepth`), not by a parameter.
 - **Night lights starting too late or too early**: `nightAdaptationLevel` (larger = sooner).
@@ -296,13 +315,58 @@ linear setting.
 - **Cloud shadows too dark**: `cloudShadowAmbient: 0.5` or `skylight: 1.5`.
 - **Everything too dark or too bright**: `renderer.toneMappingExposure`.
 
+## Performance
+
+Nearly all of the Earth shader's extra cost over the old haze is `scatterAlong`. For each of
+its samples it looks up the air back toward the camera and toward the sun in the table of air
+columns, and takes two per-color exponentials (the view and sun transmittances). Everything
+else (lighting, clouds, sea ice) costs about what it did before. The table replaced a curve fit
+of the Chapman function that cost a `pow`, an `exp` and a `sqrt` per profile per lookup, and
+was within 6% rather than 0.1%. The camera is always outside the atmosphere, so no air column
+is needed between it and the top of the air.
+
+Frame times for the globe alone, zoomed in until it fills a 2560 × 1600 canvas, on an Apple M3
+Max (Chrome, ANGLE on Metal):
+
+| | ms per frame |
+|---|---|
+| old haze | 0.66 |
+| this model with a curve fit for the Chapman function | 2.10 |
+| this model with the table | 1.65 |
+| the same with 6 samples (mobile devices) | 1.42 |
+
+For mobile devices, which have slower GPUs and screens of up to 3 device pixels per CSS pixel:
+
+- `renderPixelRatio()` in `earth.js` caps the pixel ratio `viewer.js` and `landing.js` render
+  at to 2, which shades 2.25 times fewer pixels on a 3× screen.
+- The globe takes 6 samples per line of sight instead of 8 (`ATMOSPHERE_SAMPLES`, set through
+  the material's `defines`). With 4, the twilight haze where the terminator meets the limb
+  breaks into bright and dark arcs.
+
+Together these should bring a 3× phone to about what the old haze cost it at full resolution.
+That estimate comes from the desktop GPU; the way to know is to measure on the slowest device
+that matters, zoomed in with clouds on, against `main`:
+
+- The Stats panel in `viewer.js` shows the frame rate.
+- `EXT_disjoint_timer_query_webgl2` around `renderer.render` gives GPU time (Chrome and
+  Android, not Safari), as does the GPU track of Chrome's Performance panel for an Android phone
+  connected over USB.
+- Without a device, Arm's Mali Offline Compiler reports cycles per fragment for the expanded
+  GLSL.
+
+SwiftShader (Chrome's CPU rasteriser) is no guide here: it filters textures in software, so the
+table looks slower than the curve fit there, when on a GPU it is faster.
+
 ## Checking a change without the app
 
-`scripts/atmosphere_prototype.py` is a numpy port of the model (the same functions, same
-sampling) that renders the globe with the repository's Blue Marble textures and procedural
-clouds from a chosen camera and sun position, and prints or saves linear and sRGB values. It
-is how the defaults above were chosen:
+`scripts/atmosphere_prototype.py` is a numpy port of the model (the same functions, the same
+table of air columns, the same sampling) that renders the globe with the repository's Blue
+Marble textures and procedural clouds from a chosen camera and sun position, and prints or
+saves linear and sRGB values. It is how the defaults above were chosen:
 
 ```
 python scripts/atmosphere_prototype.py '{"mieDepth": 0.15}' out.png
+python scripts/atmosphere_prototype.py '{"samples": 6}' mobile.png    # the mobile sample count
+python scripts/atmosphere_prototype.py twilight                       # the table above
+python scripts/chapman_check.py                                       # the table of air columns
 ```

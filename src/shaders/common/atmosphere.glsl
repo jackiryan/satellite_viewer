@@ -24,12 +24,13 @@
  * overhead sunlight is 1.0 (so a texture albedo lit by sunColor = (1,1,1) at mu0 = 1 shows
  * unchanged). The in-scatter integral is therefore multiplied by pi.
  *
- * Optical depth along a ray uses the Chapman function (the exact integral of an exponential
- * atmosphere along a straight line on a sphere) via a rational fit, so there is no inner loop
- * over the path to the sun. The in-scatter integral is done per segment: the transmittance
- * across a segment is exact (from Chapman differences) and the scattered light is the light
- * that segment removes from the view path, times the sun's transmittance at its middle. That
- * keeps extinction and in-scatter consistent with each other, which the old haze was not.
+ * The amount of air along a ray to space (the Chapman function of an exponential atmosphere on
+ * a sphere) comes from a table, airColumnTable, which src/atmosphereTable.js makes once by
+ * integrating along each ray, so there is no inner loop over the path to the sun. The in-scatter
+ * integral is done per segment: the transmittance across a segment is exact (from differences
+ * of air columns) and the scattered light is the light that segment removes from the view path,
+ * times the sun's transmittance at its middle. That keeps extinction and in-scatter consistent
+ * with each other.
  *
  * Uniforms are declared here, so both shaders get the same set (earth.js fills them from
  * `parameters`, see docs/atmosphere-shader.md).
@@ -38,7 +39,10 @@
 uniform vec3 sunDirection;          // unit vector toward the sun (scene frame)
 uniform vec3 sunColor;              // color and strength of sunlight at the top of the atmosphere
 uniform float earthRadius;          // scene units
-uniform float atmosphereHeightScale; // stretches the air's heights (not its optical depth), to make the limb glow visible
+uniform float atmosphereTop;        // radius of the top of the atmosphere (set by atmosphereHeightScale)
+uniform vec2 inverseScaleHeights;   // 1 / scale height of the Rayleigh and Mie profiles, per scene unit
+uniform sampler2D airColumnTable;   // air columns along rays to space (src/atmosphereTable.js)
+uniform vec2 airColumnTableSize;    // its width and height in texels (cheaper than textureSize())
 uniform vec3 rayleighDepth;         // vertical optical depth of Rayleigh scattering, per channel
 uniform vec3 ozoneDepth;            // vertical optical depth of ozone absorption, per channel
 uniform float mieDepth;             // vertical optical depth of aerosol (grey)
@@ -48,46 +52,39 @@ uniform float multipleScattering;   // extra light from light scattered more tha
 uniform float skylight;             // scales the diffuse skylight on the ground
 
 const float PI = 3.14159265;
-// Heights of the real atmosphere, as fractions of the Earth's radius (8 km, 1.2 km and the
-// 100 km above which little air is left), scaled by atmosphereHeightScale.
-const float RAYLEIGH_HEIGHT_RATIO = 8.0 / 6371.0;
-const float MIE_HEIGHT_RATIO = 1.2 / 6371.0;
-const float ATMOSPHERE_TOP_RATIO = 100.0 / 6371.0;
 
-float rayleighHeight() { return earthRadius * RAYLEIGH_HEIGHT_RATIO * atmosphereHeightScale; }
-float mieHeight() { return earthRadius * MIE_HEIGHT_RATIO * atmosphereHeightScale; }
-float atmosphereTop() { return earthRadius * (1.0 + ATMOSPHERE_TOP_RATIO * atmosphereHeightScale); }
-
-// Optical depth from altitude h along a ray at cos(zenith angle) mu to the top of an
-// exponential atmosphere of scale height H, in units of the vertical optical depth: 1 straight
-// up, about 35 along the horizon for H = 8 km. A rational fit to the Chapman function that is
-// exact at the zenith and the horizon and within 6% in between (scripts/chapman_check.py).
-// Rays going below the horizon (mu < 0) descend to their closest point to the Earth and climb
-// out again; one that would reach the ground gets a huge depth (no light gets through).
-float chapman(float h, float mu, float H) {
-    h = max(h, 0.0);
-    float r = earthRadius + h;
-    float c = sqrt(0.5 * PI * r / H);
-    float up = c / ((c - 1.0) * pow(abs(mu), 1.05) + 1.0) * exp(-h / H);
-    if (mu >= 0.0) {
-        return up;
-    }
-    float rt = r * sqrt(max(1.0 - mu * mu, 0.0));     // radius of the ray's closest approach
-    float ht = rt - earthRadius;
-    if (ht < 0.0) {
-        return 1e9;
-    }
-    float ct = sqrt(0.5 * PI * rt / H);
-    return 2.0 * ct * exp(-ht / H) - up;
+// Air columns from height h along cos(zenith angle) mu >= 0 to space, in units of the vertical
+// column from the ground (1 straight up from the ground, about 20 along the horizon for air
+// molecules): x for the Rayleigh profile (air molecules and ozone), y for the aerosol profile.
+// The table holds each column over exp(-h / H), the column straight up from h, in rows evenly
+// spaced in height and columns spaced by sqrt(mu); the lookup puts the ground, the top, the
+// horizon and the zenith on texel centers.
+vec2 airColumnsUp(float h, float mu) {
+    vec2 size = airColumnTableSize;
+    vec2 coord = vec2(sqrt(clamp(mu, 0.0, 1.0)), clamp(h / (atmosphereTop - earthRadius), 0.0, 1.0));
+    vec2 ratio = textureLod(airColumnTable, (coord * (size - 1.0) + 0.5) / size, 0.0).rg;
+    return ratio * exp(-max(h, 0.0) * inverseScaleHeights);
 }
 
-// Air columns (in vertical optical depths) along the ray from `position` in direction `dir`
-// to space: x for the Rayleigh profile (air molecules and ozone), y for the aerosol profile.
+// The same in any direction. A ray pointing below the horizon descends to its lowest point and
+// climbs out again, so its column is twice the horizontal column from that lowest point, less
+// the column up the mirror-image ray from h. One that reaches the ground gets a huge column (no
+// light gets through).
+vec2 airColumnsAt(float h, float mu) {
+    if (mu >= 0.0) {
+        return airColumnsUp(h, mu);
+    }
+    float lowest = (earthRadius + h) * sqrt(max(1.0 - mu * mu, 0.0)) - earthRadius;
+    if (lowest < 0.0) {
+        return vec2(1e9);
+    }
+    return 2.0 * airColumnsUp(lowest, 0.0) - airColumnsUp(h, -mu);
+}
+
+// Air columns along the ray from `position` in direction `dir` to space
 vec2 airColumns(vec3 position, vec3 dir) {
     float r = length(position);
-    float h = r - earthRadius;
-    float mu = dot(position, dir) / r;
-    return vec2(chapman(h, mu, rayleighHeight()), chapman(h, mu, mieHeight()));
+    return airColumnsAt(r - earthRadius, dot(position, dir) / r);
 }
 
 // Optical depth per color channel for those columns: everything that takes light out of a beam
@@ -121,12 +118,11 @@ float twilightMu(float mu0) {
 // near the terminator take on the sky's color. The light has also crossed the ozone layer,
 // which sits 20-30 km up and so has about half the Rayleigh air mass at sunset (17 rather than
 // 35); its red absorption is what makes twilight (the "blue hour") blue.
-vec3 skyIrradiance(float mu0) {
-    float mu = max(mu0, 0.0);
-    float airColumn = chapman(0.0, mu, rayleighHeight());
-    vec3 scatteredOut = 1.0 - exp(-(rayleighDepth * airColumn
-                                    + mieDepth * mieAlbedo * chapman(0.0, mu, mieHeight())));
-    vec3 ozone = exp(-0.5 * ozoneDepth * airColumn);
+// sunColumns: the air columns from the ground toward the sun, or along the horizon once it has
+// set, airColumnsAt(0.0, max(mu0, 0.0)), which the Earth shader also uses for the direct beam.
+vec3 skyIrradiance(float mu0, vec2 sunColumns) {
+    vec3 scatteredOut = 1.0 - exp(-(rayleighDepth * sunColumns.x + mieDepth * mieAlbedo * sunColumns.y));
+    vec3 ozone = exp(-0.5 * ozoneDepth * sunColumns.x);
     return skylight * 0.5 * scatteredOut * ozone * twilightMu(mu0);
 }
 
@@ -145,39 +141,39 @@ float miePhase(float cosTheta) {
 // Where the ray origin + t * dir enters the atmosphere (t = 0 if the origin is already inside).
 // Returns a negative number if the ray misses the atmosphere entirely.
 float atmosphereEntry(vec3 origin, vec3 dir) {
-    float top = atmosphereTop();
     float b = dot(origin, dir);
-    float disc = b * b - (dot(origin, origin) - top * top);
+    float disc = b * b - (dot(origin, origin) - atmosphereTop * atmosphereTop);
     if (disc < 0.0) {
         return -1.0;
     }
     return max(-b - sqrt(disc), 0.0);
 }
 
+// Samples along a view ray. earth.js sets fewer on mobile devices (material.defines).
 #ifndef ATMOSPHERE_SAMPLES
 #define ATMOSPHERE_SAMPLES 8
 #endif
 
-// Light along the view ray origin + t * dir between t0 (nearer the camera) and t1.
+// Light along the view ray origin + t * dir between t0, where it enters the atmosphere, and t1.
 //   transmittance   fraction (per channel) of the light at t1 that reaches t0
 //   inscatter       sunlight scattered toward the camera by the air in between, in radiance
 //                   units (white Lambertian = 1), including the multiple-scattering boost
 // towardEnd: true puts the samples closer together near t1 (a ray ending on the ground, where
 // the air is densest); false bunches them about the middle (a ray grazing past the limb).
+//
+// The camera (the origin) is always outside the atmosphere: the controls keep it at least 7
+// units from the Earth's center, and the top of the air is at 5.24 (it would only reach 7 with
+// atmosphereHeightScale above about 26). So the light at t0 reaches the camera undimmed, and the
+// air column from a point on the ray back toward the camera is the air between the two (the
+// air above the top of the atmosphere is negligible).
 void scatterAlong(vec3 origin, vec3 dir, float t0, float t1, bool towardEnd,
                   out vec3 transmittance, out vec3 inscatter) {
     float cosTheta = dot(dir, sunDirection);
     vec3 scatterRayleigh = rayleighDepth / (rayleighDepth + ozoneDepth) * (PI * rayleighPhase(cosTheta));
     float scatterMie = mieAlbedo * (PI * miePhase(cosTheta));
 
-    // Optical depth from the camera itself to space (non-zero only inside the atmosphere), so
-    // that depths below are measured from the camera rather than from space.
-    vec3 cameraDepth = extinction(airColumns(origin, -dir));
-
-    // The first sample sits at t0: its depth back to the camera is (nearly) zero and its
-    // transmittance 1 unless the camera is inside the atmosphere.
-    vec2 prevColumns = airColumns(origin + dir * t0, -dir);
-    vec3 prevT = exp(-max(extinction(prevColumns) - cameraDepth, 0.0));
+    vec2 prevColumns = vec2(0.0);
+    vec3 prevT = vec3(1.0);
     float prevDist = t0;
     inscatter = vec3(0.0);
     for (int i = 1; i <= ATMOSPHERE_SAMPLES; i++) {
@@ -186,9 +182,9 @@ void scatterAlong(vec3 origin, vec3 dir, float t0, float t1, bool towardEnd,
                             : 0.5 + 2.0 * sign(s - 0.5) * (s - 0.5) * (s - 0.5);
         float dist = mix(t0, t1, f);
 
-        // Depth from this point back to the camera, and the transmittance that gives
+        // The air from this point back to the camera, and the transmittance that gives
         vec2 columns = airColumns(origin + dir * dist, -dir);
-        vec3 T = exp(-max(extinction(columns) - cameraDepth, 0.0));
+        vec3 T = exp(-extinction(columns));
 
         // The segment's share of each kind of air decides the color of what it scatters; the
         // amount is what the segment removes from the view path (prevT - T), lit by the sun

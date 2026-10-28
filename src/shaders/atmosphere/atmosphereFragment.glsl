@@ -1,6 +1,6 @@
 /* atmosphereFragment.glsl - the glow of the air beyond the limb.
  *
- * Drawn on the inside of a sphere just larger than the atmosphere (its top is atmosphereTop()
+ * Drawn on the inside of a sphere just larger than the atmosphere (its top is atmosphereTop
  * in common/atmosphere.glsl, set by atmosphereHeightScale). Only the part outside the Earth's
  * disk is ever visible: behind the disk the globe, drawn first, wins the depth test. Each
  * visible pixel's line of sight passes through the atmosphere without touching the ground, so
@@ -11,9 +11,11 @@
  * onto the night side. Seen from the night side, aerosol's forward scattering makes a bright
  * rim toward the sun.
  */
+// More samples than the globe's 8: these rays cross the atmosphere and come out the other side
+#ifndef ATMOSPHERE_SAMPLES
 #define ATMOSPHERE_SAMPLES 12
+#endif
 
-varying vec3 vNormal;
 varying vec3 vPosition;
 
 #include ../common/atmosphere.glsl;
@@ -41,8 +43,7 @@ void main() {
     }
 
     // The line of sight's stretch through the atmosphere, either side of the closest point
-    float top = atmosphereTop();
-    float halfChord = sqrt(max(top * top - dot(closest, closest), 0.0));
+    float halfChord = sqrt(max(atmosphereTop * atmosphereTop - dot(closest, closest), 0.0));
     float entry = max(closestDistance - halfChord, 0.0);
     float exit = closestDistance + halfChord;
 
