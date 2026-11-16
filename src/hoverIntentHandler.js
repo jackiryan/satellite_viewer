@@ -133,6 +133,9 @@ export class HoverIntentHandler {
                 const x = a[o + 12], y = a[o + 13], z = a[o + 14];
                 // the worker zeroes the matrix of a satellite with no valid position
                 if (x === 0 && y === 0 && z === 0) continue;
+                // every comparison below is false for NaN, so a NaN position would be picked
+                // wherever the cursor is
+                if (!Number.isFinite(x + y + z)) continue;
 
                 // project to the screen; w is the distance in front of the camera
                 const w = m[3] * x + m[7] * y + m[11] * z + m[15];

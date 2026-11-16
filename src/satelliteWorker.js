@@ -134,11 +134,17 @@ function updatePositions() {
                     const deltaPosVel = satellite.propagate(groupObj.satrecs[i], t);
                     const deltaPosEci = deltaPosVel.position;
                     const deltaVelEci = deltaPosVel.velocity;
+                    // a decayed satellite (satrec.error 6) comes back as { position: false, velocity: false },
+                    // which does not throw below and would fill the matrix with NaNs
+                    if (!deltaPosEci || !deltaVelEci) {
+                        throw new Error(`SGP4 propagation failed with error ${groupObj.satrecs[i].error}!`);
+                    }
                     const velocity = [-deltaVelEci.x, -deltaVelEci.z, deltaVelEci.y];
                     const velMag = mag(velocity);
 
-                    // check that velocity is physically possible for an earth-orbiting satellite
-                    if (velMag > velMax) {
+                    // check that velocity is physically possible for an earth-orbiting satellite,
+                    // written so that a NaN velocity also fails the check
+                    if (!(velMag <= velMax)) {
                         // won't actually go to console.error, but it's still nice to include a message
                         throw new Error('Velocity magnitude exceeds limits!');
                     }
