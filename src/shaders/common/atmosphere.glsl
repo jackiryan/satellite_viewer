@@ -50,6 +50,10 @@ uniform float mieAlbedo;            // fraction of the light aerosols take from 
 uniform float mieAnisotropy;        // Henyey-Greenstein g of the aerosol phase function (0 = even, 1 = all forward)
 uniform float multipleScattering;   // extra light from light scattered more than once, relative to single scattering
 uniform float skylight;             // scales the diffuse skylight on the ground
+uniform float airglowRadius;        // radius of the peak of the airglow layer
+uniform float airglowWidth;         // its thickness (one standard deviation of a Gaussian in height)
+uniform vec3 airglowEmission;       // its light per scene unit of path at the peak (earth.js: airglowEmission())
+uniform float airglowFade;          // sine of the sun's depression at which the airglow is at full strength
 
 const float PI = 3.14159265;
 
@@ -204,6 +208,62 @@ void scatterAlong(vec3 origin, vec3 dir, float t0, float t1, bool towardEnd,
     }
     transmittance = prevT;
     inscatter *= sunColor * (1.0 + multipleScattering * (1.0 - transmittance));
+}
+
+/* Airglow. Oxygen atoms high in the atmosphere, split by sunlight during the day, recombine all
+ * night and glow green (557.7 nm) in a layer about 10 km thick near 97 km. Looking straight down
+ * through it the glow is faint, but seen edge-on, past the limb, the line of sight runs along the
+ * layer for some 1500 km, which makes it the thin green line above the night side in photographs
+ * from orbit. It is far too faint to see in daylight, and in reality only just visible to a
+ * dark-adapted eye, so it is drawn at the brightness airglowBrightness sets, fading in over the
+ * night side (airglowWeight). Its height is airglowHeight in earth.js, stretched by
+ * atmosphereHeightScale with the rest of the air.
+ *
+ * The emission falls off as a Gaussian in height around airglowRadius. The layer is above nearly
+ * all of the air, so its light reaches the camera undimmed, except from the far side of a line of
+ * sight that passes below it, which has crossed the denser air in between.
+ */
+
+// How much of the airglow shows above the ground at `point`: none where the sun is up, rising
+// smoothly to full where it is airglowFade (the sine of the angle) below the horizon. The eye
+// sees the glow once it has adapted to the dark, so it comes in over the twilight band after
+// sunset, gradually enough that the line fades out along the limb toward the day side rather
+// than stopping.
+float airglowWeight(vec3 point) {
+    float muSun = dot(normalize(point), sunDirection);
+    return smoothstep(0.0, airglowFade, -muSun);
+}
+
+// Path through the layer, weighted by its emission, of the half of a line of sight on one side
+// of its closest point to the Earth's center (impact: that closest distance). The full line past
+// the limb crosses the layer twice, symmetrically. The midpoint rule across the stretch where the
+// line is within four widths of the peak is within 0.01% of the exact integral.
+#define AIRGLOW_SAMPLES 10
+float airglowHalfPath(float impact) {
+    float d2 = impact * impact;
+    float lower = airglowRadius - 4.0 * airglowWidth;
+    float upper = airglowRadius + 4.0 * airglowWidth;
+    float t0 = sqrt(max(lower * lower - d2, 0.0));
+    float t1 = sqrt(max(upper * upper - d2, 0.0));
+    float dt = (t1 - t0) / float(AIRGLOW_SAMPLES);
+    float sum = 0.0;
+    for (int i = 0; i < AIRGLOW_SAMPLES; i++) {
+        float t = t0 + (float(i) + 0.5) * dt;
+        float x = (sqrt(d2 + t * t) - airglowRadius) / airglowWidth;
+        sum += exp(-0.5 * x * x);
+    }
+    return sum * dt;
+}
+
+// The same for a line of sight that ends on the ground, which crosses the layer once, at
+// cos(zenith) mu = sqrt(1 - (impact / airglowRadius)^2). For any line that meets the ground
+// that is at least about sqrt(2 h / R) for a layer at height h (0.25 with the defaults), steep
+// enough for the layer to count as flat: the path is its thickness sqrt(2 pi) * airglowWidth
+// over mu, within 0.1% of airglowHalfPath() at the edge of the disk.
+float airglowGroundPath(float impact) {
+    float ratio = impact / airglowRadius;
+    float mu = sqrt(max(1.0 - ratio * ratio, 0.0));
+    return sqrt(2.0 * PI) * airglowWidth / max(mu, 0.1);
 }
 
 // Half an 8-bit level of noise per pixel (interleaved gradient noise, Jimenez 2014), added after

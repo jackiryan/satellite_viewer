@@ -36,9 +36,11 @@ const TABLE_HEIGHT = 16;
 // The atmosphere's dimensions in scene units for a globe of the given radius:
 //   top                  radius of the top of the atmosphere
 //   inverseScaleHeights  1 / scale height of the Rayleigh and Mie profiles
+//   kmToScene            scene units per km of height (stretched by heightScale)
 export function atmosphereShape(radius, heightScale) {
     const kmToScene = radius / EARTH_RADIUS_KM * heightScale;
     return {
+        kmToScene,
         top: radius + ATMOSPHERE_TOP_KM * kmToScene,
         inverseScaleHeights: new THREE.Vector2(
             1 / (RAYLEIGH_SCALE_HEIGHT_KM * kmToScene),

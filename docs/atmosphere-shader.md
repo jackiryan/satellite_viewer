@@ -122,7 +122,7 @@ renderer's `toneMappingExposure` is the better place for an overall exposure cha
 
 **`atmosphereHeightScale`** (`3`). The real atmosphere is thin: 8 km is about a pixel at the
 default view, so the glow beyond the limb would be a hairline. This stretches the heights of
-the air (8 km → 24 km, 1.2 km → 3.6 km, top 100 km → 300 km) without changing how much air there
+the air (8 km → 24 km, 1.2 km → 3.6 km, top 100 km → 300 km, airglow 75 km → 225 km) without changing how much air there
 is: every vertical optical depth stays the same, so where the sun and the view are more than
 ~15° above the horizon the colors change by under 5%. Slant paths do change: the air mass
 along the horizon goes as the square root of the Earth's radius over the scale height, so at 3×
@@ -131,7 +131,8 @@ less saturated, than the real atmosphere would; it also widens the glow and the 
 twilight air past the terminator. `1` is the real atmosphere. It can be changed live:
 `setParameter` remakes the table of air columns and the shell the glow is drawn on. The shaders
 assume the camera is outside the atmosphere, which with `viewer.js`'s closest zoom (7 units
-from the center) holds for values up to about 26.
+from the center) holds for values up to about 26 (with `airglowHeight` under 84 km, which keeps
+the airglow layer inside the atmosphere).
 
 **`rayleighDepth`** (`[0.046, 0.108, 0.265]`). Vertical optical depth of Rayleigh scattering in
 the red, green and blue channels: Bruneton and Neyret's (2008) widely used values, at 680, 550
@@ -184,6 +185,46 @@ twilight illuminance (about 500 and 3 lux against 100,000 lux at noon). It also 
 ozone layer, which absorbs red along the long twilight paths; that is why twilight is blue (the
 "blue hour"). `1.5` is a reasonable allowance for multiple scattering; `0` makes shadows black
 and ends the day side abruptly at the terminator.
+
+### Airglow
+
+The thin green line above the limb on the night side in photographs from orbit. Oxygen atoms,
+split by sunlight during the day, recombine through the night and glow at 557.7 nm in a layer
+about 10 km thick near 97 km. Looking straight down through it the glow is faint; edge-on, past
+the limb, the line of sight runs along the layer for some 1500 km, which makes the line. It is
+modelled as a Gaussian in height (`airglowHalfPath` and `airglowGroundPath` in
+`common/atmosphere.glsl`), stretched by `atmosphereHeightScale` with the rest of the air.
+
+The real glow is about 5 × 10⁻⁸ on the shaders' brightness scale, invisible beside anything
+sunlit and only just visible to a dark-adapted eye. So it is drawn for the eye adapted to the
+night side, and fades in after sunset (`airglowWeight`): it is absent where the sun is up over
+the ground below, and rises smoothly to full over `airglowFadeAngle` past sunset. Along the limb,
+the line fades out toward the day side through the twilight band rather than stopping.
+
+The shell draws the line past the limb, where the line of sight crosses the layer twice; the
+far crossing's light is dimmed by the air between, which matters for lines of sight that pass
+low over the limb. The globe draws the layer seen from above, where it is 1/34 as bright as
+the line at the center of the disk and about 1/9 near its edge, so the two meet at the edge of
+the disk. On the night side this adds about 3/255 of green to the darkest ocean.
+
+**`airglowHeight`** (`75` km). Height of the layer's peak, before `atmosphereHeightScale`
+stretches it. The real layer is at 97 km, which on the stretched air puts the line some 40 km
+(scaled) clear of the top of the visible limb glow; at `75` it sits just above it, with a thin
+dark gap between. Below about `65` the line runs into the glow. Keep it under `84`, so the
+layer stays inside the top of the atmosphere the shell is sized for.
+
+**`airglowFadeAngle`** (`20`°). How far the sun has to be below the horizon over the ground for
+the airglow above it to be at full strength; it fades in smoothly from sunset to this angle. `5`
+ends the line about where the city lights come in, sharply; larger values fade it out more
+gradually along the limb toward the day side.
+
+**`airglowBrightness`** (`0.02`). Brightness of the line where it is brightest, seen edge-on
+(linear, before the exposure). `0.02` is about 35–45/255 in green: visible against the black
+sky without competing with the city lights or the twilight band. `0` turns the airglow off.
+
+**`airglowColor`** (`'#7cff00'`). The color of the 557.7 nm line is outside what a display can
+show; this is the nearest color it can (the line's chromaticity desaturated toward white just
+far enough to fit sRGB).
 
 ### Clouds
 
@@ -312,6 +353,9 @@ linear setting.
   reddening is set by the air (`rayleighDepth`), not by a parameter.
 - **Night lights starting too late or too early**: `nightAdaptationLevel` (larger = sooner).
 - **Clouds on the night side too faint**: `nightCloudLight: 0.05` (a moonlit look).
+- **The airglow line too strong or a distraction**: `airglowBrightness: 0.01`, or `0` to
+  turn it off. Too close to the limb glow, or too far above it: `airglowHeight`. Ending too
+  abruptly toward the day side: a larger `airglowFadeAngle`.
 - **Cloud shadows too dark**: `cloudShadowAmbient: 0.5` or `skylight: 1.5`.
 - **Everything too dark or too bright**: `renderer.toneMappingExposure`.
 
