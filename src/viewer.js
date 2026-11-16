@@ -9,7 +9,7 @@ import { initSky } from './skybox.js';
 import { Earth, renderPixelRatio } from './earth.js';
 import { initMoon } from './moon.js';
 import Stats from 'three/addons/libs/stats.module.js';
-import { Timer } from 'three/addons/misc/Timer.js';
+import { SimClock } from './simClock.js';
 import { HoverIntentHandler } from './hoverIntentHandler.js';
 import { markFrame } from './perfMarks.js';
 
@@ -22,21 +22,13 @@ const now = new Date(); // Get current time
 // Uncomment this line if using the debug plane to check solar vs sidereal time drift
 // const now = new Date(Date.UTC(2024,2,24,3,6,0,0));
 
-// mutable that is used for adjusting simulation speed
-let elapsedTime = 0;
-const renderTimer = new Timer();
+// The simulation time, shared with the satellite workers. It is computed from the wall clock,
+// so it stays correct while the tab is hidden or the frame rate drops.
+const clock = new SimClock(now);
 
 const mainElement = document.querySelector('main');
 let previousClockValue = '';
 const clockElement = document.getElementById('clock-time');
-
-/* Animation
- * Uses a renderFrameRate and speedFactor to control the "choppiness" and speed of the animation, respectively. */
-// Factor to run the rotation faster than real time, 3600 ~= 1 rotation/minute
-const renderParameters = {
-    speedFactor: 1, // multiple of realtime
-    animFrameRate: 60.0 // frames per second, deprecated
-};
 
 // Used for jumping days in the simulation
 const secondsPerDay = 86400;
@@ -126,7 +118,7 @@ async function initSatellites() {
         console.error(`Failed to load satellite model: ${error}`);
         satGeo = new THREE.IcosahedronGeometry(1);
     }
-    groupMap = new SatelliteGroupMap(scene, satGeo, interactiveLayer);
+    groupMap = new SatelliteGroupMap(scene, satGeo, interactiveLayer, clock);
 
     window.addEventListener('displayGroup', onGroupDisplayed, false);
     window.addEventListener('hideGroup', onGroupHidden, false);
@@ -203,10 +195,7 @@ function initSettingsMenu() {
 
     function setRealTime(isRealTime) {
         if (isRealTime) {
-            // elapsedTime is in seconds on the main thread due to renderTimer,
-            // so remember to divide by 1000 (ms -> s)
-            elapsedTime = (Date.now() - now.getTime()) / 1000.0;
-            groupMap.setRealTime();
+            clock.setRealTime();
             realTimeIndicator.classList.add('on');
             projectedIndicator.classList.remove('on');
             realTimeButton.classList.add('off');
@@ -220,8 +209,7 @@ function initSettingsMenu() {
     }
 
     function updateSpeed(currentIndex) {
-        groupMap.setSpeed(renderParameters.speedFactor);
-        const speedText = speedStates.get(renderParameters.speedFactor);
+        const speedText = speedStates.get(clock.speed);
         speedIndicator.innerHTML = speedText;
 
         if (currentIndex >= speedStates.size - 1) {
@@ -243,34 +231,32 @@ function initSettingsMenu() {
 
     plusButton.addEventListener('click', () => {
         const keys = Array.from(speedStates.keys());
-        const currentIndex = keys.indexOf(renderParameters.speedFactor);
+        const currentIndex = keys.indexOf(clock.speed);
         if (currentIndex < keys.length - 1) {
-            renderParameters.speedFactor = keys[currentIndex + 1];
+            clock.setSpeed(keys[currentIndex + 1]);
             updateSpeed(currentIndex + 1);
         }
     });
 
     minusButton.addEventListener('click', () => {
         const keys = Array.from(speedStates.keys());
-        const currentIndex = keys.indexOf(renderParameters.speedFactor);
+        const currentIndex = keys.indexOf(clock.speed);
         if (currentIndex > 0) {
-            renderParameters.speedFactor = keys[currentIndex - 1];
+            clock.setSpeed(keys[currentIndex - 1]);
             updateSpeed(currentIndex - 1);
         }
     });
 
     realTimeButton.addEventListener('click', () => {
-        renderParameters.speedFactor = 1;
-        updateSpeed(renderParameters.speedFactor - 1);
+        // sets the speed back to 1 sec/s before updateSpeed reads it
         setRealTime(true);
+        updateSpeed(0);
     });
 
-    // Jump the simulation by a full day. The satellites are propagated inside
-    // the workers, so we shift both the main-thread time and every worker's
-    // time to keep them in sync.
+    // Jump the simulation by a full day. The clock posts the change to the
+    // workers, which propagate the satellites, so they stay in sync.
     function jumpTime(days) {
-        elapsedTime += days * secondsPerDay;
-        groupMap.shiftTime(days * secondsPerDay);
+        clock.shift(days * secondsPerDay * 1000);
         // The displayed time no longer tracks the real wall clock.
         setRealTime(false);
     }
@@ -395,10 +381,7 @@ function onWindowResize() {
 }
 
 function animate() {
-    renderTimer.update();
-    const delta = renderParameters.speedFactor * renderTimer.getDelta();
-    elapsedTime += delta;
-    const deltaNow = new Date(now.getTime() + elapsedTime * 1000);
+    const deltaNow = clock.now();
 
     onWindowResize();
 

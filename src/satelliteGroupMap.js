@@ -6,7 +6,7 @@ import { MessageBroker } from './messageBroker';
 import { WorkerPool } from './workerPool';
 
 export class SatelliteGroupMap {
-    constructor(scene, geo, layer) {
+    constructor(scene, geo, layer, clock) {
         this.scene = scene;
         this.layer = layer;
 
@@ -23,7 +23,11 @@ export class SatelliteGroupMap {
         this.workerPool = new WorkerPool();
         MessageBroker.getInstance().setWorkerPool(this.workerPool);
 
-        this.currentSpeed = 1;
+        // Every worker gets the clock now and on every change, not just those with groups, so
+        // a group assigned to a worker later still lands at the right time
+        const postClock = (anchor) => this.workerPool.broadcast({ action: 'setClock', data: anchor });
+        postClock(clock.anchor);
+        clock.onChange(postClock);
     }
 
     hasGroup(name) {
@@ -164,7 +168,6 @@ export class SatelliteGroupMap {
                 buffer: sharedTransformBuffer
             }
         });
-        this.setSpeed(this.currentSpeed);
     }
 
     async fetchEntities(entitiesUrl) {
@@ -208,7 +211,6 @@ export class SatelliteGroupMap {
             groupObj.mesh.computeBoundingSphere();
             this.scene.add(groupObj.mesh);
             groupObj.orbitManager.showOrbits();
-            this.setSpeed(this.currentSpeed);
         }
     }
 
@@ -248,37 +250,6 @@ export class SatelliteGroupMap {
                 }
             }
         }
-    }
-
-    setSpeed(speedFactor) {
-        // Broadcast to all groups
-        for (const groupUrl of this.map.keys()) {
-            this.workerPool.postMessage(groupUrl, {
-                action: 'setSpeed',
-                data: { speed: speedFactor }
-            });
-        }
-        this.currentSpeed = speedFactor;
-    }
-
-    setRealTime() {
-        // Broadcast to all groups
-        for (const groupUrl of this.map.keys()) {
-            this.workerPool.postMessage(groupUrl, {
-                action: 'reset'
-            });
-        }
-    }
-
-    shiftTime(seconds) {
-        // Offset every worker clock by a fixed amount without changing the speed.
-        // We broadcast to all workers (not just those with active groups) so that
-        // groups displayed after a jump also land at the shifted time. The worker
-        // tracks time in milliseconds.
-        this.workerPool.broadcast({
-            action: 'shiftTime',
-            data: { millis: seconds * 1000 }
-        });
     }
 
     addOrbit(etGroup, etIid) {

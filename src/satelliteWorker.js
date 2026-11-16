@@ -1,11 +1,11 @@
 
 import * as satellite from 'satellite.js';
+import { simTimeAt } from './simClock.js';
 
 // global state for this thread that holds one entry for each initialized group
 // see workerInitGroup for the layout of the object at each entry
 let satelliteMap = new Map();
 let started = false;
-let speedFactor = 1.0;
 
 // scaleRadius and scaleFactor must be updated if the radius of the earth object ever changes,
 // will have to do for now since passing that state is annoying.
@@ -29,11 +29,9 @@ const velScale = Math.sqrt(5) * 7.91;
 const velMax = 11.2; // km/s
 
 
-// millis since start of Unix epoch at the time the worker is started, used to
-// compute the elapsedTime
-const startTime = new Date().getTime();
-let oldTime = startTime;
-let elapsedTime = 0.0;
+// The simulation clock's anchor, posted by the main thread (see simClock.js). Until it
+// arrives, run in real time.
+let clock = { wallMs: Date.now(), simMs: Date.now(), speed: 1 };
 const refreshRate = 60;
 
 self.onmessage = function (e) {
@@ -49,17 +47,11 @@ self.onmessage = function (e) {
         case 'hide':
             workerHideGroup(data);
             break;
-        case 'setSpeed':
-            workerSetSpeed(data);
+        case 'setClock':
+            clock = data;
             break;
         case 'getPosVel':
             getPosVel(data);
-            break;
-        case 'reset':
-            resetTime(data);
-            break;
-        case 'shiftTime':
-            shiftTime(data);
             break;
     }
 };
@@ -118,10 +110,7 @@ function initSatrec(satAttribs) {
 }
 
 function updatePositions() {
-    const newTime = Date.now();
-    elapsedTime += (newTime - oldTime) * speedFactor;
-    oldTime = newTime;
-    const t = new Date(startTime + elapsedTime);
+    const t = new Date(simTimeAt(clock));
     for (const groupObj of satelliteMap.values()) {
         if (groupObj.displayed) {
             for (let i = 0; i < groupObj.count; i++) {
@@ -208,10 +197,6 @@ function workerHideGroup(data) {
     satelliteMap.get(data.url).displayed = false;
 }
 
-function workerSetSpeed(data) {
-    speedFactor = data.speed;
-}
-
 function getPosVel(data) {
     const posVel = {
         group: data.group,
@@ -221,7 +206,7 @@ function getPosVel(data) {
     };
     try {
         const satrec = satelliteMap.get(data.group).satrecs[data.iid];
-        const t = new Date(startTime + elapsedTime);
+        const t = new Date(simTimeAt(clock));
         const deltaPosVel = satellite.propagate(satrec, t);
         const posEci = [
             deltaPosVel.position.x * scaleFactor,
@@ -242,15 +227,4 @@ function getPosVel(data) {
         type: 'posVel',
         payload: posVel
     });
-}
-
-function resetTime(data) {
-    speedFactor = 1;
-    elapsedTime = Date.now() - startTime;
-}
-
-function shiftTime(data) {
-    // Offset this worker's simulation clock by a fixed amount (in milliseconds)
-    // without changing the speed
-    elapsedTime += data.millis;
 }
