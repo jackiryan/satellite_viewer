@@ -888,6 +888,8 @@ export class Earth {
             // the same uniform objects as the Earth material (createAtmosphereUniforms)
             uniforms: atmosphereUniforms,
             side: THREE.BackSide,
+            // the glow adds its light to the sky behind it (see atmosphereFragment.glsl)
+            blending: THREE.AdditiveBlending,
             transparent: true,
             depthWrite: false
         });

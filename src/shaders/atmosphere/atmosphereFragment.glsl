@@ -50,10 +50,11 @@ void main() {
     vec3 transmittance, inscatter;
     scatterAlong(cameraPosition, viewDirection, entry, exit, false, transmittance, inscatter);
 
-    // Normal alpha blending: the glow adds its scattered light and hides the stars behind it in
-    // proportion to how much light the air takes out of the line of sight
-    float alpha = clamp(1.0 - dot(transmittance, vec3(1.0 / 3.0)), 0.0, 1.0);
-    gl_FragColor = vec4(inscatter / max(alpha, 1e-3), alpha);
+    // Additive blending (createAtmosphere() in earth.js): the glow's scattered light is added to
+    // whatever is behind it, which the air doesn't dim, so the stars beyond the limb keep their
+    // brightness. Over the black sky this is the same color the globe's shader gives the air in
+    // front of the disk, so the glow meets the haze on the disk without a step at the limb.
+    gl_FragColor = vec4(inscatter, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
     gl_FragColor.rgb = ditherOutput(gl_FragColor.rgb);
