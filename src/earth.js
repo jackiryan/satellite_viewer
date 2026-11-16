@@ -74,6 +74,10 @@ const MAX_NIGHT_GLOW_WIDTH = isMobile ? 2048 : 4096;
 // that zooming in loads the size for where the zoom ends, not every size on the way there
 const DETAIL_SETTLE_MS = 250;
 
+// Thickness of the airglow layer (one standard deviation of its Gaussian profile, km): the real
+// layer is about 10 km thick. Stretched by atmosphereHeightScale, as airglowHeight is.
+const AIRGLOW_WIDTH_KM = 4;
+
 // Earth globe class to encapsulate all earth rendering functionality
 export class Earth {
     constructor(scene, initialDate) {
@@ -103,7 +107,8 @@ export class Earth {
             // glow's thickness and the twilight band's width) without changing how much air
             // there is, so the colors on the disk stay the same. 1 = the real atmosphere. The
             // camera must stay outside the atmosphere (scatterAlong() in common/atmosphere.glsl),
-            // which with viewer.js's closest zoom (7) means keeping this under about 26.
+            // which with viewer.js's closest zoom (7) means keeping this under about 26 (and
+            // airglowHeight under 84, which keeps the airglow layer inside the atmosphere).
             atmosphereHeightScale: 3,
             // vertical optical depth of Rayleigh scattering (air molecules) in the red, green and
             // blue channels: how much of the overhead sun each channel loses to scattering on
@@ -132,6 +137,26 @@ export class Earth {
             // cloud shadows and the shadowed side of cloud banks, and it is what is left of the
             // daylight in the last few degrees before the terminator
             skylight: 1.0,
+
+            // ---- airglow (common/atmosphere.glsl) ----
+            // The thin green line above the limb on the night side: oxygen glowing in a layer
+            // about 10 km thick.
+            // height of the layer's peak (km), stretched by atmosphereHeightScale like the rest
+            // of the air. The real layer is at 97 km, which on the stretched air puts the line
+            // well clear of the limb glow; 75 sets it just above it.
+            airglowHeight: 75,
+            // how far the sun has to be below the horizon (degrees) for the airglow over that
+            // ground to show in full. It fades in smoothly from sunset to this angle, so along
+            // the limb the line fades out toward the day side over about this many degrees.
+            airglowFadeAngle: 20,
+            // brightness of the line where it is brightest, seen edge-on, in the same units as
+            // the rest of the globe (a white surface under the overhead sun is 1). The real glow
+            // is about 5e-8 on that scale, so this is set for the eye adapted to the night side;
+            // looking straight down through the layer gives 1/34 of it. 0 turns it off.
+            airglowBrightness: 0.02,
+            // color of the glow (sRGB): the 557.7 nm oxygen line, the nearest color a display
+            // can show to it
+            airglowColor: '#7cff00',
 
             // ---- clouds ----
             // scales cloud reflectance; above 1 brightens thin clouds, below 1 makes them sheerer
@@ -604,6 +629,7 @@ export class Earth {
             this.earthTextureWidth = EARTH_TEXTURE_WIDTHS[0];
 
             this.atmosphereUniforms = this.createAtmosphereUniforms();
+            this.applyAirglow();
             await this.createEarth(blueMarble, blackMarble, earthSpec, this.atmosphereUniforms, interactiveLayer);
             await this.createAtmosphere(this.atmosphereUniforms);
 
@@ -663,18 +689,63 @@ export class Earth {
             mieAlbedo: new THREE.Uniform(p.mieAlbedo),
             mieAnisotropy: new THREE.Uniform(p.mieAnisotropy),
             multipleScattering: new THREE.Uniform(p.multipleScattering),
-            skylight: new THREE.Uniform(p.skylight)
+            skylight: new THREE.Uniform(p.skylight),
+            // set by applyAirglow()
+            airglowRadius: new THREE.Uniform(0),
+            airglowWidth: new THREE.Uniform(0),
+            airglowEmission: new THREE.Uniform(new THREE.Color()),
+            airglowFade: new THREE.Uniform(0)
         };
     }
 
-    // Radius of the shell the limb glow is drawn on: the top of the atmosphere as the shaders
-    // see it, with a little margin
-    atmosphereShellRadius() {
-        return atmosphereShape(this.parameters.radius, this.parameters.atmosphereHeightScale).top * 1.005;
+    // The airglow layer in scene units: the radius of its peak and its width (one standard
+    // deviation)
+    airglowShape() {
+        const { radius, atmosphereHeightScale, airglowHeight } = this.parameters;
+        const { kmToScene } = atmosphereShape(radius, atmosphereHeightScale);
+        return { airglowRadius: radius + airglowHeight * kmToScene, airglowWidth: AIRGLOW_WIDTH_KM * kmToScene };
     }
 
-    // A new atmosphereHeightScale moves the top of the atmosphere and the air's scale heights,
-    // which the table of air columns and the glow's shell are both made for, so it remakes them
+    // Set the airglow's uniforms from the parameters. The shell the limb glow is drawn on has to
+    // hold the airglow layer, so this resizes it too.
+    applyAirglow() {
+        const uniforms = this.atmosphereUniforms;
+        const { airglowRadius, airglowWidth } = this.airglowShape();
+        uniforms.airglowRadius.value = airglowRadius;
+        uniforms.airglowWidth.value = airglowWidth;
+        uniforms.airglowEmission.value = this.airglowEmission();
+        uniforms.airglowFade.value = Math.sin(THREE.MathUtils.degToRad(this.parameters.airglowFadeAngle));
+        // (initialize() makes the shell just after the globe; one made later gets the new size)
+        if (this.atmosphere) {
+            this.atmosphere.geometry.dispose();
+            this.atmosphere.geometry = new THREE.SphereGeometry(this.atmosphereShellRadius(), 64, 64);
+        }
+    }
+
+    // The airglow's light per scene unit of path at the peak of its layer, which makes the line
+    // seen edge-on airglowBrightness where it is brightest. That is where the line of sight
+    // passes 0.76 widths below the peak, and its path through the layer, weighted by the
+    // emission, is 2.56 sqrt(2 airglowRadius airglowWidth) (the layer is thin enough next to the
+    // radius for the line of sight to count as a parabola in height).
+    airglowEmission() {
+        const { airglowRadius, airglowWidth } = this.airglowShape();
+        const peakPath = 2.56 * Math.sqrt(2 * airglowRadius * airglowWidth);
+        return new THREE.Color(this.parameters.airglowColor)
+            .multiplyScalar(this.parameters.airglowBrightness / peakPath);
+    }
+
+    // Radius of the shell the limb glow is drawn on: the top of the atmosphere as the shaders
+    // see it, or of the airglow layer (four widths above its peak) if that is higher, with a
+    // little margin
+    atmosphereShellRadius() {
+        const { top } = atmosphereShape(this.parameters.radius, this.parameters.atmosphereHeightScale);
+        const { airglowRadius, airglowWidth } = this.airglowShape();
+        return Math.max(top, airglowRadius + 4 * airglowWidth) * 1.005;
+    }
+
+    // A new atmosphereHeightScale moves the top of the atmosphere, the air's scale heights and the
+    // airglow layer, which the table of air columns and the glow's shell are both made for, so it
+    // remakes them (the shell in applyAirglow())
     applyAtmosphereHeightScale() {
         const { radius, atmosphereHeightScale } = this.parameters;
         const uniforms = this.atmosphereUniforms;
@@ -683,11 +754,7 @@ export class Earth {
         uniforms.inverseScaleHeights.value.copy(shape.inverseScaleHeights);
         uniforms.airColumnTable.value.dispose();
         uniforms.airColumnTable.value = createAirColumnTable(radius, atmosphereHeightScale);
-        // (initialize() makes the shell just after the globe; one made later gets the new size)
-        if (this.atmosphere) {
-            this.atmosphere.geometry.dispose();
-            this.atmosphere.geometry = new THREE.SphereGeometry(this.atmosphereShellRadius(), 64, 64);
-        }
+        this.applyAirglow();
     }
 
     // Change a rendering parameter while the scene is running, e.g. from a GUI or the console:
@@ -709,6 +776,10 @@ export class Earth {
             atmosphereHeightScale: () => this.applyAtmosphereHeightScale(),
             rayleighDepth: () => uniforms.rayleighDepth.value.fromArray(value),
             ozoneDepth: () => uniforms.ozoneDepth.value.fromArray(value),
+            airglowHeight: () => this.applyAirglow(),
+            airglowFadeAngle: () => this.applyAirglow(),
+            airglowBrightness: () => this.applyAirglow(),
+            airglowColor: () => this.applyAirglow(),
             seaIceColor: () => uniforms.seaIceColor.value.set(value),
             cloudShadowHeight: () => { uniforms.cloudShadowHeight.value = value * this.parameters.radius / 6371; }
         };

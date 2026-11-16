@@ -19,7 +19,8 @@
  *   5. The air between the surface and the camera (scatterAlong): the surface's light is
  *      attenuated, and sunlight scattered by that air is added. This is the haze that whitens
  *      toward the limb and the blue over the ocean. The same function draws the glow beyond the
- *      limb in atmosphereFragment.glsl, so the two match at the edge of the disk.
+ *      limb in atmosphereFragment.glsl, so the two match at the edge of the disk. On the night
+ *      side the faint light of the airglow layer above it is added too.
  *
  * Radiance units: a white Lambertian surface under overhead sunlight is 1.0, so the textures'
  * albedo shows unchanged where the sun is overhead and the air is thin. Tone mapping and the
@@ -634,6 +635,12 @@ void main() {
     scatterAlong(cameraPosition, viewDirection, entry, length(surface - cameraPosition), true,
                  airTransmittance, airLight);
     color = color * airTransmittance + airLight;
+
+    // The airglow above the night side, seen through from above (common/atmosphere.glsl). It is
+    // above nearly all of the air, so nothing dims it. The line of sight's closest distance to
+    // the center is worked out from the surface point, which keeps its precision.
+    float impact = length(cross(surface, viewDirection));
+    color += airglowEmission * airglowGroundPath(impact) * airglowWeight(surface);
 
     // The retina effect: retinaStrength is the same for every pixel, so this branch is free
     // and skips the pow() whenever the effect is off
