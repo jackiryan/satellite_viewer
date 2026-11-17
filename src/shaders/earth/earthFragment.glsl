@@ -637,10 +637,11 @@ void main() {
     color = color * airTransmittance + airLight;
 
     // The airglow above the night side, seen through from above (common/atmosphere.glsl). It is
-    // above nearly all of the air, so nothing dims it. The line of sight's closest distance to
-    // the center is worked out from the surface point, which keeps its precision.
-    float impact = length(cross(surface, viewDirection));
-    color += airglowEmission * airglowGroundPath(impact) * airglowWeight(surface);
+    // above nearly all of the air, so nothing dims it.
+    float airglow = airglowWeight(surface);
+    if (airglow > 0.0) {
+        color += airglowFromAbove(surface, viewDirection) * airglow;
+    }
 
     // The retina effect: retinaStrength is the same for every pixel, so this branch is free
     // and skips the pow() whenever the effect is off

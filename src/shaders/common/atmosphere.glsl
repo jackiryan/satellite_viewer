@@ -50,10 +50,22 @@ uniform float mieAlbedo;            // fraction of the light aerosols take from 
 uniform float mieAnisotropy;        // Henyey-Greenstein g of the aerosol phase function (0 = even, 1 = all forward)
 uniform float multipleScattering;   // extra light from light scattered more than once, relative to single scattering
 uniform float skylight;             // scales the diffuse skylight on the ground
-uniform float airglowRadius;        // radius of the peak of the airglow layer
-uniform float airglowWidth;         // its thickness (one standard deviation of a Gaussian in height)
-uniform vec3 airglowEmission;       // its light per scene unit of path at the peak (earth.js: airglowEmission())
+uniform float airglowRadius;        // radius of the peak of the green (oxygen) airglow layer
+uniform float airglowWidth;         // its thickness, and the sodium layer's (one standard deviation of a Gaussian in height)
+uniform vec3 airglowEmission;       // its light per scene unit of path at the peak (earth.js: airglowEmissions())
+uniform float airglowSodiumRadius;  // radius of the peak of the sodium layer, just below it
+uniform vec3 airglowSodiumEmission; // its light per scene unit of path at the peak
+uniform float airglowRedRadius;     // radius of the peak of the red (oxygen) layer, high in the thermosphere
+uniform float airglowRedScale;      // its scale height (a Chapman layer)
+uniform vec3 airglowRedEmission;    // its light per scene unit of path at the peak
 uniform float airglowFade;          // sine of the sun's depression at which the airglow is at full strength
+uniform float airglowAdaptation;    // how far the eye has adapted to the dark: 0 with any of the day side in view (earth.js: nightView())
+uniform sampler2D airglowNoise;     // white noise for tanoise() (earth.js: createAirglowNoise())
+uniform mat3 airglowMagneticFrame;  // turns a scene direction into the Earth's magnetic frame (y: the dipole axis, north)
+uniform vec3 airglowDusk;           // unit vector toward the point on the equator where the sun is setting
+uniform vec2 airglowRedTime;        // the time coordinate of each octave of the red layer's noise
+uniform float airglowRedStructure;  // how patchy the red layer is (0 = smooth)
+uniform float airglowRedArcs;       // brightness of its two equatorial arcs, relative to the layer around them
 
 const float PI = 3.14159265;
 
@@ -210,60 +222,201 @@ void scatterAlong(vec3 origin, vec3 dir, float t0, float t1, bool towardEnd,
     inscatter *= sunColor * (1.0 + multipleScattering * (1.0 - transmittance));
 }
 
-/* Airglow. Oxygen atoms high in the atmosphere, split by sunlight during the day, recombine all
- * night and glow green (557.7 nm) in a layer about 10 km thick near 97 km. Looking straight down
- * through it the glow is faint, but seen edge-on, past the limb, the line of sight runs along the
- * layer for some 1500 km, which makes it the thin green line above the night side in photographs
- * from orbit. It is far too faint to see in daylight, and in reality only just visible to a
- * dark-adapted eye, so it is drawn at the brightness airglowBrightness sets, fading in over the
- * night side (airglowWeight). Its height is airglowHeight in earth.js, stretched by
- * atmosphereHeightScale with the rest of the air.
+/* Airglow. Atoms high in the atmosphere, split or excited by sunlight during the day, give the
+ * energy back as light all night. Three layers of it show in photographs from orbit:
  *
- * The emission falls off as a Gaussian in height around airglowRadius. The layer is above nearly
- * all of the air, so its light reaches the camera undimmed, except from the far side of a line of
- * sight that passes below it, which has crossed the denser air in between.
+ *   green    oxygen atoms recombining (557.7 nm), in a layer about 10 km thick near 97 km: the
+ *            thin green line above the night side
+ *   sodium   sodium atoms left by meteors, excited by ozone (589 nm), in a layer as thick near
+ *            90 km: an amber band just under the green line, so the two together run from amber
+ *            at the bottom through yellow to green at the top
+ *   red      oxygen atoms again (630 nm), where the ionosphere recombines, 200-300 km up in the
+ *            thermosphere. The air there is thin enough for the atoms to radiate before a
+ *            collision takes the energy; lower down collisions win, so the layer has a fairly
+ *            sharp floor and thins out slowly upward: a wide, faint red haze well clear of the
+ *            other two
+ *
+ * Looking straight down through a layer its glow is faint, but seen edge-on, past the limb, the
+ * line of sight runs along it for a thousand kilometers or more. It is all far too faint to see
+ * in daylight, and in reality only just visible to a dark-adapted eye, so each layer is drawn at
+ * the brightness its parameter sets, and only once the camera is behind the Earth with nothing
+ * but its night side in view, fading in over the night side (airglowWeight). The heights
+ * are parameters in earth.js, stretched by atmosphereHeightScale with the rest of the air.
+ *
+ * The green and sodium emission falls off as a Gaussian in height around the layer's peak. The
+ * red is a Chapman layer, exp(1 - z - exp(-z)) with z the height above the peak in scale
+ * heights. The layers are above nearly all of the air, so their light reaches the camera
+ * undimmed, except from the far side of a line of sight that passes below them, which has
+ * crossed the denser air in between.
+ *
+ * The green and sodium layers are even. The red one is not: it is the glow of the ionosphere,
+ * which is patchy over hundreds to thousands of km, drawn out along lines of magnetic latitude
+ * and slowly changing, and brightest in two arcs either side of the magnetic equator in the
+ * evening (airglowRedPatches).
  */
+
+/* tanoise by Charles Lohr (cnlohr): smooth noise from a single lookup in a small texture of white
+ * noise (https://github.com/cnlohr/shadertrixx, Assets/cnlohr/Shaders/tanoise; MIT license). This
+ * is its tanoise4_1d(), for GLSL.
+ *
+ * Value noise in 4D blends the random values at the 16 corners of a lattice cell. The texture
+ * holds a random value per texel in red; bilinear filtering does the blend in x and y. Green
+ * holds the same values shifted by TANOISE_Z texels, so it is what red would give one cell up in
+ * z, and blue and alpha are red and green shifted by TANOISE_W, for one cell up in w: one lookup
+ * returns the four x-y blends, which are then blended in z and w. The smoothstep on the fraction
+ * hides the creases linear blending would leave at the cell edges, and turning x by TANOISE_M
+ * first keeps the lattice from showing along the axes.
+ *
+ * Here w is time, and is left out of the turn, so that the noise changes in place instead of
+ * drifting, and repeats exactly every 64 units of w (the texture's size), where earth.js wraps it.
+ * Returns 0 to 1.
+ */
+const mat3 TANOISE_M = mat3(-0.071301,  0.494967, -0.757557,
+                             0.494967,  0.388720,  0.303345,
+                            -0.757557,  0.303345,  0.497523);
+const vec2 TANOISE_Z = vec2(51.0, 111.0);
+const vec2 TANOISE_W = vec2(103.0, 61.0);
+const float TANOISE_SIZE = 64.0;    // texels across the noise texture
+
+float tanoise(vec3 x, float w) {
+    vec4 c = vec4(TANOISE_M * x, w);
+    vec4 cell = floor(c);
+    vec4 f = c - cell;
+    f = f * f * (3.0 - 2.0 * f);
+    vec2 uv = cell.xy + cell.z * TANOISE_Z + cell.w * TANOISE_W + f.xy;
+    vec4 corners = textureLod(airglowNoise, (uv + 0.5) / TANOISE_SIZE, 0.0);
+    return mix(mix(corners.r, corners.g, f.z), mix(corners.b, corners.a, f.z), f.w);
+}
 
 // How much of the airglow shows above the ground at `point`: none where the sun is up, rising
 // smoothly to full where it is airglowFade (the sine of the angle) below the horizon. The eye
 // sees the glow once it has adapted to the dark, so it comes in over the twilight band after
-// sunset, gradually enough that the line fades out along the limb toward the day side rather
-// than stopping.
+// sunset, gradually enough that the lines fade out along the limb toward the day side rather
+// than stopping. And the eye only adapts to the dark with nothing sunlit in front of it, so
+// there is no airglow at all until the night side is all of the globe that is in view
+// (airglowAdaptation, the same for every pixel: with it at 0, the shaders skip the airglow).
 float airglowWeight(vec3 point) {
     float muSun = dot(normalize(point), sunDirection);
-    return smoothstep(0.0, airglowFade, -muSun);
+    return airglowAdaptation * smoothstep(0.0, airglowFade, -muSun);
 }
 
-// Path through the layer, weighted by its emission, of the half of a line of sight on one side
-// of its closest point to the Earth's center (impact: that closest distance). The full line past
-// the limb crosses the layer twice, symmetrically. The midpoint rule across the stretch where the
-// line is within four widths of the peak is within 0.01% of the exact integral.
-#define AIRGLOW_SAMPLES 10
-float airglowHalfPath(float impact) {
+/* The red layer's patchiness over the ground in the direction `up` (a unit vector from the
+ * Earth's center): x is the logarithm of its brightness there relative to the even layer, y the
+ * brightening of the equatorial arcs on top of that (a factor, 1 away from them).
+ *
+ * The patches are two octaves of noise in the Earth's magnetic frame, so they turn with the
+ * Earth, and change in place over time (airglowRedTime). The frame's y is the sine of the
+ * magnetic latitude, along which the lattice is finer (AIRGLOW_RED_GRAIN: cells per Earth radius),
+ * so the patches come out some 2500 km long east to west and 1000 km north to south, as the
+ * ionosphere's structure, which the Earth's field organises, tends to be. They are taken from the
+ * direction alone, so each stands the full height of the layer. The noise is the logarithm of the
+ * brightness, which so varies by a factor of several either way. Where the layer is brighter it
+ * is also lower (AIRGLOW_RED_SINK), as the real one is: the glow comes from the bottom of the
+ * ionosphere, and is stronger where that has sunk into denser air.
+ *
+ * The arcs are the equatorial anomaly: the daytime ionosphere is lifted over the magnetic
+ * equator and drains down the field lines either side, into two crests about 15 degrees of
+ * magnetic latitude from it. After sunset they are the brightest red airglow there is, fading
+ * through the night as the ionosphere recombines. Here: a smooth bump in the sine of the
+ * magnetic latitude about each crest, 13 degrees wide at half its height, at full strength at
+ * dusk and gone by dawn.
+ */
+const vec3 AIRGLOW_RED_GRAIN = vec3(2.5, 6.0, 2.5);
+const float AIRGLOW_RED_CONTRAST = 6.0;     // range of the logarithm of the brightness, at airglowRedStructure 1
+const float AIRGLOW_RED_SINK = 0.4;         // scale heights the layer sinks per unit of that logarithm
+const float AIRGLOW_ARC_LATITUDE = 0.26;    // sine of the crests' magnetic latitude
+const float AIRGLOW_ARC_WIDTH = 0.2;        // from a crest to where its arc ends, likewise
+
+vec2 airglowRedPatches(vec3 up) {
+    vec3 magnetic = airglowMagneticFrame * up;
+    vec3 x = magnetic * AIRGLOW_RED_GRAIN;
+    float noise = 0.55 * tanoise(x, airglowRedTime.x) + 0.45 * tanoise(3.1 * x, airglowRedTime.y) - 0.5;
+
+    float fromCrest = (abs(magnetic.y) - AIRGLOW_ARC_LATITUDE) / AIRGLOW_ARC_WIDTH;
+    float arc = max(1.0 - fromCrest * fromCrest, 0.0);
+    float evening = smoothstep(-0.6, 0.8, dot(up, airglowDusk));
+
+    return vec2(AIRGLOW_RED_CONTRAST * airglowRedStructure * noise,
+                1.0 + airglowRedArcs * arc * arc * evening);
+}
+
+// The red layer's profile is followed from 3.5 scale heights below its peak (where it is nothing,
+// even where the layer has sunk) to 7 above (0.25% of the peak)
+const float AIRGLOW_RED_BELOW = 3.5;
+const float AIRGLOW_RED_ABOVE = 7.0;
+
+// Light of the green and sodium layers along the half of a line of sight on one side of its
+// closest point to the Earth's center (impact: that closest distance). The full line past the
+// limb crosses each layer twice, symmetrically. The two layers overlap, so one set of samples
+// covers both: the midpoint rule across the stretch where the line is within four widths of
+// either peak, which is within 0.01% of the exact integral.
+#define AIRGLOW_SAMPLES 12
+vec3 airglowHalfLine(float impact) {
     float d2 = impact * impact;
-    float lower = airglowRadius - 4.0 * airglowWidth;
-    float upper = airglowRadius + 4.0 * airglowWidth;
+    float lower = min(airglowRadius, airglowSodiumRadius) - 4.0 * airglowWidth;
+    float upper = max(airglowRadius, airglowSodiumRadius) + 4.0 * airglowWidth;
     float t0 = sqrt(max(lower * lower - d2, 0.0));
     float t1 = sqrt(max(upper * upper - d2, 0.0));
     float dt = (t1 - t0) / float(AIRGLOW_SAMPLES);
-    float sum = 0.0;
+    vec2 sum = vec2(0.0);   // green, sodium
     for (int i = 0; i < AIRGLOW_SAMPLES; i++) {
         float t = t0 + (float(i) + 0.5) * dt;
-        float x = (sqrt(d2 + t * t) - airglowRadius) / airglowWidth;
+        vec2 x = (sqrt(d2 + t * t) - vec2(airglowRadius, airglowSodiumRadius)) / airglowWidth;
         sum += exp(-0.5 * x * x);
+    }
+    return (airglowEmission * sum.x + airglowSodiumEmission * sum.y) * dt;
+}
+
+// Light of the red layer along the line of sight through `closest`, its closest point to the
+// Earth's center, in direction `dir`: x from the half on the camera's side of that point, y from
+// the half beyond it. The layer is patchy, so the halves differ, and each is sampled where it
+// runs (the layer is ten times as thick as the other two, and takes fewer samples a side: for
+// the even layer they are within 1.5% of the exact integral).
+#define AIRGLOW_RED_SAMPLES 6
+vec2 airglowRedLine(vec3 closest, vec3 dir) {
+    float d2 = dot(closest, closest);
+    float lower = airglowRedRadius - AIRGLOW_RED_BELOW * airglowRedScale;
+    float upper = airglowRedRadius + AIRGLOW_RED_ABOVE * airglowRedScale;
+    float t0 = sqrt(max(lower * lower - d2, 0.0));
+    float t1 = sqrt(max(upper * upper - d2, 0.0));
+    float dt = (t1 - t0) / float(AIRGLOW_RED_SAMPLES);
+    vec2 sum = vec2(0.0);
+    if (dt <= 0.0) {
+        return sum;     // the line passes over the layer
+    }
+    for (int i = 0; i < AIRGLOW_RED_SAMPLES; i++) {
+        float t = t0 + (float(i) + 0.5) * dt;
+        float r = sqrt(d2 + t * t);
+        float z = (r - airglowRedRadius) / airglowRedScale;
+        vec2 near = airglowRedPatches((closest - dir * t) / r);
+        vec2 far = airglowRedPatches((closest + dir * t) / r);
+        vec2 brightness = vec2(near.x, far.x);      // its logarithm
+        vec2 height = z + AIRGLOW_RED_SINK * brightness;
+        sum += vec2(near.y, far.y) * exp(1.0 + brightness - height - exp(-height));
     }
     return sum * dt;
 }
 
-// The same for a line of sight that ends on the ground, which crosses the layer once, at
-// cos(zenith) mu = sqrt(1 - (impact / airglowRadius)^2). For any line that meets the ground
-// that is at least about sqrt(2 h / R) for a layer at height h (0.25 with the defaults), steep
-// enough for the layer to count as flat: the path is its thickness sqrt(2 pi) * airglowWidth
-// over mu, within 0.1% of airglowHalfPath() at the edge of the disk.
-float airglowGroundPath(float impact) {
-    float ratio = impact / airglowRadius;
-    float mu = sqrt(max(1.0 - ratio * ratio, 0.0));
-    return sqrt(2.0 * PI) * airglowWidth / max(mu, 0.1);
+// The three layers' light on a line of sight in direction `dir` that ends on the ground at
+// `surface`, which crosses each layer once, at cos(zenith) mu = sqrt(1 - (impact / radius)^2)
+// for a layer at that radius (impact: the line's closest distance to the Earth's center, worked
+// out from the surface point, which keeps its precision). For any line that meets the ground mu
+// is at least about sqrt(2 h / R) for a layer at height h (0.25 for the green layer with the
+// defaults), steep enough for the layer to count as flat: the path is its thickness over mu
+// (within 0.1% of airglowHalfLine() at the edge of the disk for the two thin layers, and 3% for
+// the even red layer). A Gaussian layer's thickness is sqrt(2 pi) widths, a Chapman layer's e
+// scale heights. The red layer's patchiness is taken where the line crosses its peak.
+vec3 airglowFromAbove(vec3 surface, vec3 dir) {
+    float along = dot(surface, dir);
+    float d2 = dot(surface, surface) - along * along;
+    vec3 radius = vec3(airglowRadius, airglowSodiumRadius, airglowRedRadius);
+    vec3 crossing = sqrt(max(radius * radius - d2, 0.0));   // from the closest point back to each layer
+    vec3 path = vec3(vec2(sqrt(2.0 * PI) * airglowWidth), exp(1.0) * airglowRedScale)
+        / max(crossing / radius, 0.1);
+    vec3 redCrossing = surface - dir * (along + crossing.z);
+    vec2 patches = airglowRedPatches(redCrossing / airglowRedRadius);
+    return airglowEmission * path.x + airglowSodiumEmission * path.y
+        + airglowRedEmission * (path.z * exp(patches.x) * patches.y);
 }
 
 // Half an 8-bit level of noise per pixel (interleaved gradient noise, Jimenez 2014), added after

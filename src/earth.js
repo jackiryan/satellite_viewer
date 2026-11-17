@@ -74,9 +74,27 @@ const MAX_NIGHT_GLOW_WIDTH = isMobile ? 2048 : 4096;
 // that zooming in loads the size for where the zoom ends, not every size on the way there
 const DETAIL_SETTLE_MS = 250;
 
-// Thickness of the airglow layer (one standard deviation of its Gaussian profile, km): the real
-// layer is about 10 km thick. Stretched by atmosphereHeightScale, as airglowHeight is.
+// Thickness of the green and sodium airglow layers (one standard deviation of their Gaussian
+// profile, km): the real layers are about 10 km thick. Stretched by atmosphereHeightScale, as
+// their heights are.
 const AIRGLOW_WIDTH_KM = 4;
+// Scale height of the red airglow layer (km), a Chapman layer: it is at over half its peak from
+// one scale height below the peak to 2.5 above. The real layer is 50-100 km thick.
+const AIRGLOW_RED_SCALE_HEIGHT_KM = 20;
+// How far above its peak the shaders follow the red layer, in scale heights (AIRGLOW_RED_ABOVE
+// in common/atmosphere.glsl)
+const AIRGLOW_RED_ABOVE = 7;
+// The north pole of the Earth's magnetic dipole (IGRF-13, 2020), degrees: the red airglow's
+// patches and arcs follow magnetic latitude
+const GEOMAGNETIC_POLE = { latitude: 80.65, longitude: -72.68 };
+// Size of the white noise texture the red airglow's patches are made from (TANOISE_SIZE in
+// common/atmosphere.glsl), and how far the second and third dimensions of the noise are from the
+// first in it, in texels (TANOISE_Z, TANOISE_W)
+const TANOISE_SIZE = 64;
+const TANOISE_Z = [51, 111];
+const TANOISE_W = [103, 61];
+// The noise's second octave changes this many times faster than its first
+const AIRGLOW_RED_OCTAVE_RATE = 2.5;
 
 // Earth globe class to encapsulate all earth rendering functionality
 export class Earth {
@@ -108,7 +126,8 @@ export class Earth {
             // there is, so the colors on the disk stay the same. 1 = the real atmosphere. The
             // camera must stay outside the atmosphere (scatterAlong() in common/atmosphere.glsl),
             // which with viewer.js's closest zoom (7) means keeping this under about 26 (and
-            // airglowHeight under 84, which keeps the airglow layer inside the atmosphere).
+            // airglowHeight under 84, which keeps the airglow layer inside the atmosphere). The
+            // red airglow reaches much higher: to keep the camera above that too, under about 7.
             atmosphereHeightScale: 3,
             // vertical optical depth of Rayleigh scattering (air molecules) in the red, green and
             // blue channels: how much of the overhead sun each channel loses to scattering on
@@ -139,24 +158,56 @@ export class Earth {
             skylight: 1.0,
 
             // ---- airglow (common/atmosphere.glsl) ----
-            // The thin green line above the limb on the night side: oxygen glowing in a layer
-            // about 10 km thick.
-            // height of the layer's peak (km), stretched by atmosphereHeightScale like the rest
-            // of the air. The real layer is at 97 km, which on the stretched air puts the line
-            // well clear of the limb glow; 75 sets it just above it.
+            // The colored lines above the limb on the night side: a thin green line (oxygen), an
+            // amber band just under it (sodium) and a wide, faint red haze well above them
+            // (oxygen again, in the thermosphere).
+            // height of the green layer's peak (km), stretched by atmosphereHeightScale like the
+            // rest of the air. The real layer is at 97 km, which on the stretched air puts the
+            // line well clear of the limb glow; 75 sets it just above it.
             airglowHeight: 75,
             // how far the sun has to be below the horizon (degrees) for the airglow over that
             // ground to show in full. It fades in smoothly from sunset to this angle, so along
-            // the limb the line fades out toward the day side over about this many degrees.
+            // the limb the lines fade out toward the day side over about this many degrees.
             airglowFadeAngle: 20,
-            // brightness of the line where it is brightest, seen edge-on, in the same units as
-            // the rest of the globe (a white surface under the overhead sun is 1). The real glow
-            // is about 5e-8 on that scale, so this is set for the eye adapted to the night side;
-            // looking straight down through the layer gives 1/34 of it. 0 turns it off.
+            // brightness of the green line where it is brightest, seen edge-on, in the same
+            // units as the rest of the globe (a white surface under the overhead sun is 1). The
+            // real glow is about 5e-8 on that scale, so this is set for the eye adapted to the
+            // night side; looking straight down through the layer gives 1/34 of it. 0 turns it off.
             airglowBrightness: 0.02,
-            // color of the glow (sRGB): the 557.7 nm oxygen line, the nearest color a display
-            // can show to it
+            // color of the green line (sRGB): the 557.7 nm oxygen line, the nearest color a
+            // display can show to it
             airglowColor: '#7cff00',
+            // height of the sodium layer's peak (km). The real layer is near 90 km, 7 km under
+            // the green one. Originally 66, now set to 63 to make it more distinct from the green.
+            airglowSodiumHeight: 63,
+            // brightness of the sodium band, as airglowBrightness. To the eye the real band has
+            // about a sixth of the green line's luminance; a camera, more sensitive to orange and
+            // red than the eye is, and catching the red of the hydroxyl glow at the same height,
+            // shows it several times brighter than the green. This is between the two: about
+            // half the green line's luminance, enough for the band to show amber under it.
+            airglowSodiumBrightness: 0.022,
+            // color of the sodium band: the 589 nm sodium D lines
+            airglowSodiumColor: '#ff8a00',
+            // height of the red layer's peak (km). The real layer is near 250 km, 2.5 times as
+            // high as the green one; this keeps that proportion with airglowHeight.
+            airglowRedHeight: 190,
+            // brightness of the red haze where it is brightest, as airglowBrightness. The eye
+            // sees little of the real one (a twentieth of the green line's luminance), a camera
+            // rather more.
+            airglowRedBrightness: 0.008,
+            // color of the red haze: the 630 nm oxygen line
+            airglowRedColor: '#ff0045',
+            // how patchy the red haze is: the ionosphere it comes from is uneven over hundreds
+            // to thousands of km. 0 = an even layer; at 1 the patches mostly run from under half
+            // the even layer's brightness to over twice it.
+            airglowRedStructure: 1,
+            // brightness of the two arcs of red airglow either side of the magnetic equator
+            // (the equatorial anomaly), in the evening, relative to the layer around them. The
+            // real ones are 2 to 5 times it. 0 = no arcs.
+            airglowRedArcs: 2,
+            // time (minutes of simulation time) the patches take to change into different ones;
+            // their finer detail changes 2.5 times faster
+            airglowRedChangeTime: 40,
 
             // ---- clouds ----
             // scales cloud reflectance; above 1 brightens thin clouds, below 1 makes them sheerer
@@ -630,6 +681,7 @@ export class Earth {
 
             this.atmosphereUniforms = this.createAtmosphereUniforms();
             this.applyAirglow();
+            this.updateAirglow(this.initialDate, this.gmst, getSunPointingAngle(this.initialDate));
             await this.createEarth(blueMarble, blackMarble, earthSpec, this.atmosphereUniforms, interactiveLayer);
             await this.createAtmosphere(this.atmosphereUniforms);
 
@@ -694,26 +746,83 @@ export class Earth {
             airglowRadius: new THREE.Uniform(0),
             airglowWidth: new THREE.Uniform(0),
             airglowEmission: new THREE.Uniform(new THREE.Color()),
-            airglowFade: new THREE.Uniform(0)
+            airglowSodiumRadius: new THREE.Uniform(0),
+            airglowSodiumEmission: new THREE.Uniform(new THREE.Color()),
+            airglowRedRadius: new THREE.Uniform(0),
+            airglowRedScale: new THREE.Uniform(0),
+            airglowRedEmission: new THREE.Uniform(new THREE.Color()),
+            airglowFade: new THREE.Uniform(0),
+            // set as each frame is drawn (nightView())
+            airglowAdaptation: new THREE.Uniform(0),
+            airglowNoise: new THREE.Uniform(createAirglowNoise()),
+            airglowRedStructure: new THREE.Uniform(p.airglowRedStructure),
+            airglowRedArcs: new THREE.Uniform(p.airglowRedArcs),
+            // set by updateAirglow()
+            airglowMagneticFrame: new THREE.Uniform(new THREE.Matrix3()),
+            airglowDusk: new THREE.Uniform(new THREE.Vector3(1, 0, 0)),
+            airglowRedTime: new THREE.Uniform(new THREE.Vector2())
         };
     }
 
-    // The airglow layer in scene units: the radius of its peak and its width (one standard
-    // deviation)
+    // Set what the red airglow's patches and arcs depend on at a given time: where the Earth's
+    // magnetic frame has turned to (sidereal time: the Earth's rotation, as for the globe), which
+    // side dusk is on, and how far the patches have changed
+    updateAirglow(date, siderealTime, sunDirection) {
+        const uniforms = this.atmosphereUniforms;
+        const up = new THREE.Vector3(0, 1, 0);
+
+        // The pole fixed to the globe: the mesh has longitude 0 on +x and 90 east on -z
+        const latitude = THREE.MathUtils.degToRad(GEOMAGNETIC_POLE.latitude);
+        const longitude = THREE.MathUtils.degToRad(GEOMAGNETIC_POLE.longitude);
+        const pole = new THREE.Vector3(
+            Math.cos(latitude) * Math.cos(longitude),
+            Math.sin(latitude),
+            -Math.cos(latitude) * Math.sin(longitude)).applyAxisAngle(up, siderealTime);
+        // The frame's axes in the scene are the rows of the matrix that turns a scene direction
+        // into it; y is the pole, so a direction's y in the frame is the sine of its magnetic latitude
+        const x = new THREE.Vector3().crossVectors(up, pole).normalize();
+        const z = new THREE.Vector3().crossVectors(x, pole);
+        uniforms.airglowMagneticFrame.value.set(
+            x.x, x.y, x.z,
+            pole.x, pole.y, pole.z,
+            z.x, z.y, z.z);
+
+        // The Earth turns toward the east, about +y, so the ground at up x sun is moving
+        // straight away from the sun: that is where it is setting
+        uniforms.airglowDusk.value.crossVectors(up, sunDirection).normalize();
+
+        // The noise repeats every TANOISE_SIZE units of its time coordinate, so that is where to
+        // wrap it (in double precision, here; the shaders' floats could not hold the date). The
+        // octaves are half a unit apart, so they are never both at a lattice point in time,
+        // where the noise pauses.
+        const time = date.getTime() / 60000 / this.parameters.airglowRedChangeTime;
+        uniforms.airglowRedTime.value.set(
+            time % TANOISE_SIZE,
+            (time * AIRGLOW_RED_OCTAVE_RATE + 0.5) % TANOISE_SIZE);
+    }
+
+    // The airglow layers in scene units: the radius of each one's peak, the width of the green
+    // and sodium layers (one standard deviation) and the red layer's scale height
     airglowShape() {
-        const { radius, atmosphereHeightScale, airglowHeight } = this.parameters;
-        const { kmToScene } = atmosphereShape(radius, atmosphereHeightScale);
-        return { airglowRadius: radius + airglowHeight * kmToScene, airglowWidth: AIRGLOW_WIDTH_KM * kmToScene };
+        const p = this.parameters;
+        const { kmToScene } = atmosphereShape(p.radius, p.atmosphereHeightScale);
+        return {
+            airglowRadius: p.radius + p.airglowHeight * kmToScene,
+            airglowSodiumRadius: p.radius + p.airglowSodiumHeight * kmToScene,
+            airglowWidth: AIRGLOW_WIDTH_KM * kmToScene,
+            airglowRedRadius: p.radius + p.airglowRedHeight * kmToScene,
+            airglowRedScale: AIRGLOW_RED_SCALE_HEIGHT_KM * kmToScene
+        };
     }
 
     // Set the airglow's uniforms from the parameters. The shell the limb glow is drawn on has to
-    // hold the airglow layer, so this resizes it too.
+    // hold the airglow layers, so this resizes it too.
     applyAirglow() {
         const uniforms = this.atmosphereUniforms;
-        const { airglowRadius, airglowWidth } = this.airglowShape();
-        uniforms.airglowRadius.value = airglowRadius;
-        uniforms.airglowWidth.value = airglowWidth;
-        uniforms.airglowEmission.value = this.airglowEmission();
+        const values = { ...this.airglowShape(), ...this.airglowEmissions() };
+        for (const [name, value] of Object.entries(values)) {
+            uniforms[name].value = value;
+        }
         uniforms.airglowFade.value = Math.sin(THREE.MathUtils.degToRad(this.parameters.airglowFadeAngle));
         // (initialize() makes the shell just after the globe; one made later gets the new size)
         if (this.atmosphere) {
@@ -722,25 +831,37 @@ export class Earth {
         }
     }
 
-    // The airglow's light per scene unit of path at the peak of its layer, which makes the line
-    // seen edge-on airglowBrightness where it is brightest. That is where the line of sight
-    // passes 0.76 widths below the peak, and its path through the layer, weighted by the
-    // emission, is 2.56 sqrt(2 airglowRadius airglowWidth) (the layer is thin enough next to the
-    // radius for the line of sight to count as a parabola in height).
-    airglowEmission() {
-        const { airglowRadius, airglowWidth } = this.airglowShape();
-        const peakPath = 2.56 * Math.sqrt(2 * airglowRadius * airglowWidth);
-        return new THREE.Color(this.parameters.airglowColor)
-            .multiplyScalar(this.parameters.airglowBrightness / peakPath);
+    // Each airglow layer's light per scene unit of path at its peak, which makes it the
+    // brightness its parameter sets where it is brightest, seen edge-on. For the green and
+    // sodium layers that is where the line of sight passes 0.76 widths below the peak, and its
+    // path through the layer, weighted by the emission, is 2.56 sqrt(2 radius width) (the layer
+    // is thin enough next to the radius for the line of sight to count as a parabola in height).
+    // For the red layer it is 0.6 scale heights below the peak, and 2.80 sqrt(2 radius scale).
+    airglowEmissions() {
+        const p = this.parameters;
+        const shape = this.airglowShape();
+        const emission = (color, brightness, peakFactor, radius, thickness) =>
+            new THREE.Color(color).multiplyScalar(brightness / (peakFactor * Math.sqrt(2 * radius * thickness)));
+        return {
+            airglowEmission: emission(p.airglowColor, p.airglowBrightness, 2.56,
+                shape.airglowRadius, shape.airglowWidth),
+            airglowSodiumEmission: emission(p.airglowSodiumColor, p.airglowSodiumBrightness, 2.56,
+                shape.airglowSodiumRadius, shape.airglowWidth),
+            airglowRedEmission: emission(p.airglowRedColor, p.airglowRedBrightness, 2.80,
+                shape.airglowRedRadius, shape.airglowRedScale)
+        };
     }
 
     // Radius of the shell the limb glow is drawn on: the top of the atmosphere as the shaders
-    // see it, or of the airglow layer (four widths above its peak) if that is higher, with a
-    // little margin
+    // see it, or of the highest airglow layer (as far above its peak as the shaders follow it)
+    // if that is higher, with a little margin
     atmosphereShellRadius() {
         const { top } = atmosphereShape(this.parameters.radius, this.parameters.atmosphereHeightScale);
-        const { airglowRadius, airglowWidth } = this.airglowShape();
-        return Math.max(top, airglowRadius + 4 * airglowWidth) * 1.005;
+        const shape = this.airglowShape();
+        return Math.max(top,
+            shape.airglowRadius + 4 * shape.airglowWidth,
+            shape.airglowSodiumRadius + 4 * shape.airglowWidth,
+            shape.airglowRedRadius + AIRGLOW_RED_ABOVE * shape.airglowRedScale) * 1.005;
     }
 
     // A new atmosphereHeightScale moves the top of the atmosphere, the air's scale heights and the
@@ -780,6 +901,12 @@ export class Earth {
             airglowFadeAngle: () => this.applyAirglow(),
             airglowBrightness: () => this.applyAirglow(),
             airglowColor: () => this.applyAirglow(),
+            airglowSodiumHeight: () => this.applyAirglow(),
+            airglowSodiumBrightness: () => this.applyAirglow(),
+            airglowSodiumColor: () => this.applyAirglow(),
+            airglowRedHeight: () => this.applyAirglow(),
+            airglowRedBrightness: () => this.applyAirglow(),
+            airglowRedColor: () => this.applyAirglow(),
             seaIceColor: () => uniforms.seaIceColor.value.set(value),
             cloudShadowHeight: () => { uniforms.cloudShadowHeight.value = value * this.parameters.radius / 6371; }
         };
@@ -837,22 +964,17 @@ export class Earth {
         this.earth = new THREE.Mesh(earthGeometry, this.earthMaterial);
         this.earth.name = 'earth';
 
-        // The retina effect only depends on the camera and the sun, so work it out once per
-        // frame here instead of in every fragment (this was retinaEffect() in the shader)
-        const cameraPosition = new THREE.Vector3();
-        const sunToCamera = new THREE.Vector3();
-        const { smoothstep } = THREE.MathUtils;
+        // The retina effect and the airglow only depend on the camera and the sun, so work
+        // them out once per frame here instead of in every fragment (this was retinaEffect() in
+        // the shader)
         this.earth.onBeforeRender = (renderer, scene, camera) => {
             const uniforms = this.earthMaterial.uniforms;
             if (this.nightGlow?.needsUpdate) {
                 this.bakeNightGlow(renderer);
             }
-            cameraPosition.setFromMatrixPosition(camera.matrixWorld);
-            sunToCamera.copy(uniforms.sunDirection.value).multiplyScalar(-1000).add(cameraPosition).normalize();
-            const b = 2 * sunToCamera.dot(cameraPosition);
-            const c = cameraPosition.lengthSq() - this.parameters.radius * this.parameters.radius;
-            const disc = (b * b - 4 * c) * smoothstep(b, 0, 2);
-            uniforms.retinaStrength.value = smoothstep(disc, 10, 100);
+            const view = this.nightView(camera);
+            uniforms.retinaStrength.value = view.retina;
+            uniforms.airglowAdaptation.value = view.airglow;
         };
 
         // Set initial rotation based on sidereal time
@@ -865,6 +987,25 @@ export class Earth {
         }
 
         return this.earth;
+    }
+
+    // How far the camera is into the night: the strength of the retina effect and of the airglow,
+    // both 0 unless the night side is all of the globe the camera can see. That is so when the
+    // camera is in the Earth's shadow, i.e. when the line through it along the sun's rays meets
+    // the globe. The discriminant of that intersection is 0 at the edge of the shadow, where the
+    // terminator is on the limb, and 4 radius^2 (100) on the shadow's axis, with the sun straight
+    // behind the Earth; each effect comes in over a range of it. The airglow is in full by 0.63
+    // radii from the axis, the retina effect only on it.
+    nightView(camera) {
+        const { smoothstep } = THREE.MathUtils;
+        const cameraPosition = scratchPosition.setFromMatrixPosition(camera.matrixWorld);
+        const sunToCamera = scratchDirection.copy(this.atmosphereUniforms.sunDirection.value)
+            .multiplyScalar(-1000).add(cameraPosition).normalize();
+        const b = 2 * sunToCamera.dot(cameraPosition);
+        const c = cameraPosition.lengthSq() - this.parameters.radius * this.parameters.radius;
+        // (b is negative on the sunward side, where the line meets the globe too)
+        const disc = (b * b - 4 * c) * smoothstep(b, 0, 2);
+        return { retina: smoothstep(disc, 10, 100), airglow: smoothstep(disc, 0, 60) };
     }
 
     // City lights under cloud become soft glows (see nightGlowFragment.glsl). The glow is the
@@ -969,6 +1110,12 @@ export class Earth {
         this.atmosphere = new THREE.Mesh(atmosphereGeometry, this.atmosphereMaterial);
         this.atmosphere.name = 'atm';
 
+        // The airglow past the limb shows by the same rule as on the globe, which sets this too;
+        // the shell sets it for itself in case the globe is out of the picture
+        this.atmosphere.onBeforeRender = (renderer, scene, camera) => {
+            atmosphereUniforms.airglowAdaptation.value = this.nightView(camera).airglow;
+        };
+
         // Set initial rotation based on sidereal time
         this.atmosphere.rotation.y = this.gmst;
 
@@ -1000,6 +1147,7 @@ export class Earth {
         // Update the sun direction (the uniform is shared by the earth and atmosphere materials)
         const sunDirection = getSunPointingAngle(currentDate);
         this.atmosphereUniforms.sunDirection.value.copy(sunDirection);
+        this.updateAirglow(currentDate, siderealTime, sunDirection);
 
         this.earthMaterial.uniforms.time.value = performance.now() * 0.001;
 
@@ -1027,6 +1175,7 @@ export class Earth {
 
         if (this.atmosphereUniforms) {
             this.atmosphereUniforms.airColumnTable.value.dispose();
+            this.atmosphereUniforms.airglowNoise.value.dispose();
             this.atmosphereUniforms = null;
         }
 
@@ -1043,6 +1192,54 @@ export class Earth {
         }
     }
 }
+
+// The texture tanoise() in common/atmosphere.glsl makes smooth 4D noise from, in one lookup (after
+// tanoisegen.c in cnlohr's shadertrixx, https://github.com/cnlohr/shadertrixx). Red is white
+// noise, one random byte per texel, wrapping at the edges. Green is the same noise TANOISE_Z
+// texels away, blue TANOISE_W away and alpha both: the texel's neighbors along the third and
+// fourth dimensions. The bytes are from a 20-bit linear feedback shift register (period
+// 1,048,575), as tanoise recommends: a short-period generator leaves patterns in the noise.
+function createAirglowNoise() {
+    const size = TANOISE_SIZE;
+    let register = 1;
+    const randomByte = () => {
+        let byte = 0;
+        for (let bit = 0; bit < 8; bit++) {
+            const low = register & 1;
+            register >>>= 1;
+            if (low) {
+                register ^= (1 << 19) | (1 << 16);
+            }
+            byte = (byte << 1) | low;
+        }
+        return byte;
+    };
+    const white = Uint8Array.from({ length: size * size }, randomByte);
+    const at = (x, y) => white[(y % size) * size + (x % size)];
+
+    const data = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const texel = (y * size + x) * 4;
+            data[texel] = at(x, y);
+            data[texel + 1] = at(x + TANOISE_Z[0], y + TANOISE_Z[1]);
+            data[texel + 2] = at(x + TANOISE_W[0], y + TANOISE_W[1]);
+            data[texel + 3] = at(x + TANOISE_Z[0] + TANOISE_W[0], y + TANOISE_Z[1] + TANOISE_W[1]);
+        }
+    }
+    // (linear values, not sRGB: DataTexture's default)
+    const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    return texture;
+}
+
+// Scratch vectors for nightView(), which runs every frame
+const scratchPosition = new THREE.Vector3();
+const scratchDirection = new THREE.Vector3();
 
 // Free a texture's GPU memory and, for one loaded with ImageBitmapLoader, its decoded image
 function disposeTexture(texture) {

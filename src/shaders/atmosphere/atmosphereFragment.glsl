@@ -9,7 +9,8 @@
  * the thinning air above it fades to a deeper blue, and the twilight band of air past the
  * terminator, still in sunlight when the ground below is not, carries the glow a little way
  * onto the night side. Seen from the night side, aerosol's forward scattering makes a bright
- * rim toward the sun, and the airglow (common/atmosphere.glsl) a faint green line above the limb.
+ * rim toward the sun, and the airglow (common/atmosphere.glsl) draws its lines above the limb: amber
+ * and green close over it, and a faint, patchy red haze higher up.
  */
 // More samples than the globe's 8: these rays cross the atmosphere and come out the other side
 #ifndef ATMOSPHERE_SAMPLES
@@ -47,15 +48,21 @@ void main() {
     float entry = max(closestDistance - halfChord, 0.0);
     float exit = closestDistance + halfChord;
 
-    vec3 transmittance, inscatter;
-    scatterAlong(cameraPosition, viewDirection, entry, exit, false, transmittance, inscatter);
+    // Above the top of the air (the shell reaches up to the red airglow) there is nothing to
+    // scatter sunlight or dim what is behind
+    vec3 transmittance = vec3(1.0);
+    vec3 inscatter = vec3(0.0);
+    if (halfChord > 0.0) {
+        scatterAlong(cameraPosition, viewDirection, entry, exit, false, transmittance, inscatter);
+    }
 
     // The airglow along the line of sight, faded by the sun over the ground below its closest
     // point. The near half's light arrives undimmed; the far half's has crossed the air in between.
     float airglow = airglowWeight(closest);
     if (airglow > 0.0) {
-        float impact = length(closest);
-        inscatter += airglowEmission * airglowHalfPath(impact) * (1.0 + transmittance) * airglow;
+        vec2 red = airglowRedLine(closest, viewDirection);
+        inscatter += (airglowHalfLine(length(closest)) * (1.0 + transmittance)
+            + airglowRedEmission * (red.x + red.y * transmittance)) * airglow;
     }
 
     // Additive blending (createAtmosphere() in earth.js): the glow's scattered light is added to
