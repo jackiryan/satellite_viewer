@@ -74,9 +74,16 @@ const MAX_NIGHT_GLOW_WIDTH = isMobile ? 2048 : 4096;
 // that zooming in loads the size for where the zoom ends, not every size on the way there
 const DETAIL_SETTLE_MS = 250;
 
-// Thickness of the airglow layer (one standard deviation of its Gaussian profile, km): the real
-// layer is about 10 km thick. Stretched by atmosphereHeightScale, as airglowHeight is.
+// Thickness of the green and sodium airglow layers (one standard deviation of their Gaussian
+// profile, km): the real layers are about 10 km thick. Stretched by atmosphereHeightScale, as
+// their heights are.
 const AIRGLOW_WIDTH_KM = 4;
+// Scale height of the red airglow layer (km), a Chapman layer: it is at over half its peak from
+// one scale height below the peak to 2.5 above. The real layer is 50-100 km thick.
+const AIRGLOW_RED_SCALE_HEIGHT_KM = 20;
+// How far above its peak the shaders follow the red layer, in scale heights (AIRGLOW_RED_ABOVE
+// in common/atmosphere.glsl)
+const AIRGLOW_RED_ABOVE = 7;
 
 // Earth globe class to encapsulate all earth rendering functionality
 export class Earth {
@@ -108,7 +115,8 @@ export class Earth {
             // there is, so the colors on the disk stay the same. 1 = the real atmosphere. The
             // camera must stay outside the atmosphere (scatterAlong() in common/atmosphere.glsl),
             // which with viewer.js's closest zoom (7) means keeping this under about 26 (and
-            // airglowHeight under 84, which keeps the airglow layer inside the atmosphere).
+            // airglowHeight under 84, which keeps the airglow layer inside the atmosphere). The
+            // red airglow reaches much higher: to keep the camera above that too, under about 7.
             atmosphereHeightScale: 3,
             // vertical optical depth of Rayleigh scattering (air molecules) in the red, green and
             // blue channels: how much of the overhead sun each channel loses to scattering on
@@ -139,24 +147,45 @@ export class Earth {
             skylight: 1.0,
 
             // ---- airglow (common/atmosphere.glsl) ----
-            // The thin green line above the limb on the night side: oxygen glowing in a layer
-            // about 10 km thick.
-            // height of the layer's peak (km), stretched by atmosphereHeightScale like the rest
-            // of the air. The real layer is at 97 km, which on the stretched air puts the line
-            // well clear of the limb glow; 75 sets it just above it.
+            // The colored lines above the limb on the night side: a thin green line (oxygen), an
+            // amber band just under it (sodium) and a wide, faint red haze well above them
+            // (oxygen again, in the thermosphere).
+            // height of the green layer's peak (km), stretched by atmosphereHeightScale like the
+            // rest of the air. The real layer is at 97 km, which on the stretched air puts the
+            // line well clear of the limb glow; 75 sets it just above it.
             airglowHeight: 75,
             // how far the sun has to be below the horizon (degrees) for the airglow over that
             // ground to show in full. It fades in smoothly from sunset to this angle, so along
-            // the limb the line fades out toward the day side over about this many degrees.
+            // the limb the lines fade out toward the day side over about this many degrees.
             airglowFadeAngle: 20,
-            // brightness of the line where it is brightest, seen edge-on, in the same units as
-            // the rest of the globe (a white surface under the overhead sun is 1). The real glow
-            // is about 5e-8 on that scale, so this is set for the eye adapted to the night side;
-            // looking straight down through the layer gives 1/34 of it. 0 turns it off.
+            // brightness of the green line where it is brightest, seen edge-on, in the same
+            // units as the rest of the globe (a white surface under the overhead sun is 1). The
+            // real glow is about 5e-8 on that scale, so this is set for the eye adapted to the
+            // night side; looking straight down through the layer gives 1/34 of it. 0 turns it off.
             airglowBrightness: 0.02,
-            // color of the glow (sRGB): the 557.7 nm oxygen line, the nearest color a display
-            // can show to it
+            // color of the green line (sRGB): the 557.7 nm oxygen line, the nearest color a
+            // display can show to it
             airglowColor: '#7cff00',
+            // height of the sodium layer's peak (km). The real layer is near 90 km, 7 km under
+            // the green one; 9 km under leaves the top of the green line clear of it.
+            airglowSodiumHeight: 66,
+            // brightness of the sodium band, as airglowBrightness. To the eye the real band has
+            // about a sixth of the green line's luminance; a camera, more sensitive to orange and
+            // red than the eye is, and catching the red of the hydroxyl glow at the same height,
+            // shows it several times brighter than the green. This is between the two: about
+            // half the green line's luminance, enough for the band to show amber under it.
+            airglowSodiumBrightness: 0.022,
+            // color of the sodium band: the 589 nm sodium D lines
+            airglowSodiumColor: '#ff8a00',
+            // height of the red layer's peak (km). The real layer is near 250 km, 2.5 times as
+            // high as the green one; this keeps that proportion with airglowHeight.
+            airglowRedHeight: 190,
+            // brightness of the red haze where it is brightest, as airglowBrightness. The eye
+            // sees little of the real one (a twentieth of the green line's luminance), a camera
+            // rather more.
+            airglowRedBrightness: 0.008,
+            // color of the red haze: the 630 nm oxygen line
+            airglowRedColor: '#ff0045',
 
             // ---- clouds ----
             // scales cloud reflectance; above 1 brightens thin clouds, below 1 makes them sheerer
@@ -694,26 +723,37 @@ export class Earth {
             airglowRadius: new THREE.Uniform(0),
             airglowWidth: new THREE.Uniform(0),
             airglowEmission: new THREE.Uniform(new THREE.Color()),
+            airglowSodiumRadius: new THREE.Uniform(0),
+            airglowSodiumEmission: new THREE.Uniform(new THREE.Color()),
+            airglowRedRadius: new THREE.Uniform(0),
+            airglowRedScale: new THREE.Uniform(0),
+            airglowRedEmission: new THREE.Uniform(new THREE.Color()),
             airglowFade: new THREE.Uniform(0)
         };
     }
 
-    // The airglow layer in scene units: the radius of its peak and its width (one standard
-    // deviation)
+    // The airglow layers in scene units: the radius of each one's peak, the width of the green
+    // and sodium layers (one standard deviation) and the red layer's scale height
     airglowShape() {
-        const { radius, atmosphereHeightScale, airglowHeight } = this.parameters;
-        const { kmToScene } = atmosphereShape(radius, atmosphereHeightScale);
-        return { airglowRadius: radius + airglowHeight * kmToScene, airglowWidth: AIRGLOW_WIDTH_KM * kmToScene };
+        const p = this.parameters;
+        const { kmToScene } = atmosphereShape(p.radius, p.atmosphereHeightScale);
+        return {
+            airglowRadius: p.radius + p.airglowHeight * kmToScene,
+            airglowSodiumRadius: p.radius + p.airglowSodiumHeight * kmToScene,
+            airglowWidth: AIRGLOW_WIDTH_KM * kmToScene,
+            airglowRedRadius: p.radius + p.airglowRedHeight * kmToScene,
+            airglowRedScale: AIRGLOW_RED_SCALE_HEIGHT_KM * kmToScene
+        };
     }
 
     // Set the airglow's uniforms from the parameters. The shell the limb glow is drawn on has to
-    // hold the airglow layer, so this resizes it too.
+    // hold the airglow layers, so this resizes it too.
     applyAirglow() {
         const uniforms = this.atmosphereUniforms;
-        const { airglowRadius, airglowWidth } = this.airglowShape();
-        uniforms.airglowRadius.value = airglowRadius;
-        uniforms.airglowWidth.value = airglowWidth;
-        uniforms.airglowEmission.value = this.airglowEmission();
+        const values = { ...this.airglowShape(), ...this.airglowEmissions() };
+        for (const [name, value] of Object.entries(values)) {
+            uniforms[name].value = value;
+        }
         uniforms.airglowFade.value = Math.sin(THREE.MathUtils.degToRad(this.parameters.airglowFadeAngle));
         // (initialize() makes the shell just after the globe; one made later gets the new size)
         if (this.atmosphere) {
@@ -722,25 +762,37 @@ export class Earth {
         }
     }
 
-    // The airglow's light per scene unit of path at the peak of its layer, which makes the line
-    // seen edge-on airglowBrightness where it is brightest. That is where the line of sight
-    // passes 0.76 widths below the peak, and its path through the layer, weighted by the
-    // emission, is 2.56 sqrt(2 airglowRadius airglowWidth) (the layer is thin enough next to the
-    // radius for the line of sight to count as a parabola in height).
-    airglowEmission() {
-        const { airglowRadius, airglowWidth } = this.airglowShape();
-        const peakPath = 2.56 * Math.sqrt(2 * airglowRadius * airglowWidth);
-        return new THREE.Color(this.parameters.airglowColor)
-            .multiplyScalar(this.parameters.airglowBrightness / peakPath);
+    // Each airglow layer's light per scene unit of path at its peak, which makes it the
+    // brightness its parameter sets where it is brightest, seen edge-on. For the green and
+    // sodium layers that is where the line of sight passes 0.76 widths below the peak, and its
+    // path through the layer, weighted by the emission, is 2.56 sqrt(2 radius width) (the layer
+    // is thin enough next to the radius for the line of sight to count as a parabola in height).
+    // For the red layer it is 0.6 scale heights below the peak, and 2.80 sqrt(2 radius scale).
+    airglowEmissions() {
+        const p = this.parameters;
+        const shape = this.airglowShape();
+        const emission = (color, brightness, peakFactor, radius, thickness) =>
+            new THREE.Color(color).multiplyScalar(brightness / (peakFactor * Math.sqrt(2 * radius * thickness)));
+        return {
+            airglowEmission: emission(p.airglowColor, p.airglowBrightness, 2.56,
+                shape.airglowRadius, shape.airglowWidth),
+            airglowSodiumEmission: emission(p.airglowSodiumColor, p.airglowSodiumBrightness, 2.56,
+                shape.airglowSodiumRadius, shape.airglowWidth),
+            airglowRedEmission: emission(p.airglowRedColor, p.airglowRedBrightness, 2.80,
+                shape.airglowRedRadius, shape.airglowRedScale)
+        };
     }
 
     // Radius of the shell the limb glow is drawn on: the top of the atmosphere as the shaders
-    // see it, or of the airglow layer (four widths above its peak) if that is higher, with a
-    // little margin
+    // see it, or of the highest airglow layer (as far above its peak as the shaders follow it)
+    // if that is higher, with a little margin
     atmosphereShellRadius() {
         const { top } = atmosphereShape(this.parameters.radius, this.parameters.atmosphereHeightScale);
-        const { airglowRadius, airglowWidth } = this.airglowShape();
-        return Math.max(top, airglowRadius + 4 * airglowWidth) * 1.005;
+        const shape = this.airglowShape();
+        return Math.max(top,
+            shape.airglowRadius + 4 * shape.airglowWidth,
+            shape.airglowSodiumRadius + 4 * shape.airglowWidth,
+            shape.airglowRedRadius + AIRGLOW_RED_ABOVE * shape.airglowRedScale) * 1.005;
     }
 
     // A new atmosphereHeightScale moves the top of the atmosphere, the air's scale heights and the
@@ -780,6 +832,12 @@ export class Earth {
             airglowFadeAngle: () => this.applyAirglow(),
             airglowBrightness: () => this.applyAirglow(),
             airglowColor: () => this.applyAirglow(),
+            airglowSodiumHeight: () => this.applyAirglow(),
+            airglowSodiumBrightness: () => this.applyAirglow(),
+            airglowSodiumColor: () => this.applyAirglow(),
+            airglowRedHeight: () => this.applyAirglow(),
+            airglowRedBrightness: () => this.applyAirglow(),
+            airglowRedColor: () => this.applyAirglow(),
             seaIceColor: () => uniforms.seaIceColor.value.set(value),
             cloudShadowHeight: () => { uniforms.cloudShadowHeight.value = value * this.parameters.radius / 6371; }
         };

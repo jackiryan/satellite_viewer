@@ -640,7 +640,7 @@ void main() {
     // above nearly all of the air, so nothing dims it. The line of sight's closest distance to
     // the center is worked out from the surface point, which keeps its precision.
     float impact = length(cross(surface, viewDirection));
-    color += airglowEmission * airglowGroundPath(impact) * airglowWeight(surface);
+    color += airglowFromAbove(impact) * airglowWeight(surface);
 
     // The retina effect: retinaStrength is the same for every pixel, so this branch is free
     // and skips the pow() whenever the effect is off
