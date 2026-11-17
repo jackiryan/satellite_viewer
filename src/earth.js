@@ -752,6 +752,8 @@ export class Earth {
             airglowRedScale: new THREE.Uniform(0),
             airglowRedEmission: new THREE.Uniform(new THREE.Color()),
             airglowFade: new THREE.Uniform(0),
+            // set as each frame is drawn (nightView())
+            airglowAdaptation: new THREE.Uniform(0),
             airglowNoise: new THREE.Uniform(createAirglowNoise()),
             airglowRedStructure: new THREE.Uniform(p.airglowRedStructure),
             airglowRedArcs: new THREE.Uniform(p.airglowRedArcs),
@@ -962,22 +964,17 @@ export class Earth {
         this.earth = new THREE.Mesh(earthGeometry, this.earthMaterial);
         this.earth.name = 'earth';
 
-        // The retina effect only depends on the camera and the sun, so work it out once per
-        // frame here instead of in every fragment (this was retinaEffect() in the shader)
-        const cameraPosition = new THREE.Vector3();
-        const sunToCamera = new THREE.Vector3();
-        const { smoothstep } = THREE.MathUtils;
+        // The retina effect and the airglow only depend on the camera and the sun, so work
+        // them out once per frame here instead of in every fragment (this was retinaEffect() in
+        // the shader)
         this.earth.onBeforeRender = (renderer, scene, camera) => {
             const uniforms = this.earthMaterial.uniforms;
             if (this.nightGlow?.needsUpdate) {
                 this.bakeNightGlow(renderer);
             }
-            cameraPosition.setFromMatrixPosition(camera.matrixWorld);
-            sunToCamera.copy(uniforms.sunDirection.value).multiplyScalar(-1000).add(cameraPosition).normalize();
-            const b = 2 * sunToCamera.dot(cameraPosition);
-            const c = cameraPosition.lengthSq() - this.parameters.radius * this.parameters.radius;
-            const disc = (b * b - 4 * c) * smoothstep(b, 0, 2);
-            uniforms.retinaStrength.value = smoothstep(disc, 10, 100);
+            const view = this.nightView(camera);
+            uniforms.retinaStrength.value = view.retina;
+            uniforms.airglowAdaptation.value = view.airglow;
         };
 
         // Set initial rotation based on sidereal time
@@ -990,6 +987,25 @@ export class Earth {
         }
 
         return this.earth;
+    }
+
+    // How far the camera is into the night: the strength of the retina effect and of the airglow,
+    // both 0 unless the night side is all of the globe the camera can see. That is so when the
+    // camera is in the Earth's shadow, i.e. when the line through it along the sun's rays meets
+    // the globe. The discriminant of that intersection is 0 at the edge of the shadow, where the
+    // terminator is on the limb, and 4 radius^2 (100) on the shadow's axis, with the sun straight
+    // behind the Earth; each effect comes in over a range of it. The airglow is in full by 0.63
+    // radii from the axis, the retina effect only on it.
+    nightView(camera) {
+        const { smoothstep } = THREE.MathUtils;
+        const cameraPosition = scratchPosition.setFromMatrixPosition(camera.matrixWorld);
+        const sunToCamera = scratchDirection.copy(this.atmosphereUniforms.sunDirection.value)
+            .multiplyScalar(-1000).add(cameraPosition).normalize();
+        const b = 2 * sunToCamera.dot(cameraPosition);
+        const c = cameraPosition.lengthSq() - this.parameters.radius * this.parameters.radius;
+        // (b is negative on the sunward side, where the line meets the globe too)
+        const disc = (b * b - 4 * c) * smoothstep(b, 0, 2);
+        return { retina: smoothstep(disc, 10, 100), airglow: smoothstep(disc, 0, 60) };
     }
 
     // City lights under cloud become soft glows (see nightGlowFragment.glsl). The glow is the
@@ -1093,6 +1109,12 @@ export class Earth {
         // added to the scene by initialize(), once its shaders are compiled
         this.atmosphere = new THREE.Mesh(atmosphereGeometry, this.atmosphereMaterial);
         this.atmosphere.name = 'atm';
+
+        // The airglow past the limb shows by the same rule as on the globe, which sets this too;
+        // the shell sets it for itself in case the globe is out of the picture
+        this.atmosphere.onBeforeRender = (renderer, scene, camera) => {
+            atmosphereUniforms.airglowAdaptation.value = this.nightView(camera).airglow;
+        };
 
         // Set initial rotation based on sidereal time
         this.atmosphere.rotation.y = this.gmst;
@@ -1214,6 +1236,10 @@ function createAirglowNoise() {
     texture.needsUpdate = true;
     return texture;
 }
+
+// Scratch vectors for nightView(), which runs every frame
+const scratchPosition = new THREE.Vector3();
+const scratchDirection = new THREE.Vector3();
 
 // Free a texture's GPU memory and, for one loaded with ImageBitmapLoader, its decoded image
 function disposeTexture(texture) {

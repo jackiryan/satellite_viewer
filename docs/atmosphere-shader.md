@@ -259,9 +259,20 @@ All the heights are stretched by `atmosphereHeightScale` with the rest of the ai
 
 The real glow is about 5 × 10⁻⁸ on the shaders' brightness scale, invisible beside anything
 sunlit and only just visible to a dark-adapted eye. So it is drawn for the eye adapted to the
-night side, and fades in after sunset (`airglowWeight`): it is absent where the sun is up over
-the ground below, and rises smoothly to full over `airglowFadeAngle` past sunset. Along the limb,
-the lines fade out toward the day side through the twilight band rather than stopping.
+night side, in two ways (`airglowWeight`):
+
+- **Only with nothing sunlit in view.** There is no airglow at all unless the night side is all
+  of the globe the camera can see, which is when the camera is inside the Earth's shadow. It
+  fades in from the edge of the shadow, where the terminator is on the limb, and is in full by
+  0.63 Earth radii from the shadow's axis (`nightView()` in `earth.js`, which also sets the
+  retina effect, from the same measure: that one is only in full on the axis). The shadow is
+  as wide as the Earth, so how far round that is depends on the zoom: from the viewer's default
+  distance (25 units) the airglow shows within 12° of the midnight side and is in full within
+  7°; at the closest zoom (7 units), within 46° and 27°. Elsewhere the shaders skip the airglow,
+  so it costs nothing there.
+- **After sunset.** It is absent where the sun is up over the ground below, and rises smoothly
+  to full over `airglowFadeAngle` past sunset. Along the limb, the lines fade out toward the
+  sunward side rather than stopping.
 
 The relative brightness of the three is a choice between the eye and the camera. By luminance,
 the eye would get the sodium band at about a sixth of the green line and the red haze at a
@@ -468,6 +479,9 @@ linear setting.
   off. The green line too close to the limb glow, or too far above it: `airglowHeight` (and
   move `airglowSodiumHeight` with it). Ending too abruptly toward the day side: a larger
   `airglowFadeAngle`.
+- **The airglow showing from further round toward the day side, or less far**: the range in
+  `nightView()` in `earth.js` (`smoothstep(disc, 0, 60)`; `disc` is 0 at the edge of the
+  Earth's shadow and 100 on its axis).
 - **Only the green line, as before**: `airglowSodiumBrightness: 0, airglowRedBrightness: 0`.
 - **An even red haze**: `airglowRedStructure: 0, airglowRedArcs: 0`.
 - **The airglow as an ISS long exposure shows it** (a wide orange band with a green fringe

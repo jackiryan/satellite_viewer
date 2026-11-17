@@ -59,6 +59,7 @@ uniform float airglowRedRadius;     // radius of the peak of the red (oxygen) la
 uniform float airglowRedScale;      // its scale height (a Chapman layer)
 uniform vec3 airglowRedEmission;    // its light per scene unit of path at the peak
 uniform float airglowFade;          // sine of the sun's depression at which the airglow is at full strength
+uniform float airglowAdaptation;    // how far the eye has adapted to the dark: 0 with any of the day side in view (earth.js: nightView())
 uniform sampler2D airglowNoise;     // white noise for tanoise() (earth.js: createAirglowNoise())
 uniform mat3 airglowMagneticFrame;  // turns a scene direction into the Earth's magnetic frame (y: the dipole axis, north)
 uniform vec3 airglowDusk;           // unit vector toward the point on the equator where the sun is setting
@@ -238,7 +239,8 @@ void scatterAlong(vec3 origin, vec3 dir, float t0, float t1, bool towardEnd,
  * Looking straight down through a layer its glow is faint, but seen edge-on, past the limb, the
  * line of sight runs along it for a thousand kilometers or more. It is all far too faint to see
  * in daylight, and in reality only just visible to a dark-adapted eye, so each layer is drawn at
- * the brightness its parameter sets, fading in over the night side (airglowWeight). The heights
+ * the brightness its parameter sets, and only once the camera is behind the Earth with nothing
+ * but its night side in view, fading in over the night side (airglowWeight). The heights
  * are parameters in earth.js, stretched by atmosphereHeightScale with the rest of the air.
  *
  * The green and sodium emission falls off as a Gaussian in height around the layer's peak. The
@@ -290,10 +292,12 @@ float tanoise(vec3 x, float w) {
 // smoothly to full where it is airglowFade (the sine of the angle) below the horizon. The eye
 // sees the glow once it has adapted to the dark, so it comes in over the twilight band after
 // sunset, gradually enough that the lines fade out along the limb toward the day side rather
-// than stopping.
+// than stopping. And the eye only adapts to the dark with nothing sunlit in front of it, so
+// there is no airglow at all until the night side is all of the globe that is in view
+// (airglowAdaptation, the same for every pixel: with it at 0, the shaders skip the airglow).
 float airglowWeight(vec3 point) {
     float muSun = dot(normalize(point), sunDirection);
-    return smoothstep(0.0, airglowFade, -muSun);
+    return airglowAdaptation * smoothstep(0.0, airglowFade, -muSun);
 }
 
 /* The red layer's patchiness over the ground in the direction `up` (a unit vector from the
