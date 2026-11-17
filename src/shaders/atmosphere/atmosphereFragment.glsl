@@ -10,7 +10,7 @@
  * terminator, still in sunlight when the ground below is not, carries the glow a little way
  * onto the night side. Seen from the night side, aerosol's forward scattering makes a bright
  * rim toward the sun, and the airglow (common/atmosphere.glsl) draws its lines above the limb: amber
- * and green close over it, and a faint red haze higher up.
+ * and green close over it, and a faint, patchy red haze higher up.
  */
 // More samples than the globe's 8: these rays cross the atmosphere and come out the other side
 #ifndef ATMOSPHERE_SAMPLES
@@ -60,7 +60,9 @@ void main() {
     // point. The near half's light arrives undimmed; the far half's has crossed the air in between.
     float airglow = airglowWeight(closest);
     if (airglow > 0.0) {
-        inscatter += airglowHalfLine(length(closest)) * (1.0 + transmittance) * airglow;
+        vec2 red = airglowRedLine(closest, viewDirection);
+        inscatter += (airglowHalfLine(length(closest)) * (1.0 + transmittance)
+            + airglowRedEmission * (red.x + red.y * transmittance)) * airglow;
     }
 
     // Additive blending (createAtmosphere() in earth.js): the glow's scattered light is added to

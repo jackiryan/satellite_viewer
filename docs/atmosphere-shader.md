@@ -122,8 +122,8 @@ renderer's `toneMappingExposure` is the better place for an overall exposure cha
 
 **`atmosphereHeightScale`** (`3`). The real atmosphere is thin: 8 km is about a pixel at the
 default view, so the glow beyond the limb would be a hairline. This stretches the heights of
-the air (8 km → 24 km, 1.2 km → 3.6 km, top 100 km → 300 km, the airglow layers at 66, 75 and
-190 km → 198, 225 and 570 km) without changing how much air there
+the air (8 km → 24 km, 1.2 km → 3.6 km, top 100 km → 300 km, the airglow layers at 63, 75 and
+190 km → 189, 225 and 570 km) without changing how much air there
 is: every vertical optical depth stays the same, so where the sun and the view are more than
 ~15° above the horizon the colors change by under 5%. Slant paths do change: the air mass
 along the horizon goes as the square root of the Earth's radius over the scale height, so at 3×
@@ -198,7 +198,7 @@ the night. Three layers are drawn:
 | | what | real height | profile | default height | color |
 |---|---|---|---|---|---|
 | green | oxygen atoms recombining, 557.7 nm | 97 km, 10 km thick | Gaussian, σ = 4 km | `75` km | `#7cff00` |
-| sodium | sodium left by meteors, excited by ozone, 589 nm | 90 km, 10 km thick | Gaussian, σ = 4 km | `66` km | `#ff8a00` |
+| sodium | sodium left by meteors, excited by ozone, 589 nm | 90 km, 10 km thick | Gaussian, σ = 4 km | `63` km | `#ff8a00` |
 | red | oxygen atoms where the ionosphere recombines, 630 nm | 250 km, 50–100 km thick | Chapman layer, scale height 20 km | `190` km | `#ff0045` |
 
 Looking straight down through a layer its glow is faint; edge-on, past the limb, the line of
@@ -215,6 +215,44 @@ first. So the layer has a fairly sharp floor and thins out slowly upward with th
 layer, `exp(1 - z - exp(-z))` with `z` the height above the peak in scale heights. It is ten
 times as thick as the other two and much less concentrated by looking along it, so it shows as a
 wide, soft haze well clear of them.
+
+It is also uneven, where the other two are drawn even. It is the glow of the ionosphere
+recombining, and the ionosphere is patchy over hundreds to thousands of km, organised by the
+Earth's magnetic field, and changes over tens of minutes. Two things are drawn
+(`airglowRedPatches`):
+
+- **Patches.** Two octaves of smooth noise set the logarithm of the layer's brightness over
+  each point of the Earth. The noise is laid out in the Earth's magnetic frame (a dipole with
+  its pole at 80.65° N, 72.68° W), finer across magnetic latitude than along it, so the
+  patches are about 2500 km long east to west and 1000 km north to south, with detail a third
+  that size; they turn with the Earth. A fourth coordinate of the noise is time, so they change
+  in place rather than drift. Where the layer is brighter it is also lower, by up to about a
+  scale height, as the real one is (the glow is stronger where the ionosphere has sunk into
+  denser air), which is what makes the haze's lower edge uneven.
+- **The equatorial arcs.** By day the ionosphere is lifted over the magnetic equator and drains
+  down the field lines either side, into two crests about 15° of magnetic latitude from it.
+  After sunset these are the brightest red airglow there is, and fade through the night. Here
+  they are two bands 13° wide, over Colombia and São Paulo, or south China and Java, at full
+  strength at dusk and gone by dawn.
+
+Both are evaluated at each sample along the line of sight, on both sides of its closest point
+(the two halves no longer match), so the patches are seen through one another along the limb
+and shift against each other as the camera moves. On the disk they are taken once, where the
+line of sight crosses the layer's peak.
+
+The noise is cnlohr's [tanoise](https://github.com/cnlohr/shadertrixx/tree/main/Assets/cnlohr/Shaders/tanoise):
+smooth 4D value noise from one lookup in a 64 × 64 texture of white noise, which `earth.js`
+makes at startup (`createAirglowNoise`). Bilinear filtering blends the lattice's corners in two
+dimensions; the texture's green, blue and alpha channels hold the red channel shifted by fixed
+offsets, which are the neighboring corners in the third and fourth, so the same lookup returns
+them too. It is used here with time as the fourth dimension, kept out of tanoise's rotation of
+the lattice so that the noise repeats exactly every 64 units of it, where the time is wrapped.
+
+Past the limb that is 24 lookups a pixel (6 samples a side, two octaves), only where the line
+of sight meets the layer on the night side; on the disk, two. On an Apple M3 Max at
+2560 × 1600 a view of the night side takes roughly 0.3 ms a frame longer than with the even
+layer (the timings vary by about as much from run to run). `AIRGLOW_RED_SAMPLES` in
+`common/atmosphere.glsl` is the thing to lower if a slower GPU needs it.
 
 All the heights are stretched by `atmosphereHeightScale` with the rest of the air
 (`airglowHalfLine` and `airglowFromAbove` in `common/atmosphere.glsl`).
@@ -260,9 +298,9 @@ off (the other two have their own).
 show; this is the nearest color it can (the line's chromaticity desaturated toward white just
 far enough to fit sRGB). The other two colors are made the same way.
 
-**`airglowSodiumHeight`** (`66` km). Height of the sodium layer's peak. The real layer is 7 km
-under the green one; 9 km leaves the green upper edge a little clearer of it. Much closer and
-the two merge into one yellow line.
+**`airglowSodiumHeight`** (`63` km). Height of the sodium layer's peak. The real layer is 7 km
+under the green one; 12 km makes the amber band more distinct from the green line. Much closer
+and the two merge into one yellow line.
 
 **`airglowSodiumBrightness`** (`0.022`). Brightness of the sodium band where it is brightest, on
 the same scale as `airglowBrightness`. `0.006` is the eye's ratio to the green line (the band
@@ -282,6 +320,21 @@ scale heights below its peak), about 25/255 in red. `0` turns it off; `0.02` is 
 long exposure shows.
 
 **`airglowRedColor`** (`'#ff0045'`). The 630 nm oxygen line, a slightly crimson red.
+
+**`airglowRedStructure`** (`1`). How patchy the red haze is. `0` is the even layer, at exactly
+`airglowRedBrightness`; at `1` the patches mostly run from under half that to over twice it
+(and the layer is somewhat brighter on average), and its height varies with them. Above `1`
+the contrast goes on rising.
+
+**`airglowRedArcs`** (`2`). How much brighter the two equatorial arcs are than the layer around
+them at their strongest (the layer there is 1 + this times as bright). The real ones are 2 to 5
+times. `0` leaves the patches alone.
+
+**`airglowRedChangeTime`** (`40` minutes). Simulation time the patches take to change into
+different ones; their finer detail changes 2.5 times as fast. At the real rate nothing moves
+visibly, as in life (what moves in footage from the ISS is the station). With the simulation
+sped up the haze slowly shifts; lower this for more motion. The pattern depends only on the
+date, so it is the same whenever the simulation comes back to the same time.
 
 ### Clouds
 
@@ -416,6 +469,7 @@ linear setting.
   move `airglowSodiumHeight` with it). Ending too abruptly toward the day side: a larger
   `airglowFadeAngle`.
 - **Only the green line, as before**: `airglowSodiumBrightness: 0, airglowRedBrightness: 0`.
+- **An even red haze**: `airglowRedStructure: 0, airglowRedArcs: 0`.
 - **The airglow as an ISS long exposure shows it** (a wide orange band with a green fringe
   and a plain red haze): `airglowSodiumBrightness: 0.05, airglowRedBrightness: 0.02`.
 - **Cloud shadows too dark**: `cloudShadowAmbient: 0.5` or `skylight: 1.5`.

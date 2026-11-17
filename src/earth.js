@@ -84,6 +84,17 @@ const AIRGLOW_RED_SCALE_HEIGHT_KM = 20;
 // How far above its peak the shaders follow the red layer, in scale heights (AIRGLOW_RED_ABOVE
 // in common/atmosphere.glsl)
 const AIRGLOW_RED_ABOVE = 7;
+// The north pole of the Earth's magnetic dipole (IGRF-13, 2020), degrees: the red airglow's
+// patches and arcs follow magnetic latitude
+const GEOMAGNETIC_POLE = { latitude: 80.65, longitude: -72.68 };
+// Size of the white noise texture the red airglow's patches are made from (TANOISE_SIZE in
+// common/atmosphere.glsl), and how far the second and third dimensions of the noise are from the
+// first in it, in texels (TANOISE_Z, TANOISE_W)
+const TANOISE_SIZE = 64;
+const TANOISE_Z = [51, 111];
+const TANOISE_W = [103, 61];
+// The noise's second octave changes this many times faster than its first
+const AIRGLOW_RED_OCTAVE_RATE = 2.5;
 
 // Earth globe class to encapsulate all earth rendering functionality
 export class Earth {
@@ -167,8 +178,8 @@ export class Earth {
             // display can show to it
             airglowColor: '#7cff00',
             // height of the sodium layer's peak (km). The real layer is near 90 km, 7 km under
-            // the green one; 9 km under leaves the top of the green line clear of it.
-            airglowSodiumHeight: 66,
+            // the green one. Originally 66, now set to 63 to make it more distinct from the green.
+            airglowSodiumHeight: 63,
             // brightness of the sodium band, as airglowBrightness. To the eye the real band has
             // about a sixth of the green line's luminance; a camera, more sensitive to orange and
             // red than the eye is, and catching the red of the hydroxyl glow at the same height,
@@ -186,6 +197,17 @@ export class Earth {
             airglowRedBrightness: 0.008,
             // color of the red haze: the 630 nm oxygen line
             airglowRedColor: '#ff0045',
+            // how patchy the red haze is: the ionosphere it comes from is uneven over hundreds
+            // to thousands of km. 0 = an even layer; at 1 the patches mostly run from under half
+            // the even layer's brightness to over twice it.
+            airglowRedStructure: 1,
+            // brightness of the two arcs of red airglow either side of the magnetic equator
+            // (the equatorial anomaly), in the evening, relative to the layer around them. The
+            // real ones are 2 to 5 times it. 0 = no arcs.
+            airglowRedArcs: 2,
+            // time (minutes of simulation time) the patches take to change into different ones;
+            // their finer detail changes 2.5 times faster
+            airglowRedChangeTime: 40,
 
             // ---- clouds ----
             // scales cloud reflectance; above 1 brightens thin clouds, below 1 makes them sheerer
@@ -659,6 +681,7 @@ export class Earth {
 
             this.atmosphereUniforms = this.createAtmosphereUniforms();
             this.applyAirglow();
+            this.updateAirglow(this.initialDate, this.gmst, getSunPointingAngle(this.initialDate));
             await this.createEarth(blueMarble, blackMarble, earthSpec, this.atmosphereUniforms, interactiveLayer);
             await this.createAtmosphere(this.atmosphereUniforms);
 
@@ -728,8 +751,52 @@ export class Earth {
             airglowRedRadius: new THREE.Uniform(0),
             airglowRedScale: new THREE.Uniform(0),
             airglowRedEmission: new THREE.Uniform(new THREE.Color()),
-            airglowFade: new THREE.Uniform(0)
+            airglowFade: new THREE.Uniform(0),
+            airglowNoise: new THREE.Uniform(createAirglowNoise()),
+            airglowRedStructure: new THREE.Uniform(p.airglowRedStructure),
+            airglowRedArcs: new THREE.Uniform(p.airglowRedArcs),
+            // set by updateAirglow()
+            airglowMagneticFrame: new THREE.Uniform(new THREE.Matrix3()),
+            airglowDusk: new THREE.Uniform(new THREE.Vector3(1, 0, 0)),
+            airglowRedTime: new THREE.Uniform(new THREE.Vector2())
         };
+    }
+
+    // Set what the red airglow's patches and arcs depend on at a given time: where the Earth's
+    // magnetic frame has turned to (sidereal time: the Earth's rotation, as for the globe), which
+    // side dusk is on, and how far the patches have changed
+    updateAirglow(date, siderealTime, sunDirection) {
+        const uniforms = this.atmosphereUniforms;
+        const up = new THREE.Vector3(0, 1, 0);
+
+        // The pole fixed to the globe: the mesh has longitude 0 on +x and 90 east on -z
+        const latitude = THREE.MathUtils.degToRad(GEOMAGNETIC_POLE.latitude);
+        const longitude = THREE.MathUtils.degToRad(GEOMAGNETIC_POLE.longitude);
+        const pole = new THREE.Vector3(
+            Math.cos(latitude) * Math.cos(longitude),
+            Math.sin(latitude),
+            -Math.cos(latitude) * Math.sin(longitude)).applyAxisAngle(up, siderealTime);
+        // The frame's axes in the scene are the rows of the matrix that turns a scene direction
+        // into it; y is the pole, so a direction's y in the frame is the sine of its magnetic latitude
+        const x = new THREE.Vector3().crossVectors(up, pole).normalize();
+        const z = new THREE.Vector3().crossVectors(x, pole);
+        uniforms.airglowMagneticFrame.value.set(
+            x.x, x.y, x.z,
+            pole.x, pole.y, pole.z,
+            z.x, z.y, z.z);
+
+        // The Earth turns toward the east, about +y, so the ground at up x sun is moving
+        // straight away from the sun: that is where it is setting
+        uniforms.airglowDusk.value.crossVectors(up, sunDirection).normalize();
+
+        // The noise repeats every TANOISE_SIZE units of its time coordinate, so that is where to
+        // wrap it (in double precision, here; the shaders' floats could not hold the date). The
+        // octaves are half a unit apart, so they are never both at a lattice point in time,
+        // where the noise pauses.
+        const time = date.getTime() / 60000 / this.parameters.airglowRedChangeTime;
+        uniforms.airglowRedTime.value.set(
+            time % TANOISE_SIZE,
+            (time * AIRGLOW_RED_OCTAVE_RATE + 0.5) % TANOISE_SIZE);
     }
 
     // The airglow layers in scene units: the radius of each one's peak, the width of the green
@@ -1058,6 +1125,7 @@ export class Earth {
         // Update the sun direction (the uniform is shared by the earth and atmosphere materials)
         const sunDirection = getSunPointingAngle(currentDate);
         this.atmosphereUniforms.sunDirection.value.copy(sunDirection);
+        this.updateAirglow(currentDate, siderealTime, sunDirection);
 
         this.earthMaterial.uniforms.time.value = performance.now() * 0.001;
 
@@ -1085,6 +1153,7 @@ export class Earth {
 
         if (this.atmosphereUniforms) {
             this.atmosphereUniforms.airColumnTable.value.dispose();
+            this.atmosphereUniforms.airglowNoise.value.dispose();
             this.atmosphereUniforms = null;
         }
 
@@ -1100,6 +1169,50 @@ export class Earth {
             this.nightGlow = null;
         }
     }
+}
+
+// The texture tanoise() in common/atmosphere.glsl makes smooth 4D noise from, in one lookup (after
+// tanoisegen.c in cnlohr's shadertrixx, https://github.com/cnlohr/shadertrixx). Red is white
+// noise, one random byte per texel, wrapping at the edges. Green is the same noise TANOISE_Z
+// texels away, blue TANOISE_W away and alpha both: the texel's neighbors along the third and
+// fourth dimensions. The bytes are from a 20-bit linear feedback shift register (period
+// 1,048,575), as tanoise recommends: a short-period generator leaves patterns in the noise.
+function createAirglowNoise() {
+    const size = TANOISE_SIZE;
+    let register = 1;
+    const randomByte = () => {
+        let byte = 0;
+        for (let bit = 0; bit < 8; bit++) {
+            const low = register & 1;
+            register >>>= 1;
+            if (low) {
+                register ^= (1 << 19) | (1 << 16);
+            }
+            byte = (byte << 1) | low;
+        }
+        return byte;
+    };
+    const white = Uint8Array.from({ length: size * size }, randomByte);
+    const at = (x, y) => white[(y % size) * size + (x % size)];
+
+    const data = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const texel = (y * size + x) * 4;
+            data[texel] = at(x, y);
+            data[texel + 1] = at(x + TANOISE_Z[0], y + TANOISE_Z[1]);
+            data[texel + 2] = at(x + TANOISE_W[0], y + TANOISE_W[1]);
+            data[texel + 3] = at(x + TANOISE_Z[0] + TANOISE_W[0], y + TANOISE_Z[1] + TANOISE_W[1]);
+        }
+    }
+    // (linear values, not sRGB: DataTexture's default)
+    const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    return texture;
 }
 
 // Free a texture's GPU memory and, for one loaded with ImageBitmapLoader, its decoded image
